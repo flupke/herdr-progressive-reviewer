@@ -1,7 +1,39 @@
 use std::path::Path;
 
-use super::{Cancellation, ChangeKind, ChangedFile, RepoPath, RepositoryProcess};
+use super::{Cancellation, ChangeKind, ChangedFile, RepoPath, RepositoryProcess, ShortRevision};
 use crate::Error;
+
+#[test]
+fn a_jj_revision_splits_where_jj_colours_its_prefix_and_its_rest() {
+    // `jj log --color=always -T 'change_id.shortest(8)'`
+    let display_id = "\u{1b}[1m\u{1b}[38;5;5mm\u{1b}[0m\u{1b}[38;5;8mtsvqnzp\u{1b}[39m";
+
+    assert_eq!(
+        ShortRevision::of(display_id),
+        ShortRevision {
+            prefix: "m".to_owned(),
+            rest: "tsvqnzp".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn a_revision_without_a_prefix_coloured_apart_is_all_rest() {
+    // A Git abbreviation, then a jj one whose prefix and rest share a colour.
+    for (display_id, plain) in [
+        ("3f2a9c1", "3f2a9c1"),
+        ("\u{1b}[38;5;5mmtsvqnzp\u{1b}[39m", "mtsvqnzp"),
+    ] {
+        assert_eq!(
+            ShortRevision::of(display_id),
+            ShortRevision {
+                prefix: String::new(),
+                rest: plain.to_owned(),
+            },
+            "{display_id:?}"
+        );
+    }
+}
 
 #[test]
 fn repository_paths_display_valid_utf8() {

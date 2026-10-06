@@ -106,7 +106,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   <section class="start-cover">
     <p class="eyebrow" role="status">No round is running</p>   <!-- only without a card -->
     <h1>The review's title</h1>
-    <p class="meta"><code>revision</code> in <code>repository</code> · +125 −10 in 4 files</p>
+    <p class="meta"><code class="revision"><span class="revision-prefix">wq</span><span class="revision-rest">zlpnrt</span></code> in <code>repository</code> · +125 −10 in 4 files</p>
     <form class="start" data-method="start">
       <div class="start-choice">
         <button class="button primary block" type="submit">Start</button>

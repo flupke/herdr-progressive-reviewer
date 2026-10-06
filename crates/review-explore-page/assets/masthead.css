@@ -27,7 +27,7 @@
   height: 1px;
   background: var(--line);
 }
-/* The product's name, then the review's title and its revision on one line, in the row's free
+/* The product's name, then the review's revision and its title on one line, in the row's free
    space: the rail and the menu sit at the right. */
 .masthead .identity {
   flex: 1 1 auto;
@@ -47,6 +47,9 @@
   text-overflow: ellipsis;
 }
 .masthead .review code, .menu-review code { font-size: 13px; }
+/* A wider gap after the revision than between words, as the pane's header leaves before the
+   title. */
+.masthead .review .revision, .menu-review .revision { margin-right: 0.3em; }
 /* The chat's bubble, once there is one: beside the menu, and on a desktop at the left of the
    row, at the window's gutter, above the chat it opens (chat.css), which stands there too.
    masthead.js puts it first in the row there, so that it is first to the keyboard as well. The

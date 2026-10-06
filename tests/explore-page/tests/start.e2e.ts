@@ -80,5 +80,7 @@ test('the start screen names the review and the repository the page belongs to',
   const cover = screen.getByRole('main');
   await expect(cover.getByText('drafts-demo', { exact: true })).toBeVisible();
   await expect(cover.getByText('kmzqvtyx', { exact: true })).toBeVisible();
+  // The revision's prefix stands apart from the rest of it, as in the pane's header.
+  await expect(cover.getByText('km', { exact: true })).toBeVisible();
   await expect(cover.getByText("Keep the reviewer's draft when a round reopens", { exact: false })).toBeVisible();
 });

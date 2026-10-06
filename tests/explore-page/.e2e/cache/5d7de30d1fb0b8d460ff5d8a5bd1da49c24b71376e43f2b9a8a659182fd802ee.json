@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:29:12.553Z",
+  "createdAt": "2026-10-06T18:23:58.301Z",
   "payload": {
     "actions": [
       {
@@ -39,15 +39,18 @@
       "targetId": "phone",
       "instructionDigest": "313962feda68f8f5cfa7d6cba17039cd1945b2377a3049aab7ec6f3443d5ce03"
     },
-    "summary": "Opened the round menu, selected “Reset this round…,” and confirmed the reset. The page now shows “No round is running,” confirming the round was reset.",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "The current screen shows “No round is running” and the start controls, confirming the round was reset and closed.",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
         "text": "Keep the reviewer's draft when a round reopens"
       },
       {
-        "text": "kmzqvtyx"
+        "text": "km"
+      },
+      {
+        "text": "zqvtyx"
       },
       {
         "role": "button",
@@ -65,13 +68,9 @@
         "text": "drafts-demo"
       },
       {
-        "role": "button",
-        "name": "Start"
-      },
-      {
-        "text": "The agent explains the design, then asks one question at a time."
+        "text": "+2"
       }
     ],
-    "endWaitMs": 13024
+    "endWaitMs": 28156
   }
 }

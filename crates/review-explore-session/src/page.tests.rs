@@ -7,6 +7,7 @@ use review_explore_page::{
     PageImplement, PageImplementation, ReviewName, RoundStage,
 };
 use review_repository::diff::DiffRow;
+use review_repository::repository::ShortRevision;
 
 use super::*;
 
@@ -245,7 +246,11 @@ fn the_page_names_the_review_it_belongs_to_as_the_panes_header_does() {
         harness.page.review(),
         Some(ReviewName {
             repository: repository.to_string_lossy().into_owned(),
-            revision: snapshot.identity.plain_display_id(),
+            // A Git abbreviation has no colours: it is all rest.
+            revision: ShortRevision {
+                prefix: String::new(),
+                rest: snapshot.identity.display_id().to_owned(),
+            },
             title: "Git working tree".into(),
         })
     );

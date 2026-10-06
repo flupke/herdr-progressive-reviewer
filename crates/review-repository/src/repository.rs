@@ -189,6 +189,55 @@ pub struct ChangedFile {
     pub statistics: DiffStatistics,
 }
 
+/// An abbreviated revision identifier (a snapshot's `display_id`) as jj highlights it: the
+/// shortest prefix that names the revision, then the rest of the abbreviation. An identifier
+/// with no prefix coloured apart, such as a Git abbreviation, is all rest.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, ts_rs::TS)]
+pub struct ShortRevision {
+    /// The shortest prefix that names the revision; empty when none is coloured apart.
+    pub prefix: String,
+    /// The rest of the abbreviation, after the prefix.
+    pub rest: String,
+}
+
+impl ShortRevision {
+    /// The revision `display_id` names, from the colours jj gives its two parts: the first
+    /// run of text between two colours is the prefix, the runs after it are the rest. A
+    /// single run is all rest.
+    fn of(display_id: &str) -> Self {
+        let mut runs = Vec::new();
+        let mut run = String::new();
+        let mut characters = display_id.chars();
+        while let Some(character) = characters.next() {
+            if character == '\u{1b}' {
+                // A control sequence ends with its final byte, from `@` to `~`.
+                if characters.next() == Some('[') {
+                    characters.find(|character| ('@'..='~').contains(character));
+                }
+                if !run.is_empty() {
+                    runs.push(std::mem::take(&mut run));
+                }
+            } else {
+                run.push(character);
+            }
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+        if runs.len() < 2 {
+            return Self {
+                prefix: String::new(),
+                rest: runs.concat(),
+            };
+        }
+        let mut runs = runs.into_iter();
+        Self {
+            prefix: runs.next().unwrap_or_default(),
+            rest: runs.collect(),
+        }
+    }
+}
+
 /// Added and removed text lines in one diff.
 #[derive(
     Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS,
@@ -337,9 +386,9 @@ impl SnapshotIdentity {
         }
     }
 
-    /// Get the abbreviated revision identifier, without terminal colours.
-    pub fn plain_display_id(&self) -> String {
-        String::from_utf8_lossy(&strip_ansi_escapes::strip(self.display_id())).into_owned()
+    /// Get the abbreviated revision identifier, split where jj highlights it.
+    pub fn short_revision(&self) -> ShortRevision {
+        ShortRevision::of(self.display_id())
     }
 
     /// The first line of the description; empty when it has none.

@@ -8,6 +8,7 @@
 
 import { h } from './dom.js';
 import { changeSize, fileCount } from './change-size.js';
+import { revisionCode, revisionText } from './revision.js';
 
 /**
  * @param {StartView} start
@@ -38,12 +39,12 @@ export function startCover(start, review, tally) {
     'section',
     { class: 'start-cover' },
     start.idle ? h('p', { class: 'eyebrow', role: 'status' }, 'No round is running') : null,
-    review ? h('h1', {}, review.title || review.revision) : null,
+    review ? h('h1', {}, review.title || revisionText(review.revision)) : null,
     review
       ? h(
           'p',
           { class: 'meta' },
-          h('code', {}, review.revision),
+          revisionCode(review.revision),
           ' in ',
           h('code', {}, review.repository),
           tally && tally.files.length > 0 ? [' · ', changeSize(tally), ` in ${fileCount(tally.files.length)}`] : null,

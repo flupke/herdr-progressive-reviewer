@@ -1,11 +1,11 @@
 // The masthead, one row above every screen (docs/design/explore-page/README.md, "Masthead"):
-// the chat's bubble at its left on a desktop, the product's name, the review's title, the round
-// rail, and the ⋯ menu, with the bubble beside it below the desk's two columns. "Design ▾" on
-// the rail opens the design map in place; the menu copies the round's link, opens the agent's
-// conversation (chat.js), and holds Reset, behind its confirmation, which the page offers
-// nowhere else. The masthead's bottom hairline is an element of its own,
-// which the meter draws on. On a phone the rail shows chips: the design, the current step, the
-// screen in view and the screens beside it, and the review's title moves into the menu
+// the chat's bubble at its left on a desktop, the product's name, the review's revision and
+// title, the round rail, and the ⋯ menu, with the bubble beside it below the desk's two
+// columns. "Design ▾" on the rail opens the design map in place; the menu copies the round's
+// link, opens the agent's conversation (chat.js), and holds Reset, behind its confirmation,
+// which the page offers nowhere else. The masthead's bottom hairline is an element of its
+// own, which the meter draws on. On a phone the rail shows chips: the design, the current
+// step, the screen in view and the screens beside it, and the review's title moves into the menu
 // (masthead.css, swipe.css). The browser tab's title says whose turn it is, after the count of
 // the agent's replies the reviewer has not seen.
 //
@@ -22,6 +22,7 @@
 import { requestChat } from './chat.js';
 import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
+import { revisionCode, revisionText } from './revision.js';
 import { earlierQuestion, STAGE } from './route.js';
 
 /** What the masthead has open: the design map, the menu, or nothing. */
@@ -274,8 +275,8 @@ export class Masthead {
 }
 
 /**
- * The review's title with its revision; on the start cover, whose headline is the title, the
- * repository.
+ * The review's revision, then its title, as the pane's header orders them; on the start cover,
+ * whose headline is the title, the repository.
  * @param {ReviewName | null} review
  * @param {boolean} cover
  */
@@ -286,7 +287,7 @@ function reviewLine(review, cover) {
 
 /** @param {ReviewName} review */
 function reviewParts(review) {
-  return [review.title ? [h('span', { class: 'review-title' }, review.title), ' '] : null, h('code', {}, review.revision)];
+  return [revisionCode(review.revision), review.title ? [' ', h('span', { class: 'review-title' }, review.title)] : null];
 }
 
 /**
@@ -516,7 +517,7 @@ export function resetConfirmation(round, { hint, label } = { hint: RESET_HINT, l
  * @param {ReviewName | null} review
  */
 function tabTitle(title, review) {
-  const name = review ? review.title || review.revision : null;
+  const name = review ? review.title || revisionText(review.revision) : null;
   if (!title) return name ? `Explore — ${name}` : 'Explore';
   return `${turn(title)} — ${name ?? 'Explore'}`;
 }

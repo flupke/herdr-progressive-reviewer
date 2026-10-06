@@ -10,7 +10,7 @@ use review_explore::{
 };
 use review_explore_citations::Citation;
 use review_explore_tally::MarkTally;
-use review_repository::repository::SnapshotIdentity;
+use review_repository::repository::{ShortRevision, SnapshotIdentity};
 use review_turn_path::TurnPath;
 use review_types::ReviewUnit;
 use serde::Serialize;
@@ -416,8 +416,8 @@ impl TurnResponse {
 pub struct ReviewName {
     /// The name of the repository's directory.
     pub repository: String,
-    /// The abbreviated revision identifier, without colors.
-    pub revision: String,
+    /// The abbreviated revision identifier, with the prefix jj highlights.
+    pub revision: ShortRevision,
     /// The first line of the change's description; empty when it has none.
     pub title: String,
 }
@@ -430,7 +430,7 @@ impl ReviewName {
                 || root.display().to_string(),
                 |name| name.to_string_lossy().into_owned(),
             ),
-            revision: identity.plain_display_id(),
+            revision: identity.short_revision(),
             title: identity.title().to_owned(),
         }
     }

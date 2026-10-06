@@ -808,9 +808,9 @@ export type ReviewName = {
  */
 repository: string, 
 /**
- * The abbreviated revision identifier, without colors.
+ * The abbreviated revision identifier, with the prefix jj highlights.
  */
-revision: string, 
+revision: ShortRevision, 
 /**
  * The first line of the change's description; empty when it has none.
  */
@@ -884,6 +884,20 @@ export type Share = { marked: number, changed: number,
  * while one is not; 0 when nothing changed.
  */
 percent: number, };
+/**
+ * An abbreviated revision identifier (a snapshot's `display_id`) as jj highlights it: the
+ * shortest prefix that names the revision, then the rest of the abbreviation. An identifier
+ * with no prefix coloured apart, such as a Git abbreviation, is all rest.
+ */
+export type ShortRevision = { 
+/**
+ * The shortest prefix that names the revision; empty when none is coloured apart.
+ */
+prefix: string, 
+/**
+ * The rest of the abbreviation, after the prefix.
+ */
+rest: string, };
 export type StartParams = { 
 /**
  * Whether the Challenger reviews the change beside the agent.

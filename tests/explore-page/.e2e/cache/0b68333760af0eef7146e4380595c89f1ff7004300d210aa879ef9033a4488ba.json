@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:58:54.285Z",
+  "createdAt": "2026-10-06T18:26:34.636Z",
   "payload": {
     "actions": [
       {
@@ -31,7 +31,7 @@
       "targetId": "phone",
       "instructionDigest": "7c6b59a99953906c8e02b185684cbc055c9b4f876272333e000e6d188dbe8492"
     },
-    "summary": "Confirmed starting a new round from the panel. The app now shows “No round is running” and offers Start; I did not press Start.",
+    "summary": "Confirmed starting a new round. The app now shows “No round is running” and offers Start.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -44,26 +44,25 @@
         "name": "Keep the reviewer's draft when a round reopens"
       },
       {
-        "text": "kmzqvtyx"
+        "text": "km"
+      },
+      {
+        "text": "zqvtyx"
       },
       {
         "text": "drafts-demo"
       },
       {
+        "text": "+2"
+      },
+      {
+        "text": "−1"
+      },
+      {
         "role": "button",
         "name": "Start"
-      },
-      {
-        "text": "The agent explains the design, then asks one question at a time."
-      },
-      {
-        "role": "button",
-        "name": "Start with Challenger"
-      },
-      {
-        "text": "A second agent with fresh context proposes questions too. Turns take longer."
       }
     ],
-    "endWaitMs": 12561
+    "endWaitMs": 13970
   }
 }

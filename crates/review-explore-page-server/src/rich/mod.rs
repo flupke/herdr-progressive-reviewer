@@ -10,6 +10,7 @@ mod questions;
 
 use review_explore::{Conclusion, Design, Question};
 use review_explore_page::{QuestionMarks, ReviewName, TurnResponse};
+use review_repository::repository::ShortRevision;
 
 use crate::changed_source::FixedChange;
 use crate::round_data::RoundData;
@@ -21,7 +22,10 @@ impl RoundData for Rich {
     fn review(&self) -> ReviewName {
         ReviewName {
             repository: "review-notes".into(),
-            revision: "wqzlpnrt".into(),
+            revision: ShortRevision {
+                prefix: "wq".into(),
+                rest: "zlpnrt".into(),
+            },
             title: "Batch the reviewer's replies into one agent notification".into(),
         }
     }

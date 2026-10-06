@@ -20,6 +20,11 @@
   font: inherit;
   resize: vertical;
 }
+/* Revision, wherever the page names the review (the start cover, the masthead, its menu): the
+   prefix that names it in the ink, bold, then the rest of the abbreviation dimmed, as jj sets
+   them apart in the pane's header (client/revision.js). Without a prefix, it shows plain. */
+.revision .revision-prefix { color: var(--ink); font-weight: 700; }
+.revision .revision-prefix + .revision-rest { color: var(--muted); }
 /* The start cover, when no round is running: the review's title as the headline, a muted line
    that says where it is, then Start and Start with Challenger, each with one line under it. */
 .start-cover { max-width: calc(var(--measure) + 34px); padding-top: 24px; }

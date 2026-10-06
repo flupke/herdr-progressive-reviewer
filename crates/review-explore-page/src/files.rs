@@ -53,6 +53,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/main.js", "text/javascript"),
     asset!("client/actions.js", "text/javascript"),
     asset!("client/change-size.js", "text/javascript"),
+    asset!("client/revision.js", "text/javascript"),
     asset!("client/chat.js", "text/javascript"),
     asset!("client/chat-quote.js", "text/javascript"),
     asset!("client/chips.js", "text/javascript"),

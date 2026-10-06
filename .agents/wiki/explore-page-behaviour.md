@@ -30,6 +30,10 @@ Related pages: the round's own rules are in [Explore round: behaviour](explore-r
 - While no round runs, the page names the review as the pane's header does (the change's
   title and revision), its repository and the size of its change, so the pages of two
   reviewers can be told apart.
+- Wherever the page shows the revision, it sets apart the prefix that names it, as jj does in
+  the pane's header, and dims the rest of the abbreviation; the masthead puts it before the
+  title, as the pane's header does. A revision whose prefix jj does not colour apart, such as
+  a Git abbreviation, shows plain.
 
 ## Starting on the page
 

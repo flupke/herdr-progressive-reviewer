@@ -10,6 +10,7 @@ mod quiz;
 
 use review_explore::{Conclusion, Design, Question};
 use review_explore_page::{QuestionMarks, ReviewName, TurnResponse};
+use review_repository::repository::ShortRevision;
 
 use crate::changed_source::FixedChange;
 use crate::round_data::RoundData;
@@ -21,7 +22,10 @@ impl RoundData for Short {
     fn review(&self) -> ReviewName {
         ReviewName {
             repository: "drafts-demo".into(),
-            revision: "kmzqvtyx".into(),
+            revision: ShortRevision {
+                prefix: "km".into(),
+                rest: "zqvtyx".into(),
+            },
             title: "Keep the reviewer's draft when a round reopens".into(),
         }
     }

@@ -21,13 +21,18 @@ async function atQuestion2(explore: Session, screen: Screen) {
  * @param direction where the finger goes
  */
 async function swipe(screen: Screen, start: Locator, direction: 'left' | 'right') {
-  await start.scrollIntoView();
   // The page may still settle (a diagram drawn, a view pushed, the screen a swipe turned to
-  // sliding into place): wait until the start is in view.
+  // sliding into place, then the window scrolled to keep its top where the swipe left it): wait
+  // until the start is in view and holds still between two looks.
+  let last = '';
   await expect
     .poll(async () => {
+      await start.scrollIntoView();
       const box = await start.boundingBox();
-      return box !== null && box.y >= 0 && box.y + 20 < 844 && box.x >= 0;
+      const at = box === null ? '' : `${Math.round(box.x)},${Math.round(box.y)}`;
+      const still = at === last && box !== null && box.y >= 0 && box.y + 20 < 844 && box.x >= 0;
+      last = at;
+      return still;
     })
     .toBe(true);
   const box = await start.boundingBox();

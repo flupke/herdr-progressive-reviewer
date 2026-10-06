@@ -57,7 +57,9 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   `desk.js` (the windows where the page reads in two columns, for the chat and its bubble),
   `meter.js` (the meter on the masthead's hairline), `favicon.js` (the tab's icon, which shows
   the meter's share or the agent at work, with its timer in the worker `favicon-ticker.js`;
-  `docs/logo/README.md`), `change-size.js` ("+125 −10", "4 files"),
+  `docs/logo/README.md`), `change-size.js` ("+125 −10", "4 files"), `revision.js` (the
+  revision with the prefix that names it highlighted, `ShortRevision` from
+  `review-repository`),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
   which draws each diagram of a region that was built.
 
