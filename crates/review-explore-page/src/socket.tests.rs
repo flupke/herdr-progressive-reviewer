@@ -1462,3 +1462,238 @@ async fn a_message_that_did_not_reach_the_agent_offers_retry_once() {
     assert_eq!(reply(&mut socket, 3).await["error"]["code"], 409);
     assert_eq!(owner.thread_commands(), ["post", "retry"]);
 }
+
+/// The conclusion of [`concluding`], whose implementation request the pane sent and is in
+/// `state`.
+fn implemented(state: ImplementationState) -> RoundStage {
+    let RoundStage::Conclusion {
+        request,
+        conclusion,
+        quiz,
+        response,
+        ..
+    } = concluding()
+    else {
+        unreachable!("a conclusion");
+    };
+    RoundStage::Conclusion {
+        request,
+        conclusion,
+        implementation: Some(PageImplementation {
+            delivery: "delivery-1".into(),
+            attempt: "attempt-1".into(),
+            text: "Save the draft with the round.".into(),
+            state,
+            sent_at_ms: None,
+        }),
+        quiz,
+        response,
+    }
+}
+
+/// The status card of the notice that refused the request `id`, which reached no owner.
+async fn refusal(socket: &mut Socket, id: u64, method: &str, params: Value) -> Value {
+    request(
+        socket,
+        json!({ "id": id, "method": method, "params": params }),
+    )
+    .await;
+    let reply = reply(socket, id).await;
+    assert_eq!(reply["error"]["code"], 409, "{method}: {reply}");
+    assert_eq!(reply["error"]["data"]["role"], "alert", "{method}");
+    reply["error"]["data"].clone()
+}
+
+#[tokio::test]
+async fn each_action_the_round_moved_past_is_refused_with_a_notice_that_says_what_moved() {
+    // A round started in the pane while the page showed the start screen.
+    let owner = Owner::new(working("turn-1"));
+    let mut socket = open(&owner).await;
+    let start = json!({ "challenger": false, "start": "start-1" });
+    let card = refusal(&mut socket, 1, "start", start).await;
+    assert_eq!(card["title"], "A round was started meanwhile");
+    // A Retry of a turn that is no longer interrupted.
+    let retry = json!({ "request": "turn-0", "attempt": "attempt-1" });
+    let card = refusal(&mut socket, 2, "retry", retry).await;
+    assert_eq!(card["title"], "The turn is no longer interrupted");
+    assert_eq!(owner.commands(), Vec::<String>::new());
+
+    // A first pick of a blind question the pane answered while the page showed it.
+    let owner = Owner::new(asking(question("q2", "one_way")));
+    let mut socket = open(&owner).await;
+    let pick =
+        json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "discard", "number": 1 });
+    let card = refusal(&mut socket, 1, "pick", pick).await;
+    assert_eq!(card["title"], "Question 1 was already answered");
+    let reason = card["reason"].as_str().unwrap();
+    assert!(reason.contains("pick"), "{reason}");
+    assert_eq!(owner.commands(), Vec::<String>::new());
+
+    // An Implement of a conclusion whose request the pane sent.
+    let owner = Owner::new(implemented(ImplementationState::Sent));
+    let mut socket = open(&owner).await;
+    let implement = json!({ "conclusion": "turn-9", "replaces": null, "text": "Another list." });
+    let card = refusal(&mut socket, 1, "implement", implement).await;
+    assert_eq!(
+        card["title"],
+        "This conclusion no longer waits for a request"
+    );
+    assert_eq!(owner.commands(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_comment_and_a_list_written_on_the_page_keep_the_line_breaks_of_the_pane() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+    let answer = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "keep", "comment": "Keep it.\r\nThen log it." });
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "answer", "params": answer }),
+    )
+    .await;
+    assert_eq!(applied(&reply(&mut socket, 1).await), Some(true));
+    let saved = lock(&owner.latest)
+        .as_ref()
+        .map(|answer| answer.comment.clone());
+    assert_eq!(saved.as_deref(), Some("Keep it.\nThen log it."));
+
+    owner.publish(concluding());
+    let implement =
+        json!({ "conclusion": "turn-9", "replaces": null, "text": "Save it.\r\nTest it." });
+    request(
+        &mut socket,
+        json!({ "id": 2, "method": "implement", "params": implement }),
+    )
+    .await;
+    assert_eq!(applied(&reply(&mut socket, 2).await), Some(true));
+    let stage = owner.publisher.subscribe().stage();
+    let sent = stage.implementation().map(|request| request.text.clone());
+    assert_eq!(sent.as_deref(), Some("Save it.\nTest it."));
+}
+
+#[tokio::test]
+async fn a_blind_question_asked_again_after_cancel_answer_shows_its_recommendation_and_keeps_no_pick()
+ {
+    let RoundStage::Question {
+        number,
+        question,
+        citations,
+        marks,
+        response,
+        ..
+    } = asking(question("q1", "one_way"))
+    else {
+        unreachable!("a question");
+    };
+    let owner = Owner::new(RoundStage::Question {
+        number,
+        question,
+        citations,
+        marks,
+        response,
+        answer_cancelled: true,
+    });
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let view = next(&mut socket).await;
+    let question = &view["params"]["view"]["question"];
+    assert_eq!(question["recommendation"], "shown");
+    let recommended = question["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|choice| choice["id"] == "keep")
+        .unwrap();
+    assert_eq!(recommended["recommendation"], "It is cheap.");
+
+    let pick = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "discard" });
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "pick", "params": pick }),
+    )
+    .await;
+    assert_eq!(applied(&reply(&mut socket, 1).await), Some(false));
+    assert_eq!(owner.commands(), Vec::<String>::new());
+}
+
+/// The IDs and roles of the status cards of the latest view the socket sent.
+fn cards(view: &Value) -> Vec<(&str, &str)> {
+    view["params"]["view"]["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|card| (card["id"].as_str().unwrap(), card["role"].as_str().unwrap()))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_start_that_failed_because_nothing_is_left_to_review_shows_only_that_once() {
+    let owner = Owner::new(no_round());
+    owner
+        .publisher
+        .block_starts(Some(review_explore::StartBlock::NothingToReview));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+    let blocked = [("start-block", "status")];
+    assert_eq!(cards(&next(&mut socket).await), blocked);
+
+    owner.publish(RoundStage::StartFailed {
+        failure: review_explore::StartBlock::NothingToReview.reason().into(),
+        start: "start-1".into(),
+    });
+    assert_eq!(cards(&next(&mut socket).await), blocked);
+
+    // Another failure says why, beside the block.
+    owner.publish(RoundStage::StartFailed {
+        failure: "Repository comparison is not ready".into(),
+        start: "start-1".into(),
+    });
+    assert_eq!(
+        cards(&next(&mut socket).await),
+        [("start-failure", "alert"), ("start-block", "status")]
+    );
+}
+
+#[tokio::test]
+async fn a_request_the_agent_may_have_received_is_sent_again_only_in_place_of_it() {
+    let owner = Owner::new(implemented(ImplementationState::Unknown));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    // The page offers no Implement, and one action that names the request it replaces.
+    let view = next(&mut socket).await;
+    let conclusion = &view["params"]["view"]["conclusion"];
+    assert_eq!(conclusion["list"]["kind"], "request");
+    assert_eq!(conclusion["list"]["edit"], false);
+    let actions = conclusion["implementation_card"]["actions"]
+        .as_array()
+        .unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["method"], "implement");
+    assert_eq!(actions[0]["tier"], "secondary");
+    let fields: Vec<(&str, &str)> = actions[0]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|field| {
+            (
+                field["name"].as_str().unwrap(),
+                field["value"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert!(fields.contains(&("replaces", "delivery-1")), "{fields:?}");
+
+    let anew = json!({ "conclusion": "turn-9", "replaces": null, "text": "Save the draft with the round." });
+    refusal(&mut socket, 1, "implement", anew).await;
+    assert_eq!(owner.commands(), Vec::<String>::new());
+    let instead = json!({ "conclusion": "turn-9", "replaces": "delivery-1", "text": "Save the draft with the round." });
+    request(
+        &mut socket,
+        json!({ "id": 2, "method": "implement", "params": instead }),
+    )
+    .await;
+    assert_eq!(applied(&reply(&mut socket, 2).await), Some(true));
+    assert_eq!(owner.commands(), ["implement"]);
+}

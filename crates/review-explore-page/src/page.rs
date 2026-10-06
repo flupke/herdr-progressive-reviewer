@@ -314,3 +314,7 @@ async fn csp_report<R: Rounds>(
     page.log(PageEvent::CspViolation(body));
     StatusCode::NO_CONTENT
 }
+
+#[cfg(test)]
+#[path = "page.tests.rs"]
+mod tests;
