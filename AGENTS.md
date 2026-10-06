@@ -42,8 +42,9 @@ For each small feature:
    3. `make test`: every unit test of the workspace.
    4. The end-to-end tests of what the feature touches: `make e2e-tui` for the
       pane, `make e2e-explore` for the Explore page.
-   Choose the levels at your discretion: a pane-only change needs no Explore
-   page tests. Once the feature is complete, run `make fmt`.
+   Choose the levels at your discretion: run the Explore page tests only for a
+   change that reaches the page (step 5). Once the feature is complete, run
+   `make fmt`.
 3. For a change the user can see, explore the affected paths in the real UI
    with `make vision` (see `docs/development.md#llm-directed-exploration`) and
    fix what it finds.
@@ -51,17 +52,22 @@ For each small feature:
    starts are authorized. Fix its findings and repeat the review until it
    passes. Follow the skill's repair-loop limit and report any findings that
    remain when the limit is reached.
-5. Once the implementation is done and the review passes, run `make check`:
-   every level of step 2 in one go, across the whole workspace. Fix whatever
-   fails, even outside the feature, run `make fmt`, review those fixes as in
-   step 4, and run `make check` again until it passes.
+5. Once the implementation is done and the review passes, run the gate across
+   the whole workspace: `make check-with-e2e` when the change reaches the
+   Explore page, else `make check`, which leaves out the page's e2e tests. A
+   change reaches the page when it touches `tests/explore-page/`, the
+   `Makefile`, `Cargo.toml`, `Cargo.lock`, `flake.nix`, `flake.lock`, or a
+   crate whose directory
+   `cargo tree -q -p review-explore-page-server -e normal --prefix none` lists.
+   Fix whatever fails, even outside the feature, run `make fmt`, review those
+   fixes as in step 4, and run the gate again until it passes.
 6. Describe the change with `jj describe`: a plain imperative subject, then
    what changed for the user and why.
-7. Run `make install` once `make check` and the review pass, unless the user
+7. Run `make install` once the gate and the review pass, unless the user
    deferred installing; say so when you skip it. It builds and installs only;
    it does not run the checks.
-8. Keep later user-feedback fixes in the same change, and run `make check`
-   again once each set of them is done. Create another change only when the
+8. Keep later user-feedback fixes in the same change, and run the gate again
+   once each set of them is done. Create another change only when the
    user requests the next feature.
 
 Run the make targets through `nix develop --command` so the pinned Rust

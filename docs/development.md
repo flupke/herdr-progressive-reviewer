@@ -15,7 +15,9 @@ The checks come in levels, cheapest first. Run the ones that fit the change
 | 3 | `make test` | every unit test of the workspace, doc tests included |
 | 4 | `make e2e-tui`, `make e2e-explore`, `make vision` | the pane, the Explore page, the real UI |
 
-`make check` runs levels 1 to 4 but `make vision`. No check fails on formatting:
+`make check` runs levels 1 to 4 but `make e2e-explore` and `make vision`;
+`make check-with-e2e` runs `make check`, then `make e2e-explore`. AGENTS.md, step 5,
+says which of the two gates a change runs. No check fails on formatting:
 run `make fmt` once a feature is complete. The test summary names each test
 slower than 10 s, and `target/nextest/default/junit.xml` keeps every test's time.
 
@@ -52,7 +54,7 @@ To change the pinned release:
 2. If the release changes the agent detection, copy the current Codex and Claude
    manifests from `distribution/agent-detection` in the Herdr repository into
    `crates/review-test-support/agent-detection`.
-3. Run `nix develop --command make check`.
+3. Run `nix develop --command make check-with-e2e`.
 
 The opt-in [`jev-evals` suite](jev-evals.md) compares Jev hunk-splitting strategies
 against frozen line-level labels. Offline checks and paid live runs are separate;
@@ -69,7 +71,7 @@ cargo test -p review-ui real_rust_lsp -- --ignored --nocapture
 
 Explore's domain, Git/jj comparison, durable inputs and isolated selected-agent MCP
 tests use deterministic responses and call no model API. (The Explore page's e2e
-tests in `make check` call a model only for a goal with no valid recording: see
+tests in `make check-with-e2e` call a model only for a goal with no valid recording: see
 [Agent steps and the model](#agent-steps-and-the-model).) Its optional UI
 test uses real rust-analyzer to navigate working-copy sources and reject a
 delayed result for another evidence window. Unchanged sources are resolved on demand without a repository catalog or capture. Explore assumes code stays unchanged during review;
@@ -84,7 +86,7 @@ See [language server setup](language-servers.md) for the server commands, and
 
 `/tmp` may be a RAM disk, and a full build needs about 16 GB. Put a second jj
 workspace or checkout on disk, or point `CARGO_TARGET_DIR` at the main
-checkout's `target/`, before running `make check` in it.
+checkout's `target/`, before running a gate in it.
 
 A jj workspace has no `.git`, so `nix develop` there copies the whole directory,
 `target/` included, into the Nix store. Enter the dev shell through
@@ -844,7 +846,7 @@ The client's types come from the Rust types of the socket's messages: ts-rs gene
 `assets/client/types.ts` from them (`src/typescript.rs`), and each module names them in
 its JSDoc (`/** @import { PageView } from "./types.ts" */`). The file is committed. A
 Rust test fails once it no longer matches the Rust types (`make explore-types` writes it
-again), and `make e2e-explore`, in `make check`, first runs `tsc` over the client
+again), and `make e2e-explore`, in `make check-with-e2e`, first runs `tsc` over the client
 (`tests/explore-page/tsconfig.client.json`, with the `typescript` package of that
 project), which fails on a field or a variant that one side no longer has. `tsc` emits
 nothing: the browser loads the modules as they are.
@@ -969,7 +971,7 @@ its heading, a `<fieldset>` with a `<legend>`, `role="status"`).
 nix develop --command make e2e-explore
 ```
 
-This target also runs during `make check`. It builds the standalone server and
+This target also runs during `make check-with-e2e`. It builds the standalone server and
 runs every test at a desktop and at a phone size, each against its own server.
 `E2E_ARGS` go to `e2e run`, with paths relative to `tests/explore-page`:
 `make e2e-explore E2E_ARGS=tests/round.e2e.ts` runs one file, and
@@ -1048,7 +1050,7 @@ leaves the accessibility tree of the page and a Playwright trace under
 valid recording under `tests/explore-page/.e2e/cache` replays without a model
 call. A new goal, or one whose replay no longer matches the page, goes to the
 model, and the cache is updated once the check after the goal passes. The tests
-make no judgement, which e2e never replays, so a `make check` whose goals all
+make no judgement, which e2e never replays, so a `make e2e-explore` whose goals all
 replay calls no model, and passes on a machine with neither of the two routes
 below.
 
@@ -1114,11 +1116,11 @@ for the pinned e2e version: when `package.json` moves to another e2e version,
 run `npx e2e init --yes` in a scratch directory and copy its
 `.agents/skills/e2e` over this one. Do not take the rest of what `init` writes:
 its `.gitignore` lines would ignore the committed recordings, and its example
-test fails in `make check`.
+test fails in `make e2e-explore`.
 
 e2e's MCP server lets a coding agent open the page in a browser, act on it
 (navigate, tap, type), read what it shows, and try a locator with `locate`
-before writing it into a test. Its sessions record nothing: `make check` gains
+before writing it into a test. Its sessions record nothing: `make e2e-explore` gains
 no recording from them. Register it once for Claude Code, from the repository
 root:
 

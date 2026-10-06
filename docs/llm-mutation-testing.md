@@ -130,7 +130,7 @@ Give the agent one related group of about five to ten missed mutants. Ask it to:
 3. Add the smallest test for the public behavior.
 4. Change production code only if it finds a separate real defect or a required
    testability boundary.
-5. Run `make check` and the focused mutation command.
+5. Run the gate (AGENTS.md, step 5) and the focused mutation command.
 6. Stop for review.
 
 The batch size is a local control, not a published optimum. It keeps each patch
@@ -231,7 +231,7 @@ Stop work on a group when one of these conditions is true:
 - The test becomes flaky, slow, or dependent on external state.
 
 Do not use 100% mutation score as the only stopping rule. Run the focused set
-without `--iterate`, run `make check`, review the patch, and then move to the
+without `--iterate`, run the gate (AGENTS.md, step 5), review the patch, and then move to the
 next important area. After several focused groups, use one full run to find the
 next priority cluster.
 

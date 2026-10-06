@@ -65,7 +65,8 @@ useful misses are caught or the remaining misses have no stable oracle.
 
 ## 5. Verify and report
 
-Run the full file mutation test once without `--iterate`, then run `make check`.
+Run the full file mutation test once without `--iterate`, then run the gate
+(AGENTS.md, step 5).
 Follow the repository's small-feature workflow for review, description, and
 installation.
 
@@ -75,7 +76,7 @@ Report:
 - each missed mutant and its classification;
 - the product rules protected by new tests;
 - equivalent or low-value mutants that need human confirmation;
-- the full file mutation result and `make check` result.
+- the full file mutation result and the gate's result.
 
 The invocation is complete when every miss is caught or classified, all useful
 caught results are confirmed by a non-iterative full file run, and the

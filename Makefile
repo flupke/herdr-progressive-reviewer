@@ -1,4 +1,4 @@
-.PHONY: build check complexity fmt lint test e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-with-e2e complexity fmt lint test e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -10,7 +10,7 @@ build:
 
 # The checks come in levels, cheapest first; AGENTS.md says when to run which.
 # They all build with the same flags, so they share one build cache.
-lint test check e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
+lint test check check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
 
 # Level 1: types and lints of every target, and the complexity gate.
 lint: complexity
@@ -32,10 +32,15 @@ fmt:
 	cargo fmt --all
 	cargo fmt --manifest-path tests/tui/Cargo.toml
 
-# Every level but `make vision`, in one run.
-check: lint
+# Every level in one run but the Explore page's e2e tests and `make vision`. The rule on
+# judgements in those tests is static, and runs here. AGENTS.md, step 5, says which gate a change
+# runs.
+check: lint e2e-explore-judgements
 	$(MAKE) test CRATES=
 	$(MAKE) e2e-tui
+
+# `make check`, then the Explore page's e2e tests.
+check-with-e2e: check
 	$(MAKE) e2e-explore
 
 e2e-tui:
@@ -97,7 +102,7 @@ complexity:
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
-# Builds and installs without running the checks: run `make check` before installing.
+# Builds and installs without running the checks: run the gate (AGENTS.md, step 5) first.
 install: build
 	bin/reviewer-control mcp-install
 	herdr plugin link . --enabled

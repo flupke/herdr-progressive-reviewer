@@ -1,4 +1,4 @@
-// e2e tests of the Explore page, run by `make e2e-explore` inside `make check`. Each target
+// e2e tests of the Explore page, run by `make e2e-explore` inside `make check-with-e2e`. Each target
 // starts its own standalone page server (crates/review-explore-page-server) on a free port.
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
