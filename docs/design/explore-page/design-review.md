@@ -95,7 +95,7 @@ Before every stage after question 1, the page stacks three bordered boxes:
 The agent's "Recorded:" line repeats your answer in other words, yet it sits two boxes away
 from it. In [question-3-diagram-error-1280-dark], the open design (≈2,550px) separates them
 entirely. That recap is exactly what the reviewer should check ("the short recap shows the
-agent's interpretation", usage.md). Keeping it apart from the answer makes the check harder,
+agent's interpretation", `.agents/wiki/explore-round.md`). Keeping it apart from the answer makes the check harder,
 and the stack pushes the current task down on every screen.
 
 Change:

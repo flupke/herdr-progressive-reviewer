@@ -26,7 +26,7 @@
             overlays = [ (import rust-overlay) ];
           };
           # The Herdr release that the tests run, whatever Herdr is installed.
-          # docs/development.md says how to change it.
+          # .agents/wiki/checks.md says how to change it.
           herdrVersion = "0.9.3";
           herdrAssets = {
             aarch64-darwin = {

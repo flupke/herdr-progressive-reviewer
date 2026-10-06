@@ -50,7 +50,7 @@ e2e-tui:
 
 # The e2e tests of the Explore page (https://github.com/tester-army/e2e). Agent steps replay
 # their recordings under tests/explore-page/.e2e/cache; a new or stale step goes to the model and
-# the cache is updated (docs/development.md). E2E_ARGS go to `e2e run`.
+# the cache is updated (.agents/wiki/explore-page-e2e.md). E2E_ARGS go to `e2e run`.
 EXPLORE_E2E = tests/explore-page
 
 $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
@@ -60,7 +60,7 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 # Installs the npm packages only, for the MCP server (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
-# The rule on judgements in the e2e tests (docs/development.md, "e2e tests").
+# The rule on judgements in the e2e tests (.agents/wiki/explore-page-e2e.md).
 e2e-explore-judgements:
 	node --test --test-reporter=dot $(EXPLORE_E2E)/judgements.test.ts
 	node $(EXPLORE_E2E)/judgements.ts
@@ -73,7 +73,7 @@ e2e-explore: e2e-explore-judgements e2e-explore-deps
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 
 # Screenshots of every state of the Explore page, at each width and theme, with a contact sheet
-# (docs/development.md, "Screenshot gallery"). GALLERY_DIR, GALLERY_COMPARE, GALLERY_WIDTHS and
+# (.agents/wiki/explore-page-standalone.md). GALLERY_DIR, GALLERY_COMPARE, GALLERY_WIDTHS and
 # GALLERY_STATES go to the script through the environment.
 explore-gallery: e2e-explore-deps
 	cargo build --locked -p review-explore-page-server

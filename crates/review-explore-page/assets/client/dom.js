@@ -1,4 +1,4 @@
-// The client's rendering rules, in one place (docs/development.md, "The page's client"):
+// The client's rendering rules, in one place (.agents/wiki/explore-page-client.md):
 //
 // 1. One state, one entry point: the latest view from the tool is the only model, and
 //    `render(view)` in page.js draws it. What only the page knows (a notice, the quiz item just

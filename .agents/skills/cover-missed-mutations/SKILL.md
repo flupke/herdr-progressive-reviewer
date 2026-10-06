@@ -78,7 +78,7 @@ the test boundary is wrong.
 
 Run the full file mutation test once without `--iterate`, then run the gate
 (AGENTS.md, step 5).
-Follow the repository's small-feature workflow for review, description, and
+Follow the repository's change workflow (AGENTS.md) for review, description, and
 installation.
 
 Report:

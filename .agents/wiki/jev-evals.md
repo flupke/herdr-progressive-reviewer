@@ -1,28 +1,10 @@
-# Jev significance and splitting evaluations
+# Jev evaluations
 
-Three opt-in evaluations measure how Jev judges whether changed lines need the
-reviewer's attention: the splitting comparison and the prompt experiment below,
-and the [history study](jev-history-study.md) with its compact query comparison.
+How to run the opt-in evaluations of [Jev](jev.md)'s significance judgement: the splitting comparison and the prompt experiment here, and the [history study](jev-history-study.md) with its compact query comparison.
+
 All of them write their results under `target/`. Results are temporary: do not
-commit them.
-
-## Production settings
-
-Production (`crates/reviewer/src/runtime/jev.rs` and `jev/optimized.rs`) asks one
-checklist Choice question per hunk window, with the path, the language and the
-first twelve lines of the old and new file as metadata, a window of 16,000
-estimated tokens, and keeps an exclusion only when its probability is at least
-0.85. Rows are sent one JSON row per diff line, without omission notes
-(`Format::RowsNoOmissions`).
-
-The prompt, metadata, window and threshold are the development winner of the
-[history study](jev-history-study.md) of 2026-09-23: on its validation split,
-with the h054 erratum applied, it excluded 1,393 of 1,688 out-of-scope lines and
-no significant line. The corpus is this repository's own history with
-agent-authored labels, so this is provisional evidence, not a safety guarantee.
-The compact unified-diff format stays an evaluation arm: in the same study's
-comparison it used 55.6% fewer input tokens and excluded 978 validation lines
-where rows excluded 1,390.
+commit them. [Jev](jev.md) records the settings production uses and the evidence
+that chose them; update that note when a new run changes them.
 
 ## Splitting comparison
 
@@ -77,8 +59,9 @@ when it is included as context. Only owned target lines receive that request's
 judgment. A significant target makes the whole target range significant: the
 line-level score therefore reveals over-retention in mixed hunks.
 
-Only the recursive pair isolates the effect of overlap. Comparisons with legacy
-also change representation and prompt scope; they are comparisons of complete
+Only the recursive pair isolates the effect of overlap. Its one complete run
+changed no decision on the chunks that gained context, which does not justify an
+overlap policy. Comparisons with legacy also change representation and prompt scope; they are comparisons of complete
 strategies, not a causal measurement of chunk size alone. The eval does not apply
 the production 30-second job deadline; it measures all planned requests.
 
@@ -178,7 +161,8 @@ on the recursive export of the fixture corpus: the earlier Choice rubric, a
 scope-aware Choice, and three yes/no category questions (comment-only,
 import/module-only, formatting-only) whose exclusion score is the maximum of
 their probabilities. A candidate is positive when any of its target lines
-requires review; mixed candidates stay required.
+requires review; mixed candidates stay required. Each yes/no question returns
+the probability of its yes answer, not a separate confidence.
 `crates/reviewer/testdata/jev-evals/curation.json` records which cases are
 development, holdout, or left out of prompt tuning.
 
@@ -196,19 +180,14 @@ Without `--dry-run` the script sends paid requests (`TYPESAFE_API_KEY`), three
 repeats by default, and writes to a new directory under `target/jev-prompt-evals/`.
 `--score-existing <responses.jsonl>` scores a saved run without provider calls.
 
-## Research datasets
-
-Research checked on 2026-09-23 found related tasks, but no verified drop-in corpus
-with our exact per-line “needs an Explore explanation” labels:
-
-| Dataset | Existing labels | Suitability |
-| --- | --- | --- |
-| [Herbold et al., fine-grained tangling dataset](https://link.springer.com/article/10.1007/s10664-021-10083-5) and [replication kit](https://github.com/sherbold/replication-kit-2020-line-validation) | Manual changed-line labels separating bug fixes from other changes, with multiple annotators and consensus. The kit includes `data/hunk_labels.json`; broader repository context is in SmartSHARK. | Closest granularity. Useful for importing mixed patches and preserving annotation disagreement. Bug-fix relevance is a different label from review significance: non-bug-fix changes can still be consequential. |
-| [CodeReviewer](https://github.com/microsoft/CodeBERT/tree/master/CodeReviewer), [dataset archive](https://zenodo.org/records/6900648) | Diff quality estimation, review comments and refinements. | Useful changes and review context, but a change receiving no comment does not establish that each line is insignificant. Needs per-line relabelling. |
-| [CasCADe / Identifying Casualty Changes](https://asejfia.github.io/cascade.github.io/) | Evaluation of changes incidental to the main intent of software patches. | Related to mixed-patch attribution. The project links an evaluation archive, but that download was unavailable through the research tool; its actual schema and reuse terms were not verified. |
+## Adding an external dataset
 
 No external dataset is downloaded by the test or bundled as presumed ground
-truth. To add one, preserve its origin, license, original labels and disagreement;
-map or relabel review significance explicitly, freeze the patches, and validate
-both old and new line coordinates. Never map “refactoring,” “uncommented,” or
+truth, and none found so far has per-line labels of review significance: the
+closest, the fine-grained tangling dataset of
+[Herbold et al.](https://link.springer.com/article/10.1007/s10664-021-10083-5),
+labels changed lines as bug fix or not, which is a different question. To add
+one, preserve its origin, license, original labels and disagreement; map or
+relabel review significance explicitly, freeze the patches, and validate both
+old and new line coordinates. Never map “refactoring,” “uncommented,” or
 “unrelated to this bug fix” directly to insignificant.

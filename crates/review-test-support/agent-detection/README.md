@@ -2,7 +2,7 @@
 
 Every Herdr test server installs these manifests as local overrides, so the
 tests detect agents with the same rules whatever Herdr release runs them. See
-[the development guide](../../../docs/development.md#the-herdr-the-tests-run).
+[Checks](../../../.agents/wiki/checks.md#the-herdr-the-tests-run).
 
 They are unmodified copies of `distribution/agent-detection/codex.toml`
 (version 2026.10.01.1) and `distribution/agent-detection/claude.toml` (version

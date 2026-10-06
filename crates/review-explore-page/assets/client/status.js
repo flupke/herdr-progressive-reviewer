@@ -1,5 +1,5 @@
 // The status card: one state that is not a question, as the tool maps it (StatusCard in
-// src/status.rs), with its markup from docs/development.md ("The page's components") and its
+// src/status.rs), with its markup from .agents/wiki/explore-page-components.md and its
 // styles in status.css. Each action is a form whose submit sends the card's request.
 //
 // In the flow, the card holds its actions in a row. In a panel, where the primary action comes

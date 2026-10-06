@@ -1,6 +1,6 @@
 //! The TypeScript declarations of the socket's messages, generated from their Rust types with
 //! ts-rs: the client's modules name them in their `JSDoc`, and `tsc --checkJs` checks the client
-//! against them (docs/development.md, "The page's client"). The declarations are committed in
+//! against them (.agents/wiki/explore-page-client.md). The declarations are committed in
 //! `assets/client/types.ts`; the test below fails when they no longer match the Rust types, and
 //! `make explore-types` writes them again.
 

@@ -31,8 +31,8 @@ make install
 
 This builds and enables the Herdr plugin and configures both supported agents for
 review comments. Keep the checkout in place after installation.
-Start your agent after installing; for an already-running agent, see
-[connection setup](docs/mcp.md#installation-and-connection).
+Start your agent after installing; an agent that is already running must reload
+its MCP configuration, or restart, to load the reviewer's tools.
 
 ## Get started
 
@@ -57,7 +57,5 @@ Select a file to inspect its diff. Select code to comment, then click **Post** o
 press `Ctrl-Enter`. Replies appear in the same thread. Press `Space` to mark a
 file as reviewed and `?` to see the keyboard shortcuts.
 
-See the [usage guide](docs/usage.md) for threads, editing and Explore,
-[language server setup](docs/language-servers.md) for code navigation, and
-[agent connection help](docs/mcp.md) for troubleshooting.
-Contributor instructions are in [Development](docs/development.md).
+Contributor instructions are in [AGENTS.md](AGENTS.md) and the
+[wiki](.agents/wiki/index.md) it points to.

@@ -1,6 +1,6 @@
 // The replay cache of a full run of the e2e tests, which notes the entries the run looks up, so
-// run.sh can name the recordings that no test replays any more (docs/development.md, "Agent
-// steps and the model"). e2e reports no cache keys, so this replaces its file store with the
+// run.sh can name the recordings that no test replays any more (.agents/wiki/explore-page-e2e.md,
+// "Agent steps and the model"). e2e reports no cache keys, so this replaces its file store with the
 // same store, wrapped to append the key of every lookup to the file E2E_CACHE_LOOKUPS names.
 // Without that variable the config keeps e2e's own store, which `npx e2e cache` needs.
 import { appendFileSync } from 'node:fs';

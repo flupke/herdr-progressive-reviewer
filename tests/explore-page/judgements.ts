@@ -1,5 +1,5 @@
 // Fails when a script of the Explore page's tests makes a judgement with no `// judgement:`
-// reason above it (docs/development.md, "e2e tests"). It reads each line alone: a call split
+// reason above it (.agents/wiki/explore-page-e2e.md). It reads each line alone: a call split
 // over lines, or a destructured `agent`, escapes it.
 //
 // Usage: node judgements.ts [file or directory...], every script under tests/explore-page by
@@ -61,7 +61,7 @@ function main(paths: string[]) {
     console.error(
       `${file}:${line}: agent.${method} is a judgement, which calls a model on every run. Check the ` +
         'outcome with expect on a locator; if no locator can reach the fact, say why on the line ' +
-        'above, in a comment that starts with "// judgement:" (docs/development.md, "e2e tests").',
+        'above, in a comment that starts with "// judgement:" (.agents/wiki/explore-page-e2e.md).',
     );
   }
   if (found.length > 0) process.exit(1);

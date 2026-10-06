@@ -11,7 +11,7 @@
 # Anthropic key, passed whenever one is found, comes from ANTHROPIC_API_KEY, or else from the
 # ANTHROPIC_API_KEY line of ~/.secrets, and from nothing else in that file.
 #
-# Arguments go to `e2e run` as they are (docs/development.md, "e2e tests").
+# Arguments go to `e2e run` as they are (.agents/wiki/explore-page-e2e.md).
 { set +x; } 2>/dev/null
 set -uo pipefail
 cd "$(dirname "$0")"

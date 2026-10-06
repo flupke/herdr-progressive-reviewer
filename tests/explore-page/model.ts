@@ -2,7 +2,7 @@
 // acts out `agent.act` goals. Each route fixes it, so switching to a costlier model means editing
 // this file. The tests make no judgement (`agent.assert`, `agent.waitFor`, `agent.extract`), so
 // no judge is set; one would run on this model. The first route available wins
-// (docs/development.md, "Agent steps and the model"):
+// (.agents/wiki/explore-page-e2e.md, "Agent steps and the model"):
 //
 // 1. A ChatGPT login stored by `npx e2e login openai`, through e2e's `chatgpt()`.
 // 2. Anthropic, with the key in ANTHROPIC_API_KEY (run.sh reads it from ~/.secrets when the

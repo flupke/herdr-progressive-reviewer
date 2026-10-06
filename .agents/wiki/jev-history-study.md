@@ -1,17 +1,17 @@
-# History-based Jev evaluation
+# Jev history study
 
-This opt-in study compares prompts, metadata, exclusion rules and token windows
-for Jev's significance judgement, on an audited corpus of this repository's own
-commits. It needs the `jev-evals` Cargo feature ([Jev evaluations](jev-evals.md))
-and never runs during `make check`. Every result it produces (raw responses,
-scores, the interactive HTML report and its JSON) is written to the run directory
-under `target/`; do not commit results.
+The method and commands of the opt-in study that compares prompts, metadata, exclusion rules and token windows for [Jev](jev.md)'s significance judgement on an audited corpus of this repository's own commits, and of its compact query comparison.
+
+It needs the `jev-evals` Cargo feature ([Jev evaluations](jev-evals.md)) and
+never runs during `make check`. Every result it produces (raw responses, scores,
+the interactive HTML report and its JSON) is written to the run directory under
+`target/`; do not commit results.
 
 ## Corpus and annotations
 
-The frozen [corpus](../crates/reviewer/testdata/jev-evals/history/labels.json)
+The frozen [corpus](../../crates/reviewer/testdata/jev-evals/history/labels.json)
 contains 180 exact historical file diffs from 52 commits, with 18,997 changed
-old/new lines. Its [index](../crates/reviewer/testdata/jev-evals/history/audit.json)
+old/new lines. Its [index](../../crates/reviewer/testdata/jev-evals/history/audit.json)
 records commit, path, split, categories and line counts.
 
 Sampling considers the most recent 70 commits ending at
@@ -32,7 +32,7 @@ target line. Scope is a reviewer preference, not a claim of semantic inertness.
 
 Three GPT-6-sol agents at medium effort audited separate 60-case batches.
 A focused follow-up checked blank lines within Rust literals. The
-[annotation record](../crates/reviewer/testdata/jev-evals/history/annotation-review.json)
+[annotation record](../../crates/reviewer/testdata/jev-evals/history/annotation-review.json)
 preserves their evidence and all 36 corrections: ten manifest/Makefile blank
 separators became insignificant, and 26 blank lines inside runtime Markdown
 strings became significant. Labels were frozen before inference. No Jev answers
@@ -48,7 +48,7 @@ labels should be zero. A further GPT-6-sol audit checked all 180 cases for this
 error class and found exactly these two corrections; the annotation helper now
 recognizes the compound test gate.
 
-The [erratum](../crates/reviewer/testdata/jev-evals/history/errata.json) was first
+The [erratum](../../crates/reviewer/testdata/jev-evals/history/errata.json) was first
 applied as an explicitly labelled sensitivity analysis of the original ten
 validation configurations. Frozen labels, original scores, selected configurations
 and model responses are preserved. The timed rerun knew these corrections in
@@ -57,7 +57,7 @@ original-label scores for its new finalists. Within each run there is no retunin
 or reordering on validation. This is not a fresh independent holdout. Apply the
 corrections to any newly generated corpus; do not overwrite this frozen dataset.
 
-A separate [worst-example audit](../crates/reviewer/testdata/jev-evals/history/worst-examples-audit.json)
+A separate [worst-example audit](../../crates/reviewer/testdata/jev-evals/history/worst-examples-audit.json)
 confirmed that all 31 distinct significant coordinates in the displayed failure
 examples are genuine errors. That check is limited to the listed examples, which
 are capped at five per worst configuration.
@@ -66,7 +66,7 @@ are capped at five per worst configuration.
 
 - Prompts: terse policy Choice, structured checklist Choice, contrastive-example
   Choice, or five category/review Nouls. Exact text is in
-  [design.py](../crates/reviewer/testdata/jev-evals/study/design.py).
+  [design.py](../../crates/reviewer/testdata/jev-evals/study/design.py).
 - Metadata: rows and omission note; add original path and language; additionally
   add the first twelve lines of each old/new source file. No commit description,
   gold category, significance label, annotation rationale or split enters state.
@@ -230,7 +230,9 @@ whole-arm wall time includes provider-load drift.
 Changed old/new line coordinates are counted once; context and overlapping rows
 do not enter the throughput denominators. Provider failures and oversized chunks
 stay required and count as not evaluated. Useful excluded lines count only wholly
-insignificant chunks. The h054 erratum affects scoring only; the original-label
+insignificant chunks. Request latency percentiles include failures and retries. At the
+16,000-token budget every compact window of this corpus covers a full hunk, so the
+comparison does not exercise `target_rows`. The h054 erratum affects scoring only; the original-label
 counts stay in the JSON.
 
 Write the two-arm configuration, export its requests offline, and keep the two

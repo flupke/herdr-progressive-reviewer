@@ -1,5 +1,7 @@
 # Standards
 
+- Name things with the terms of `CONTEXT.md`, in code, docs and UI text, and use
+  none of the synonyms it lists to avoid.
 - Keep crates small, don't hesitate to create tiny ones or split a big one.
 - Reuse existing types between workspace crates. Do not create a local copy of
   a type only to adapt it for another crate.
@@ -7,7 +9,7 @@
   Do not duplicate their internals or intercept component-owned keys in
   feature-specific wrappers. Extend the shared component when behavior is missing,
   then reuse it across the affected views.
-- Avoid "functions soup", design types first, then implement their methods.
+- Design types first, then implement their methods.
 - Use `#[must_use]` only when ignoring a return value is likely to cause a bug.
   Do not add it to routine getters or to functions that return types that
   already have this attribute.
@@ -18,72 +20,101 @@
 - Refresh filesystem-driven views through filesystem events (inotify on Linux),
   not periodic polling. Reuse the repository watcher and event pipeline so idle
   views do not spend CPU checking for file changes.
-- Write Explore page e2e tests the way the e2e documentation
-  (https://e2e.tester.army/docs) says, using the `e2e` skill at
-  `.agents/skills/e2e`. Write a flow the reviewer performs as goals and the
-  outcomes the reviewer sees, not as an enumeration of the page's elements.
-  Check each outcome with `expect` on a locator, never with a judgement
-  (`agent.assert`, `agent.waitFor`, `agent.extract`), unless no locator can
-  reach the fact; then say why in a comment above it that starts with
-  `// judgement:`, which `make check` checks.
-  Repository specifics: `docs/development.md#e2e-tests`.
+- With the current `eyre` version, use `Err(eyre::eyre!(...))` in
+  expression-position match arms, or put `eyre::bail!(...);` in a statement
+  block, to avoid the trailing-semicolon macro warning.
+- Before writing an Explore page e2e test, read
+  `.agents/wiki/explore-page-e2e.md` and use the `e2e` skill.
 
-# Small feature workflow
+# Wiki
 
-For each small feature:
+`.agents/wiki/index.md` lists what is known about how this repository works, one
+topic per page: the checks and the test tooling, review marks and Jev, threads
+and their store, MCP, language servers, Explore rounds and the Explore page.
+Read the page for a tool (the checks, `make vision`, the e2e tests, the Jev
+evaluations) before you run or debug it. The workflow says when to read the
+pages of an area (step 1) and when to update them (step 2).
+
+The rules for a page:
+
+- Give a new topic its own page, and add its line to the index.
+- A page says how the system works now, and why. The account of a past run goes
+  in the change description, and its result files under `target/`.
+- `docs/` is for people: design handoffs and the README's assets. Knowledge for
+  agents goes in the wiki, and decisions in `.agents/adr/`.
+
+# Decisions
+
+`.agents/adr/` holds the decision records (ADRs), one decision per file. A
+record keeps a decision from being undone by accident.
+
+- When a change would contradict a record, tell the user which record, and why
+  its reasons may no longer hold. Change the design once the user agrees.
+- Record a decision when all three hold: it is hard to reverse, it would
+  surprise a reader who lacks the context, and a real alternative was weighed.
+  Say the situation, the choice, and the alternative given up with the reason.
+- A record is frozen. When a decision changes, write a new record that names the
+  one it supersedes, and leave the old text as it was.
+
+# Change workflow
+
+Follow these steps for every change: a feature, a fix, or a change to docs.
 
 1. Create a fresh jj change before implementation. Use the previous change as
-   the fixed point for this feature.
-2. Implement the feature, and check it as you go with the levels that fit the
-   change, cheapest first:
+   the fixed point for this change. Read the wiki pages and the decision
+   records of the area you will change.
+2. Implement the change, and check it as you go with the levels that fit it,
+   cheapest first:
    1. `make lint`: clippy on every target, and the complexity gate.
    2. `make test CRATES="crate-a crate-b"`: the unit tests of the crates the
-      feature touches.
+      change touches.
    3. `make test`: every unit test of the workspace.
-   4. The end-to-end tests of what the feature touches: `make e2e-tui` for the
+   4. The end-to-end tests of what the change touches: `make e2e-tui` for the
       pane, `make e2e-explore` for the Explore page.
    Choose the levels at your discretion: run the Explore page tests only for a
-   change that reaches the page (step 5). Once the feature is complete, run
-   `make fmt`.
+   change that reaches the page (step 5). Once the change is complete, run
+   `make fmt` and bring the wiki up to date: every page that states something
+   the change altered is edited. Record a decision that the change made, when
+   the decision passes the test in Decisions.
 3. For a change the user can see, explore the affected paths in the real UI
-   with `make vision` (see `docs/development.md#llm-directed-exploration`) and
+   with `make vision` (see `.agents/wiki/tui-vision.md`) and
    fix what it finds.
 4. Invoke the `code-review` skill against the fixed point; the subagents it
-   starts are authorized. Fix its findings and repeat the review until it
-   passes. Follow the skill's repair-loop limit and report any findings that
-   remain when the limit is reached.
-5. Once the implementation is done and the review passes, run the gate across
-   the whole workspace: `make check-with-e2e` when the change reaches the
-   Explore page, else `make check`, which leaves out the page's e2e tests. A
-   change reaches the page when it touches `tests/explore-page/`, the
-   `Makefile`, `Cargo.toml`, `Cargo.lock`, `flake.nix`, `flake.lock`, or a
-   crate whose directory
+   starts are authorized. Fix its findings, by your judgement for a judgement
+   call, and review again until a round finds nothing that you fix, for at most
+   two rounds. After the second round, fix what it found, and report any
+   finding you leave unfixed, with the reason.
+5. Once step 4 is over, run the gate across the whole workspace:
+   `make check-with-e2e` when the change reaches the Explore page, else
+   `make check`, which leaves out the page's e2e tests. A change reaches the
+   page when it touches `tests/explore-page/`, the `Makefile`, `Cargo.toml`,
+   `Cargo.lock`, `flake.nix`, `flake.lock`, or a crate whose directory
    `cargo tree -q -p review-explore-page-server -e normal --prefix none` lists.
-   Fix whatever fails, even outside the feature, run `make fmt`, review those
-   fixes as in step 4, and run the gate again until it passes.
-6. Describe the change with `jj describe`: a plain imperative subject, then
-   what changed for the user and why.
-7. Run `make install` once the gate and the review pass, unless the user
-   deferred installing; say so when you skip it. It builds and installs only;
-   it does not run the checks.
+   A change to prose only (Markdown that is not compiled into a binary, and
+   comments in code) does not reach it, whatever files it touches. Fix whatever
+   fails, even outside the change, run `make fmt`, review those fixes with one
+   round of step 4, and run the gate again until it passes.
+6. Check the wiki against the change once more, since the fixes of steps 4 and
+   5 count too. Then describe the change with `jj describe`: a plain imperative
+   subject, then what changed for the user and why.
+7. Run `make install` once the gate passes, unless the user deferred
+   installing; say so when you skip it. It builds and installs only; it does
+   not run the checks.
 8. Keep later user-feedback fixes in the same change, and run the gate again
-   once each set of them is done. Create another change only when the
-   user requests the next feature.
+   once each set of them is done. Create another change only when the user
+   asks for something new.
 
 Run the make targets through `nix develop --command` so the pinned Rust
 toolchain, `cccc`, and `cargo-nextest` are available, and `make install` through
 it too so the installed build uses the same toolchain. Keep the warning gate of
 the checks (`-Dwarnings`) enabled; fix warnings in the current change instead
-of overriding `-Dwarnings`. With the current `eyre` version, use
-`Err(eyre::eyre!(...))` in expression-position match arms, or put
-`eyre::bail!(...);` in a statement block, to avoid the trailing-semicolon
-macro warning.
+of overriding `-Dwarnings`.
 
-Build a feature the user asks for yourself, in the current workspace, so the
+Build what the user asks for yourself, in the current workspace, so the
 user sees each change live. Supervise subagents in separate jj workspaces only
 for a large feature planned as a graph of tickets, or for many independent
 changes at once. When you work in a jj workspace, supervise agents there, or run
-gates in parallel, read `docs/development.md#parallel-workspaces`: how to enter
+gates in parallel, read `.agents/wiki/parallel-workspaces.md`: how to enter
 the dev shell, keep work visible, and run several gates at once.
 
 # Sandbox E2E Tests
@@ -100,16 +131,18 @@ with sandbox escalation.
 Do not enable project-wide network access. Do not replace the real Herdr
 server with a mock only to avoid the sandbox restriction.
 
+# Skill settings
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues live in GitHub Issues for flupke/herdr-progressive-reviewer (via `gh`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for flupke/herdr-progressive-reviewer (via `gh`). See `.agents/settings/issue-tracker.md`.
 
 ### Triage labels
 
-Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `.agents/settings/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: root `CONTEXT.md` plus `.agents/adr/`. See `.agents/settings/domain.md`.

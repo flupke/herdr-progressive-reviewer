@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs a command, or an interactive shell, in this repository's Nix dev shell, from the main
 # checkout or from a jj workspace. Nix evaluates a copy of flake.nix and flake.lock alone
-# (docs/development.md, "Parallel workspaces").
+# (.agents/wiki/parallel-workspaces.md).
 #
 # Usage: scripts/dev-shell [command [argument...]]
 set -euo pipefail
