@@ -157,10 +157,13 @@ struct ApiError {
     message: String,
 }
 
+/// One event of a Herdr subscription: its name and its data.
 #[derive(Debug, Deserialize)]
-struct EventEnvelope {
-    event: String,
-    data: Value,
+pub struct EventEnvelope {
+    /// The event's name, such as `pane_updated`.
+    pub event: String,
+    /// The event's data, as Herdr's API schema describes it.
+    pub data: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -217,14 +220,20 @@ struct PaneReadWire {
     text: String,
 }
 
+/// The events of one subscription, in the order Herdr sent them.
 #[derive(Debug)]
-struct HerdrEventStream {
+pub struct HerdrEventStream {
     reader: BufReader<UnixStream>,
     /// Ties the stream to what ends it: a read it ends is no error.
     tie: Tie,
 }
 
 impl HerdrEventStream {
+    /// The next event, waiting for it; `None` once the stream's canceller ended it.
+    pub fn next_event(&mut self) -> Result<Option<EventEnvelope>> {
+        self.read_envelope()
+    }
+
     fn forward_while(&mut self, mut send: impl FnMut(HerdrEvent) -> bool) -> Result<()> {
         while let Some(envelope) = self.read_envelope()? {
             if let Some(event) = parse_stream_event(envelope)?
@@ -352,6 +361,11 @@ impl HerdrClient {
         self
     }
 
+    /// The socket this client reaches Herdr through.
+    pub fn socket_path(&self) -> &std::path::Path {
+        &self.socket_path
+    }
+
     /// Build a client from the values injected into a plugin process.
     pub fn from_env() -> Result<Self> {
         Ok(Self::new(
@@ -386,7 +400,9 @@ impl HerdrClient {
         })
     }
 
-    fn subscribe(
+    /// Subscribes to `subscriptions`, given as Herdr's API schema describes them. The
+    /// subscription holds once this returns; `canceller` ends it.
+    pub fn subscribe(
         &self,
         subscriptions: &[Value],
         canceller: &EventCanceller,
@@ -437,7 +453,9 @@ impl HerdrClient {
         Ok(HerdrEventStream { reader, tie })
     }
 
-    fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
+    /// Call the API method `operation` with `params`, and return its result; Herdr's refusal is
+    /// an error.
+    pub fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
         match self.response(operation, params, SOCKET_TIMEOUT)? {
             Ok(result) => Ok(result),
             Err(error) => Err(Error::Herdr {

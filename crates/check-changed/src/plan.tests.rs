@@ -152,6 +152,7 @@ fn documentation_and_tooling_no_check_runs_reach_no_check() {
             "tests/tui/tests/README.md",
             "herdr-plugin.toml",
             ".envrc",
+            ".mcp.json",
         ]),
         []
     );

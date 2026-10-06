@@ -16,7 +16,7 @@ use crate::detection_rules::DetectionRules;
 
 /// Writes the reviewer settings file of the state directory `state` with the Explore page
 /// `settings`, as the reviewer saves them, and the defaults of the other settings.
-fn write_reviewer_settings(state: &Path, settings: &ExplorePageSettings) {
+pub fn write_reviewer_settings(state: &Path, settings: &ExplorePageSettings) {
     let saved = serde_json::json!({ "explore_page": settings });
     fs::write(
         state.join("settings.json"),

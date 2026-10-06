@@ -1,5 +1,4 @@
 {
-  "action": "reply",
   "turn": 2,
   "tool": "submit_conclusion",
   "arguments": {

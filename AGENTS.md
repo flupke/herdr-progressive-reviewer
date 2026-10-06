@@ -2,7 +2,8 @@
 
 Give yourself eyes and hands on what you build: run it, look at it, act on it as its user
 would, and fix what you see. Tests prove what you thought of; eyes show what you did not.
-`make vision` drives the review pane (`.agents/wiki/tui-vision.md`); `make explore-page`
+The vision MCP server drives the review pane in a workspace of the user's Herdr: run
+`make vision` once, then use its tools (`.agents/wiki/tui-vision.md`); `make explore-page`
 and `make explore-gallery` show the Explore page, and `make explore-script` acts on it with a
 throwaway script (`.agents/wiki/explore-page-standalone.md`).
 When a part of the product has no such tool, build one before you rely on tests alone.
@@ -146,6 +147,11 @@ the dev shell, keep work visible, and run several gates at once.
 Herdr E2E tests start an isolated background server with private socket,
 config, state, workspace, and agent paths. Never use, restart, or modify the
 user's live Herdr server or panes during tests.
+
+The vision MCP server is the one exception, and only outside tests: its
+`start` runs the reviewer in a new "reviewer vision" workspace of the user's
+live Herdr, so the user watches it, and its `stop` closes that workspace. Touch
+nothing else of the user's Herdr.
 
 The Codex Linux sandbox blocks Unix-domain socket bind and connect operations.
 Run tests in the normal sandbox first. If an E2E test fails with `EPERM` while

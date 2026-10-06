@@ -4,5 +4,4 @@
 /dist/
 /.direnv/
 /mutants.out*/
-/.mcp.json
 /.codex/config.toml

@@ -69,6 +69,7 @@ members = [
     "crates/reviewer",
     "crates/toasts",
     "crates/text-search",
+    "crates/vision-signal",
 ]
 resolver = "3"
 

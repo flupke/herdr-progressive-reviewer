@@ -1125,6 +1125,7 @@ fn terminal_event_producer_stops_while_waiting_for_input() {
     let producer = TerminalEventProducer::start_with_reader(
         event_sender,
         Duration::from_millis(1),
+        false,
         move |wait| {
             let _ = reader_started_sender.send(());
             thread::sleep(wait);
@@ -1178,6 +1179,7 @@ fn terminal_hunk_shortcut_moves_application_data_while_files_are_focused() {
     let producer = TerminalEventProducer::start_with_reader(
         event_sender,
         Duration::from_millis(1),
+        false,
         move |wait| {
             let next = terminal_events.lock().unwrap().next();
             if next.is_none() {

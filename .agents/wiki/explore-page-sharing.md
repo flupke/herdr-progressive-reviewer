@@ -13,8 +13,8 @@ it stays connected. The pane saves one Explore page setting at a time
 [Explore settings](explore-settings.md)), and `PageSharing` applies its network part at
 once; once the page is taken off the network, no address of the old listener reaches the
 pane. Herdr test servers write a `settings.json` that turns network access off into their
-private state directory (`HerdrTestServer`); a `make vision` session sets the loopback
-interface and any free port instead (`HerdrTestServer::set_explore_page_settings`), so the
+private state directory (`HerdrTestServer`); a `make vision` session writes the loopback
+interface and any free port into its own (`write_reviewer_settings`), so the
 pane shows a QR code that only this machine can open. Test sessions open no browser: they
 set `BROWSER` to a stand-in.
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "reviewer-vision": {
+      "command": "scripts/vision-mcp",
+      "args": []
+    }
+  }
+}

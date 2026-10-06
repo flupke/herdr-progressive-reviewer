@@ -5,7 +5,10 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value, json};
@@ -50,11 +53,35 @@ impl ScriptedAgent {
             .collect()
     }
 
-    /// The first turn after `after`, or after the last one returned, waiting
-    /// up to `timeout` for the reviewer to send it.
-    pub(super) fn next_turn(&mut self, after: Option<u64>, timeout: Duration) -> Result<Value> {
+    /// The first turn after `after`, or after the last one returned, waiting up to `guard`
+    /// for the reviewer to send it. The wait ends on the reviewer's write of a turn file, not
+    /// on a poll.
+    pub(super) fn next_turn(&mut self, after: Option<u64>, guard: Duration) -> Result<Value> {
+        self.next_turn_watching(after, guard, || {})
+    }
+
+    /// [`Self::next_turn`], which calls `watching` once it watches the turns and found none.
+    fn next_turn_watching(
+        &mut self,
+        after: Option<u64>,
+        guard: Duration,
+        watching: impl FnOnce(),
+    ) -> Result<Value> {
         let after = after.unwrap_or(self.returned);
-        let deadline = Instant::now() + timeout;
+        std::fs::create_dir_all(&self.turns)?;
+        let (written, writes) = mpsc::channel();
+        // A turn arrives as a rename of its partial file; reading the turns, as this wait does,
+        // makes access events, which must not wake it.
+        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            if event.is_ok_and(|event| {
+                matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_))
+            }) {
+                let _ = written.send(());
+            }
+        })?;
+        watcher.watch(&self.turns, RecursiveMode::NonRecursive)?;
+        let deadline = Instant::now() + guard;
+        let mut watching = Some(watching);
         loop {
             let turns = self.turns()?;
             // Only the very next number, so a turn still being written is never skipped.
@@ -62,10 +89,18 @@ impl ScriptedAgent {
                 self.returned = number(turn);
                 return Ok(turn.clone());
             }
-            if Instant::now() >= deadline {
-                return Ok(json!({"status": "timeout", "latest": turns.last().map(number)}));
+            if let Some(watching) = watching.take() {
+                watching();
             }
-            std::thread::sleep(Duration::from_millis(50));
+            // Only a write ends the wait: once the guard is spent, no last look finds a turn.
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() || writes.recv_timeout(remaining).is_err() {
+                bail!(
+                    "the reviewer sent no turn after turn {after} in {} ms; the latest is {}",
+                    guard.as_millis(),
+                    turns.last().map_or(0, number)
+                );
+            }
         }
     }
 

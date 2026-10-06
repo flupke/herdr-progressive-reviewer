@@ -42,6 +42,7 @@ review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
 ui-events = { path = "../ui-events" }
+vision-signal = { path = "../vision-signal" }
 serde_json.workspace = true
 reqwest.workspace = true
 sha2.workspace = true

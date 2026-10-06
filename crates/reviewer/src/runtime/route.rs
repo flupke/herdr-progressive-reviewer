@@ -18,6 +18,8 @@ pub(super) struct ApplicationTick(pub(super) Instant);
 pub(super) struct TerminalFailed(pub(super) String);
 /// The terminal regained focus.
 pub(super) struct TerminalFocused;
+/// The driver of a vision session asked for this acknowledgement after its input.
+pub(super) struct InputAcknowledged(pub(super) u64);
 
 /// Where one event goes.
 ///
@@ -43,6 +45,8 @@ pub(super) enum Route<'a> {
     Lsp(&'a review_lsp::Event),
     /// The terminal regained focus; the application sees the event as-is.
     TerminalFocused,
+    /// The next frame marker names this acknowledgement, after the input that came before it.
+    Acknowledged(u64),
     /// Any other event, published to the application unchanged.
     Application,
 }
@@ -81,6 +85,9 @@ impl<'a> Route<'a> {
         }
         if event.downcast_ref::<RepositoryRefreshDue>().is_some() {
             return Some(Self::RefreshDue);
+        }
+        if let Some(InputAcknowledged(id)) = event.downcast_ref::<InputAcknowledged>() {
+            return Some(Self::Acknowledged(*id));
         }
         event
             .downcast_ref::<TerminalFocused>()

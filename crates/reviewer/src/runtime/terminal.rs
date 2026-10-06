@@ -6,6 +6,7 @@ use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
+use vision_signal::FrameMarker;
 
 /// The backend of the pane's terminal: draws frames, discards the cursor visibility cached before
 /// input or focus changes, and writes to the clipboard.
@@ -15,13 +16,20 @@ pub(super) trait PaneBackend: Backend {
     /// Puts `text` on the clipboard with an OSC 52 write: Herdr takes a pane's write to the
     /// clipboard of the client in the foreground, as the outer terminal does without Herdr.
     fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()>;
+
+    /// Names acknowledgement request `id` in the frame markers of a vision session, from the
+    /// next frame on; without frame markers, does nothing.
+    fn acknowledge_input(&mut self, id: u64);
 }
 
 /// Avoid terminal traffic for unchanged frames, including repeated cursor hides.
 pub(super) struct TerminalBackend<W: Write> {
     inner: CrosstermBackend<W>,
     cursor_hidden: Option<bool>,
-    capture_frames: bool,
+    /// The frame markers of a vision session, `None` outside one.
+    markers: Option<FrameMarker>,
+    /// The size the terminal last reported, which the next frame marker names.
+    size: std::cell::Cell<Size>,
     frame_open: bool,
 }
 
@@ -30,13 +38,16 @@ impl<W: Write> TerminalBackend<W> {
         Self {
             inner: CrosstermBackend::new(writer),
             cursor_hidden: None,
-            capture_frames: false,
+            markers: None,
+            size: std::cell::Cell::new(Size::default()),
             frame_open: false,
         }
     }
 
-    pub(super) fn with_frame_capture(mut self) -> Self {
-        self.capture_frames = true;
+    /// Paints each frame as one synchronized update and ends it with a [`FrameMarker`], for the
+    /// driver of a vision session.
+    pub(super) fn with_frame_markers(mut self) -> Self {
+        self.markers = Some(FrameMarker::default());
         self
     }
 }
@@ -50,6 +61,12 @@ impl<W: Write> PaneBackend for TerminalBackend<W> {
         self.inner.queue(CopyToClipboard::to_clipboard_from(text))?;
         Write::flush(&mut self.inner)
     }
+
+    fn acknowledge_input(&mut self, id: u64) {
+        if let Some(marker) = &mut self.markers {
+            marker.acknowledged = id;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -61,6 +78,9 @@ impl PaneBackend for ratatui::backend::TestBackend {
     fn copy_to_clipboard(&mut self, _text: &str) -> io::Result<()> {
         Ok(())
     }
+
+    // TestBackend paints no frame markers.
+    fn acknowledge_input(&mut self, _id: u64) {}
 }
 
 impl<W: Write> Backend for TerminalBackend<W> {
@@ -70,7 +90,7 @@ impl<W: Write> Backend for TerminalBackend<W> {
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
-        if self.capture_frames {
+        if self.markers.is_some() {
             self.inner.queue(BeginSynchronizedUpdate)?;
             self.frame_open = true;
         }
@@ -122,7 +142,9 @@ impl<W: Write> Backend for TerminalBackend<W> {
     }
 
     fn size(&self) -> io::Result<Size> {
-        self.inner.size()
+        let size = self.inner.size()?;
+        self.size.set(size);
+        Ok(size)
     }
 
     fn window_size(&mut self) -> io::Result<WindowSize> {
@@ -133,6 +155,13 @@ impl<W: Write> Backend for TerminalBackend<W> {
         if self.frame_open {
             self.inner.queue(EndSynchronizedUpdate)?;
             self.frame_open = false;
+            let size = self.size.get();
+            if let Some(marker) = &mut self.markers {
+                marker.frame += 1;
+                marker.columns = size.width;
+                marker.rows = size.height;
+                self.inner.write_all(marker.escape_sequence().as_bytes())?;
+            }
         }
         Backend::flush(&mut self.inner)
     }

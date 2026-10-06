@@ -61,7 +61,8 @@ use ui_events::{AnimationTick, RepositoryRefreshStarted, ToastExpirationTick};
 use crate::watcher::RepositoryWatcher;
 use effects::{Effects, Outputs, RunAheadSetup, Setup};
 use route::{
-    ApplicationTick, RepositoryRefreshDue, Route, StopRequested, TerminalFailed, TerminalFocused,
+    ApplicationTick, InputAcknowledged, RepositoryRefreshDue, Route, StopRequested, TerminalFailed,
+    TerminalFocused,
 };
 
 const TIMER_INTERVAL: Duration = Duration::from_millis(50);
@@ -87,6 +88,9 @@ struct TerminalGuard {
 
 struct TerminalEventProducer {
     events: EventSender<EventEnvelope>,
+    /// Whether a pasted acknowledgement request is the driver's, in a vision session, rather
+    /// than the user's text.
+    acknowledges: bool,
     stop_requested: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -209,7 +213,7 @@ impl Runtime {
         );
         let mut event_producers = RuntimeEventProducers::new();
         event_producers.forward_herdr_events(self.client.clone(), event_sender.clone());
-        let mut terminal_events = TerminalEventProducer::start(input_sender);
+        let mut terminal_events = TerminalEventProducer::start(input_sender, in_vision_session());
         Self::watch_explore_storage(&watcher, &settings, &effects, event_sender.clone());
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
@@ -500,6 +504,10 @@ where
                 self.effects.observe(event);
                 return Ok(ControlFlow::Continue(()));
             }
+            Route::Acknowledged(id) => {
+                self.terminal.backend_mut().acknowledge_input(id);
+                return Ok(ControlFlow::Continue(()));
+            }
             Route::RefreshDue => {
                 self.effects.refresh()?;
                 self.app.publish(RepositoryRefreshStarted)
@@ -559,6 +567,12 @@ where
     }
 }
 
+/// Test tooling only: whether the reviewer runs in a `make vision` session, which drives it
+/// through frame markers and acknowledgement requests (`vision-signal`).
+fn in_vision_session() -> bool {
+    env::var_os("HERDR_REVIEWER_VISION").is_some()
+}
+
 /// Test tooling only: a `make vision` session names the directory its
 /// scripted agent reads the sent Explore prompts from. Without
 /// `HERDR_REVIEWER_VISION` the directory is ignored, because the turn files
@@ -600,8 +614,8 @@ impl TerminalGuard {
     fn new() -> eyre::Result<Self> {
         enable_raw_mode()?;
         let mut backend = TerminalBackend::new(stdout());
-        if env::var_os("HERDR_REVIEWER_VISION").is_some() {
-            backend = backend.with_frame_capture();
+        if in_vision_session() {
+            backend = backend.with_frame_markers();
         }
         let mut terminal = match Terminal::new(backend) {
             Ok(terminal) => terminal,
@@ -683,8 +697,8 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
 }
 
 impl TerminalEventProducer {
-    fn start(events: EventSender<EventEnvelope>) -> Self {
-        Self::start_with_reader(events, TIMER_INTERVAL, |timeout| {
+    fn start(events: EventSender<EventEnvelope>, acknowledges: bool) -> Self {
+        Self::start_with_reader(events, TIMER_INTERVAL, acknowledges, |timeout| {
             event::poll(timeout)?.then(event::read).transpose()
         })
     }
@@ -694,6 +708,7 @@ impl TerminalEventProducer {
     fn start_with_reader(
         events: EventSender<EventEnvelope>,
         wait: Duration,
+        acknowledges: bool,
         mut read_event: impl FnMut(Duration) -> io::Result<Option<Event>> + Send + 'static,
     ) -> Self {
         let stop_requested = Arc::new(AtomicBool::new(false));
@@ -710,7 +725,7 @@ impl TerminalEventProducer {
                         return;
                     }
                 };
-                let message = Self::normalize_event(event, &mut mouse_clicks);
+                let message = Self::normalize_event(event, acknowledges, &mut mouse_clicks);
                 if message.is_some_and(|message| events.send(message).is_err()) {
                     return;
                 }
@@ -718,6 +733,7 @@ impl TerminalEventProducer {
         });
         Self {
             events: sender,
+            acknowledges,
             stop_requested,
             thread: Some(thread),
         }
@@ -729,12 +745,19 @@ impl TerminalEventProducer {
     }
 
     fn resume(&mut self) {
-        *self = Self::start(self.events.clone());
+        *self = Self::start(self.events.clone(), self.acknowledges);
     }
 
-    fn normalize_event(event: Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
+    fn normalize_event(
+        event: Event,
+        acknowledges: bool,
+        mouse_clicks: &mut MouseClicks,
+    ) -> Option<EventEnvelope> {
         match event {
-            Event::Paste(text) => Some(EventEnvelope::new(UserInput::Paste(text))),
+            Event::Paste(text) => Some(match vision_signal::parse_acknowledgement_request(&text) {
+                Some(id) if acknowledges => EventEnvelope::new(InputAcknowledged(id)),
+                _ => EventEnvelope::new(UserInput::Paste(text)),
+            }),
             Event::Key(key) => Key::from_terminal(key)
                 .map(UserInput::Key)
                 .map(EventEnvelope::new),

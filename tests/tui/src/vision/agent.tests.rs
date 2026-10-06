@@ -25,13 +25,15 @@ fn sent(turn: u64, kind: &str) -> Value {
 #[test]
 fn turns_are_returned_once_each_in_order() {
     let (_directory, mut agent) = agent(&[sent(1, "kickoff"), sent(2, "wakeup")]);
-    let wait = Duration::from_millis(10);
+    // No wait: the turns are there, or the call reports that none came.
+    let wait = Duration::ZERO;
 
     assert_eq!(agent.next_turn(None, wait).unwrap()["turn"], 1);
     assert_eq!(agent.next_turn(None, wait).unwrap()["turn"], 2);
-    let none = agent.next_turn(None, wait).unwrap();
-    assert_eq!(none["status"], "timeout");
-    assert_eq!(none["latest"], 2);
+    assert_eq!(
+        agent.next_turn(None, wait).unwrap_err().to_string(),
+        "the reviewer sent no turn after turn 2 in 0 ms; the latest is 2"
+    );
     assert_eq!(agent.next_turn(Some(0), wait).unwrap()["turn"], 1);
 }
 
@@ -39,9 +41,21 @@ fn turns_are_returned_once_each_in_order() {
 fn a_later_turn_never_overtakes_one_still_being_written() {
     let (_directory, mut agent) = agent(&[sent(2, "wakeup")]);
 
-    let waiting = agent.next_turn(None, Duration::from_millis(10)).unwrap();
+    assert!(agent.next_turn(None, Duration::ZERO).is_err());
+}
 
-    assert_eq!(waiting["status"], "timeout");
+#[test]
+fn a_turn_written_while_waiting_ends_the_wait() {
+    let (directory, mut agent) = agent(&[]);
+    let turns = directory.path().to_owned();
+    // The turn is written once the wait watches and found none, so only the watcher's event
+    // can end the wait; the guard fires only if the test fails.
+    let turn = agent.next_turn_watching(None, Duration::from_secs(30), move || {
+        let partial = turns.join("turn-000001.json.partial");
+        std::fs::write(&partial, serde_json::to_vec(&sent(1, "kickoff")).unwrap()).unwrap();
+        std::fs::rename(partial, turns.join("turn-000001.json")).unwrap();
+    });
+    assert_eq!(turn.unwrap()["turn"], 1);
 }
 
 #[test]

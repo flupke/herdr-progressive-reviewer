@@ -14,7 +14,7 @@ attention ([CONTEXT.md](../../CONTEXT.md)). It is a model of TypeSafe AI.
   sees only what is left, and the Explore prompts do not mention Jev.
 - The reviewer sends bounded before/after code snippets and repository-relative paths to
   TypeSafe AI.
-- A `make vision` session never reaches the paid classifier: its `jev` command stands in
+- A `make vision` session never reaches the paid classifier: its `jev` tool stands in
   for it ([Terminal UI exploration](tui-vision.md)).
 
 ## Production settings

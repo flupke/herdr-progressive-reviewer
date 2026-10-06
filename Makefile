@@ -112,9 +112,13 @@ explore-page:
 explore-types:
 	EXPLORE_TYPES=write cargo test --locked -p review-explore-page typescript
 
+# Builds the vision MCP server and the reviewer it runs, and says how an agent uses it
+# (.agents/wiki/tui-vision.md). `.mcp.json` registers the server through scripts/vision-mcp.
 vision:
 	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control
-	REVIEWER_BIN_PATH="$(CURDIR)/target/debug/reviewer" cargo run --locked --manifest-path tests/tui/Cargo.toml --bin reviewer-vision -- $(VISION_ARGS)
+	cargo build --locked --manifest-path tests/tui/Cargo.toml --bin reviewer-vision
+	touch tests/tui/target/debug/reviewer-vision
+	@tests/tui/target/debug/reviewer-vision --help
 
 complexity:
 	@report="$$(cccc --lang rust crates | jq -r '[.files[] | .path as $$path | .functions[] | recurse(.children[]?) | select(.cyclomatic > 10 or .cognitive > 15) | { path: $$path, line, name, cognitive, cyclomatic }] | sort_by([-.cyclomatic, -.cognitive, .path, .line]) | if length == 0 then empty else ("Cognitive\tCyclomatic\tFunction", (.[] | "\(.cognitive)\t\(.cyclomatic)\t\(.path):\(.line) \(.name)")) end')" || exit; \

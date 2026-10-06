@@ -21,7 +21,7 @@ mod detection_rules;
 mod herdr;
 mod herdr_events;
 pub mod stand_in;
-pub use herdr::HerdrTestServer;
+pub use herdr::{HerdrTestServer, write_reviewer_settings};
 pub use herdr_events::{AgentStatusWatch, HerdrEventWatch};
 
 /// How long a test waits for a process or a thread before it fails: a guard that fires only
@@ -92,7 +92,7 @@ pub fn complete_repository_snapshot(repository: &Repository) -> Snapshot {
 }
 
 /// Common repository operations used by backend-neutral integration tests.
-pub trait ReviewRepositoryFixture {
+pub trait ReviewRepositoryFixture: Send {
     /// Get the temporary repository root.
     fn root(&self) -> &Path;
     /// Write one repository-relative file.

@@ -8,6 +8,7 @@ use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use super::*;
 use crate::runtime::effects::fixture::EffectsFixture;
+use crate::runtime::route::InputAcknowledged;
 use crate::runtime::{
     ApplicationTick, EventEnvelope, PaneId, RuntimeEventLoop, TerminalEventProducer,
     TerminalFocused, UserInput, timing,
@@ -35,9 +36,15 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_backend(TerminalBackend::new)
+    }
+
+    fn with_backend(
+        backend: impl FnOnce(CapturedOutput) -> TerminalBackend<CapturedOutput>,
+    ) -> Self {
         let output = CapturedOutput::default();
         let terminal = Terminal::with_options(
-            TerminalBackend::new(output.clone()),
+            backend(output.clone()),
             TerminalOptions {
                 viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
             },
@@ -75,16 +82,29 @@ impl Fixture {
     }
 }
 
-#[test]
-fn vision_mode_marks_each_completed_paint_including_unchanged_frames() {
-    let output = CapturedOutput::default();
-    let mut terminal = Terminal::with_options(
-        TerminalBackend::new(output.clone()).with_frame_capture(),
+fn marked_terminal(output: &CapturedOutput) -> Terminal<TerminalBackend<CapturedOutput>> {
+    Terminal::with_options(
+        TerminalBackend::new(output.clone()).with_frame_markers(),
         TerminalOptions {
             viewport: Viewport::Fixed(Rect::new(0, 0, 20, 3)),
         },
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn marker(frame: u64, acknowledged: u64) -> String {
+    vision_signal::FrameMarker {
+        frame,
+        acknowledged,
+        ..vision_signal::FrameMarker::default()
+    }
+    .escape_sequence()
+}
+
+#[test]
+fn vision_mode_marks_each_completed_paint_including_unchanged_frames() {
+    let output = CapturedOutput::default();
+    let mut terminal = marked_terminal(&output);
     for _ in 0..2 {
         terminal
             .draw(|frame| frame.render_widget(Paragraph::new("visible"), frame.area()))
@@ -94,9 +114,74 @@ fn vision_mode_marks_each_completed_paint_including_unchanged_frames() {
     let text = String::from_utf8_lossy(&bytes);
     assert_eq!(text.matches("\x1b[?2026h").count(), 2);
     assert_eq!(text.matches("\x1b[?2026l").count(), 2);
-    assert!(text.ends_with("\x1b[?2026l"));
-    assert!(text.find("\x1b[?2026h").unwrap() < text.find("visible").unwrap());
-    assert!(text.find("visible").unwrap() < text.find("\x1b[?2026l").unwrap());
+    let first = format!("\x1b[?2026l{}", marker(1, 0));
+    let second = format!("\x1b[?2026l{}", marker(2, 0));
+    assert!(text.find("visible").unwrap() < text.find(&first).unwrap());
+    assert!(text.ends_with(&second));
+}
+
+#[test]
+fn the_next_frame_marker_names_an_acknowledged_request() {
+    let output = CapturedOutput::default();
+    let mut terminal = marked_terminal(&output);
+    terminal.backend_mut().acknowledge_input(5);
+    terminal
+        .draw(|frame| frame.render_widget(Paragraph::new("visible"), frame.area()))
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&output.0.borrow()).ends_with(&marker(1, 5)),
+        "{:?}",
+        output.0.borrow()
+    );
+}
+
+#[test]
+fn without_frame_markers_an_acknowledgement_writes_nothing() {
+    let mut fixture = Fixture::new();
+    fixture.terminal.backend_mut().acknowledge_input(5);
+    fixture.draw("Review this file", Style::default());
+    assert!(!String::from_utf8_lossy(&fixture.output.0.borrow()).contains("\x1b]2;"));
+}
+
+#[test]
+fn a_pasted_acknowledgement_request_is_the_drivers_in_a_vision_session_only() {
+    for (acknowledges, acknowledged) in [(true, true), (false, false)] {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut input = Some(crossterm::event::Event::Paste(
+            vision_signal::acknowledgement_request(4),
+        ));
+        let producer = TerminalEventProducer::start_with_reader(
+            sender,
+            std::time::Duration::from_millis(1),
+            acknowledges,
+            move |wait| {
+                let next = input.take();
+                if next.is_none() {
+                    // No more input: wait, as a terminal does.
+                    std::thread::sleep(wait);
+                }
+                Ok(next)
+            },
+        );
+        let event = receiver.recv().unwrap();
+        producer.stop();
+        assert_eq!(
+            event
+                .downcast_ref::<InputAcknowledged>()
+                .map(|InputAcknowledged(id)| *id),
+            acknowledged.then_some(4)
+        );
+        assert_eq!(event.downcast_ref::<UserInput>().is_some(), !acknowledged);
+    }
+}
+
+#[test]
+fn the_event_loop_hands_an_acknowledgement_to_the_next_frame() {
+    let mut fixture =
+        Fixture::with_backend(|output| TerminalBackend::new(output).with_frame_markers());
+    fixture.handle_event(&EventEnvelope::new(InputAcknowledged(9)));
+    fixture.draw("Review this file", Style::default());
+    assert!(String::from_utf8_lossy(&fixture.output.0.borrow()).ends_with(&marker(1, 9)));
 }
 
 #[test]
@@ -169,6 +254,7 @@ fn terminal_focus_reaches_the_event_loop() {
     let producer = TerminalEventProducer::start_with_reader(
         sender,
         std::time::Duration::from_millis(1),
+        false,
         move |wait| {
             let next = input.take();
             if next.is_none() {

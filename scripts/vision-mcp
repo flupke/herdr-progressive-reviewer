@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Runs the vision MCP server on standard input and output, for an agent inside Herdr
+# (.agents/wiki/tui-vision.md). `.mcp.json` registers it; `make vision` builds it. A missing or
+# stale server is built first, in the dev shell, with a note and the build output on standard
+# error: standard output carries the MCP messages. The server replaces this script, so the
+# client's signals reach it.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+server="$root/tests/tui/target/debug/reviewer-vision"
+cd "$root"
+stale() {
+  [ ! -x "$server" ] && return 0
+  [ -n "$(find tests/tui/src tests/tui/Cargo.toml tests/tui/Cargo.lock crates \
+    -path '*/target' -prune -o -type f -newer "$server" -print -quit)" ]
+}
+if stale; then
+  echo "reviewer-vision: building the vision MCP server (make vision builds it ahead)" >&2
+  scripts/dev-shell cargo build --quiet --locked --manifest-path tests/tui/Cargo.toml \
+    --bin reviewer-vision >&2
+  touch "$server"
+fi
+exec "$server"
