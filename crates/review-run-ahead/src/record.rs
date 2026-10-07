@@ -287,6 +287,9 @@ pub enum DiscardReason {
     QuestionGone,
     /// The pane agent's session moved after the forks were taken: new forks replace them.
     SessionMoved,
+    /// The reviewer wrote in the round's conversation while the question waited: new forks
+    /// replace them once the talk is quiet.
+    ChatMessage,
     /// The reviewer turned run-ahead off.
     TurnedOff,
     /// The reviewer reset the round.

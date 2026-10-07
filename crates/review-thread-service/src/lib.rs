@@ -15,7 +15,7 @@ use std::thread::{self, JoinHandle};
 use herdr_client::protocol::{AgentPort, AgentTarget, HerdrEvent};
 use review_mcp::Endpoint;
 use review_store::ReviewStore;
-use review_threads::{ThreadCommand, WakeupFailure};
+use review_threads::{MessageId, ThreadCommand, WakeupFailure};
 use review_types::ReviewUnit;
 
 pub use delivery::{
@@ -56,6 +56,8 @@ enum Input {
 pub enum Event {
     Loaded(ui_events::ReviewThreadsLoaded),
     Posted(ui_events::ThreadPostFinished),
+    /// The reviewer posted a new message in the conversation of an Explore round.
+    RoundMessage(RoundMessage),
     /// What became of the latest wakeup for the pending comments of `review_unit`: `None`
     /// once one is on its way to the agent, or why one did not reach it.
     Wakeup {
@@ -63,6 +65,15 @@ pub enum Event {
         failure: Option<WakeupFailure>,
     },
     Error(String),
+}
+
+/// A message the reviewer posted in the conversation of an Explore round.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoundMessage {
+    pub review_unit: ReviewUnit,
+    /// The round, by its instance.
+    pub round: String,
+    pub message: MessageId,
 }
 
 /// A reviewer-owned worker; dropping it closes its HTTP listener.

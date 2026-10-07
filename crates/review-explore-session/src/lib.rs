@@ -25,7 +25,7 @@ mod turn_log;
 mod unreviewed;
 mod unreviewed_diffs;
 
-pub use run_ahead::RunAheadInput;
+pub use run_ahead::{RunAheadInput, TALK_QUIET};
 pub use turn_log::TurnLog;
 
 use std::sync::Arc;
@@ -62,6 +62,8 @@ pub enum Input {
     },
     /// An event of run-ahead's forks, or of the agent they are forked from.
     RunAhead(RunAheadInput),
+    /// The reviewer posted a message in the conversation of an Explore round.
+    RoundMessage(review_thread_service::RoundMessage),
 }
 
 /// Returns inputs the session produces later, such as prompt outcomes, to its owner's
@@ -98,6 +100,9 @@ pub struct Collaborators {
     pub page: RoundPublisher,
     /// The agent whose session run-ahead forks.
     pub forks: Arc<dyn review_run_ahead::ForkHost>,
+    /// How long the reviewer's talk with the agent in the round conversation stays quiet
+    /// before run-ahead takes forks again: [`TALK_QUIET`], less in tests.
+    pub talk_quiet: std::time::Duration,
 }
 
 /// The Explore session of one reviewer process.
@@ -277,6 +282,7 @@ impl ExploreSession {
             turns,
             page,
             forks,
+            talk_quiet,
         } = collaborators;
         Self {
             repository,
@@ -294,7 +300,7 @@ impl ExploreSession {
             earlier_citations: page::PageCitations::default(),
             diffs: None,
             start_block: None,
-            run_ahead: run_ahead::RunAheadState::new(forks),
+            run_ahead: run_ahead::RunAheadState::new(forks, talk_quiet),
             state: State::default(),
         }
     }
@@ -307,6 +313,7 @@ impl ExploreSession {
             Input::StorageChanged => self.storage_changed(),
             Input::Page { command, reply } => self.page_command(command, reply),
             Input::RunAhead(input) => self.run_ahead_input(input),
+            Input::RoundMessage(message) => self.run_ahead_round_message(&message),
         }
         self.run_ahead_reconcile();
         self.publish_page();

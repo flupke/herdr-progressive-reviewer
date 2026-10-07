@@ -67,6 +67,9 @@ pub(super) struct RunAheadSetup {
     pub(super) log: Option<PathBuf>,
     /// How long the forks' host waits on Herdr and on the forks.
     pub(super) waits: claude_fork::ForkWaits,
+    /// How long the reviewer's talk with the agent in the round conversation stays quiet
+    /// before run-ahead takes forks again.
+    pub(super) talk_quiet: std::time::Duration,
 }
 
 impl RunAheadSetup {
@@ -162,6 +165,7 @@ impl Effects {
             messages.clone(),
             Arc::clone(&page_threads),
         );
+        let talk_quiet = run_ahead.talk_quiet;
         let forks = run_ahead.forks(&agents);
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
@@ -175,6 +179,7 @@ impl Effects {
             turns,
             page,
             forks,
+            talk_quiet,
         });
         let mut worker = Worker {
             repository: repository.clone(),
@@ -414,6 +419,7 @@ fn start_comments(
     messages: ApplicationEventSender,
     page: Arc<PageThreads>,
 ) -> comments::Worker {
+    let explore = inbox_for(commands.clone());
     let commands = commands.clone();
     comments::Worker::start(
         store.clone(),
@@ -429,6 +435,9 @@ fn start_comments(
         },
         move |event| {
             page.observe(&event);
+            if let comments::Event::RoundMessage(message) = &event {
+                explore.deliver(explore_session::Input::RoundMessage(message.clone()));
+            }
             publish_thread_event(&messages, event);
         },
     )
@@ -452,7 +461,7 @@ fn publish_thread_event(messages: &ApplicationEventSender, event: comments::Even
                 kind: toasts::ToastKind::Error,
             });
         }
-        comments::Event::Wakeup { failure: None, .. } => {}
+        comments::Event::Wakeup { failure: None, .. } | comments::Event::RoundMessage(_) => {}
         comments::Event::Error(text) => {
             let _ = messages.send(ui_events::ToastRequested {
                 text,

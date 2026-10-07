@@ -885,6 +885,58 @@ impl Harness {
     }
 }
 
+impl Harness {
+    /// The reviewer writes `text` in the round's conversation, under the first question, and the
+    /// session hears of it as the thread service tells it; returns the conversation and the
+    /// message.
+    fn say_in_chat(&mut self, text: &str) -> (review_threads::ThreadId, review_threads::MessageId) {
+        let (conversation, message) = self.write_in_chat(text);
+        self.session
+            .handle(Input::RoundMessage(review_thread_service::RoundMessage {
+                review_unit: self.unit.clone(),
+                round: self.exploration().instance.clone(),
+                message: message.clone(),
+            }));
+        (conversation, message)
+    }
+
+    /// The agent replies to `message` in `conversation`.
+    fn reply_in_chat(
+        &self,
+        conversation: &review_threads::ThreadId,
+        message: &review_threads::MessageId,
+    ) {
+        self.store
+            .update_threads(&self.unit, |threads| {
+                threads
+                    .post(review_threads::Post::answer(
+                        conversation.clone(),
+                        review_threads::MessageId::parse(&uuid::Uuid::new_v4().to_string())
+                            .unwrap(),
+                        "It keeps old drafts.".into(),
+                        message.clone(),
+                    ))
+                    .map(|_| ())
+            })
+            .unwrap();
+    }
+
+    /// The agent takes the turn the reviewer's `message` in `conversation` woke it for: it
+    /// works, replies, its session moves to `entry`, and it is idle again.
+    fn agent_replies(
+        &mut self,
+        conversation: &review_threads::ThreadId,
+        message: &review_threads::MessageId,
+        entry: &str,
+    ) {
+        self.forks.report(AgentStatus::Working);
+        self.reply_in_chat(conversation, message);
+        self.forks.move_session(entry);
+        self.forks.report(AgentStatus::Idle);
+        self.pump();
+    }
+}
+
 /// The turn the agent submits with `operation`.
 fn turn_of(operation: &Operation) -> InterviewUpdate {
     crate::submission::update_of(operation).unwrap()
@@ -1186,29 +1238,169 @@ fn with_run_ahead_off_an_answer_says_nothing_of_forks() {
 }
 
 #[test]
+fn a_message_in_the_chat_discards_every_fork_at_once_and_none_is_taken_before_the_agent_replied() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let (submitted, _) = harness.fork_submits("keep");
+    let first: Vec<_> = harness.forks.started();
+    // A message in another round's conversation changes nothing here.
+    harness
+        .session
+        .handle(Input::RoundMessage(review_thread_service::RoundMessage {
+            review_unit: harness.unit.clone(),
+            round: "another-round".into(),
+            message: review_threads::MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
+        }));
+    assert!(harness.forks.discarded().is_empty());
+
+    harness.say_in_chat("Why does the policy exist?");
+
+    assert_eq!(
+        harness.forks.discarded(),
+        [first[0].0.clone(), first[1].0.clone()],
+        "the fork that submitted goes too"
+    );
+    assert!(first.iter().any(|(session, _)| *session == submitted));
+    assert!(
+        harness
+            .forks_saved()
+            .forks
+            .iter()
+            .all(|fork| discarded_for(fork) == Some(DiscardReason::ChatMessage))
+    );
+    // The agent works on something else and its session moves, but it did not reply yet.
+    harness.forks.report(AgentStatus::Working);
+    harness.forks.move_session("before-the-reply");
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+    assert_eq!(harness.forks.started().len(), first.len());
+    assert!(!harness.session.quiet_wait_runs());
+
+    harness.post_answer(Some("keep"), "");
+    assert_eq!(
+        harness.latest_path(),
+        TurnPath::Plain {
+            reason: PlainReason::ChatMessage
+        }
+    );
+}
+
+#[test]
+fn a_talk_of_several_messages_takes_one_set_of_forks_once_it_was_quiet() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let first = harness.forks.started().len();
+
+    let (conversation, message) = harness.say_in_chat("Why does the policy exist?");
+    harness.agent_replies(&conversation, &message, "first-reply");
+    assert!(harness.session.quiet_wait_runs());
+    // A new message before the wait passed starts it again, from the agent's next reply.
+    let (_, message) = harness.say_in_chat("And for old drafts?");
+    assert!(!harness.session.quiet_wait_runs());
+    harness.agent_replies(&conversation, &message, "second-reply");
+    assert!(harness.session.quiet_wait_runs());
+    // Work of the agent stops the wait too; its next idle starts it again.
+    harness.forks.report(AgentStatus::Working);
+    harness.pump();
+    assert!(!harness.session.quiet_wait_runs());
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+    let (_, message) = harness.say_in_chat("Fine, thanks.");
+    harness.agent_replies(&conversation, &message, "third-reply");
+    assert_eq!(
+        harness.forks.started().len(),
+        first,
+        "no fork during the talk"
+    );
+
+    harness.session.end_quiet_wait();
+
+    assert_eq!(harness.forks.started().len(), first * 2);
+    // Once taken, the forks stay while the agent's session stays where the talk left it.
+    harness.forks.report(AgentStatus::Working);
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+    assert_eq!(harness.forks.started().len(), first * 2);
+    assert!(
+        harness.forks_saved().forks[first..]
+            .iter()
+            .all(|fork| fork.discarded.is_none())
+    );
+}
+
+#[test]
+fn a_message_the_agent_has_not_replied_to_when_the_question_comes_holds_the_forks_until_it_did() {
+    let mut harness = Harness::start();
+    harness
+        .store
+        .save_explore_run_ahead(RunAhead::Every)
+        .unwrap();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    // The reviewer writes while the agent takes the turn that asks the question.
+    let (conversation, message) = harness.say_in_chat("Why does the policy exist?");
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+
+    assert!(harness.forks.started().is_empty());
+    harness.agent_replies(&conversation, &message, "after-the-reply");
+    assert!(harness.forks.started().is_empty());
+    harness.session.end_quiet_wait();
+    assert_eq!(harness.forks.started().len(), 2);
+}
+
+#[test]
+fn a_message_posted_before_the_question_s_turn_does_not_hold_its_forks() {
+    let mut harness = Harness::start();
+    harness
+        .store
+        .save_explore_run_ahead(RunAhead::Every)
+        .unwrap();
+    harness.capture();
+    let first = harness.request(None);
+    // A message the agent never replied to, from before the turn that asks the question.
+    harness.write_in_chat("Anything to add?");
+    let before = review_explore::now_ms() - 1_000;
+    harness
+        .store
+        .update_threads(&harness.unit, |threads| {
+            threads.stamp_postings(|_| before);
+            Ok(())
+        })
+        .unwrap();
+    let access = harness.turn(&first);
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+
+    assert_eq!(harness.forks.started().len(), 2);
+}
+
+#[test]
+fn the_forks_are_taken_again_once_the_quiet_wait_passed_after_the_agent_s_reply() {
+    let mut harness = Harness::start();
+    harness.session.quiet_for(Duration::ZERO);
+    harness.ask(RunAhead::Every);
+    let first = harness.forks.started().len();
+    let (conversation, message) = harness.say_in_chat("Why does the policy exist?");
+
+    harness.agent_replies(&conversation, &message, "after-the-talk");
+
+    // The quiet wait passes on a thread of its own, and tells the session through its inbox.
+    while harness.forks.started().len() == first {
+        let input = harness.inbox.recv().unwrap();
+        harness.session.handle(input);
+    }
+    assert_eq!(harness.forks.started().len(), first * 2);
+}
+
+#[test]
 fn after_a_talk_in_the_chat_forks_taken_again_hold_it_and_a_bare_answer_uses_one() {
     let mut harness = Harness::start();
     harness.ask(RunAhead::Every);
     let first = harness.forks.started();
-    let (conversation, message) = harness.write_in_chat("Why does the policy exist?");
-
-    // The agent answers in the chat: its session moves, and once it is idle again the forks
-    // are taken again, from its session as the talk left it.
-    harness.forks.report(AgentStatus::Working);
-    harness
-        .store
-        .update_threads(&harness.unit, |threads| {
-            threads
-                .post(review_threads::Post::answer(
-                    conversation,
-                    review_threads::MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
-                    "It keeps old drafts.".into(),
-                    message,
-                ))
-                .map(|_| ())
-        })
-        .unwrap();
-    harness.forks.move_session("after-the-talk");
+    let (conversation, message) = harness.say_in_chat("Why does the policy exist?");
+    harness.agent_replies(&conversation, &message, "after-the-talk");
     // The talk is older than the forks taken next: one taken in the same millisecond as a
     // message cannot be told apart from it.
     let before = review_explore::now_ms() - 1;
@@ -1219,17 +1411,10 @@ fn after_a_talk_in_the_chat_forks_taken_again_hold_it_and_a_bare_answer_uses_one
             Ok(())
         })
         .unwrap();
-    harness.forks.report(AgentStatus::Idle);
-    harness.pump();
+
+    harness.session.end_quiet_wait();
+
     assert_eq!(harness.forks.started().len(), first.len() * 2);
-    assert!(
-        harness
-            .forks_saved()
-            .forks
-            .iter()
-            .take(first.len())
-            .all(|fork| discarded_for(fork) == Some(DiscardReason::SessionMoved))
-    );
     let (fork, _) = harness.fork_submits("keep");
     assert!(!first.iter().any(|(session, _)| *session == fork));
 

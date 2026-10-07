@@ -108,6 +108,9 @@ impl ExploreSession {
         if !answer.text.trim().is_empty() {
             return Err(PlainReason::Comment);
         }
+        if armed.talk.is_some() {
+            return Err(PlainReason::ChatMessage);
+        }
         let taken = armed.taken.as_ref().ok_or_else(|| PlainReason::NoForks {
             why: armed.refusal.clone(),
         })?;

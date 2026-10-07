@@ -6,7 +6,9 @@
 //! with a request, an answer and an access value of its own, and takes a normal turn. The
 //! session checks what a fork submits as it checks the agent's turns, keeps it for the fork's
 //! choice beside the round, and shows it to nobody. When that agent works on something else
-//! while the question waits and its session moves, the forks are taken again.
+//! while the question waits and its session moves, the forks are taken again. A message the
+//! reviewer posts in the round conversation discards them at once, and they are taken again
+//! once the talk has been quiet for a minute (`talk.rs`).
 //!
 //! When the reviewer's answer is exactly the one a fork was told, and the fork submitted its
 //! turn, the pane's agent continues as that fork: it resumes the fork's session, then the
@@ -22,6 +24,7 @@ mod clean;
 mod settle;
 mod switch;
 mod take;
+mod talk;
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -35,6 +38,8 @@ use review_run_ahead::{
 use review_types::ReviewUnit;
 
 use crate::{ExploreSession, Input};
+
+pub use talk::TALK_QUIET;
 
 /// An event of run-ahead's own threads, in the session's input order.
 #[derive(Debug)]
@@ -69,6 +74,8 @@ enum Event {
         fork: String,
         result: Box<Result<Agent, SwitchFailure>>,
     },
+    /// The quiet wait numbered `number` of the reviewer's talk in the round conversation passed.
+    Quiet { number: u64 },
 }
 
 /// The round a fork belongs to: its review and its instance.
@@ -108,6 +115,11 @@ pub(crate) struct RunAheadState {
     paths: BTreeMap<String, TurnPath>,
     /// How long a closing reviewer waits for its forks to stop.
     close_wait: std::time::Duration,
+    /// How long the reviewer's talk in the round's conversation stays quiet before the forks
+    /// are taken again.
+    talk_quiet: std::time::Duration,
+    /// Counts the quiet waits started, so that the end of one stopped since is ignored.
+    quiet_waits: u64,
 }
 
 /// A question that waits, and the agent watched for its forks.
@@ -124,6 +136,9 @@ struct Armed {
     worked: bool,
     /// Why no fork could be taken, as last logged.
     refusal: Option<String>,
+    /// The reviewer's talk with the agent in the round's conversation, while it keeps the forks
+    /// from being taken.
+    talk: Option<talk::Talk>,
 }
 
 /// A question run-ahead watches, in its round, and the agent that asked it.
@@ -177,7 +192,7 @@ struct TakenFork {
 }
 
 impl RunAheadState {
-    pub(crate) fn new(host: Arc<dyn ForkHost>) -> Self {
+    pub(crate) fn new(host: Arc<dyn ForkHost>, talk_quiet: std::time::Duration) -> Self {
         Self {
             host,
             reviewer: ProcessStamp::read(std::process::id()),
@@ -191,6 +206,8 @@ impl RunAheadState {
             held: None,
             paths: BTreeMap::new(),
             close_wait: clean::CLOSE_WAIT,
+            talk_quiet,
+            quiet_waits: 0,
         }
     }
 
@@ -362,6 +379,30 @@ impl ExploreSession {
         let asked_at_ms = saved
             .and_then(|round| asked_at_ms(round, &question))
             .unwrap_or_else(review_explore::now_ms);
+        // A message the agent has not replied to yet, posted while it took the turn that asks the
+        // question, starts a talk; an older one does not hold the forks of every later question.
+        let since_ms = saved
+            .and_then(|round| asking_started_ms(round, &question))
+            .unwrap_or(asked_at_ms);
+        let talk = match self
+            .rounds
+            .unanswered_round_messages(&round.unit, &round.instance)
+        {
+            Ok(unanswered) => talk::Talk::waiting_for(
+                unanswered
+                    .into_iter()
+                    .filter(|(_, posted)| posted.is_some_and(|posted| posted >= since_ms))
+                    .map(|(message, _)| message)
+                    .collect(),
+            ),
+            Err(error) => {
+                self.run_ahead.host.log(&format!(
+                    "{}: the round conversation is unknown, no talk holds the forks: {error}",
+                    label(number)
+                ));
+                None
+            }
+        };
         self.run_ahead.armed = Some(Armed {
             generation,
             asked: Asked {
@@ -375,6 +416,7 @@ impl ExploreSession {
             taken: None,
             worked: false,
             refusal: None,
+            talk,
         });
         self.run_ahead
             .log("the question waits; its forks start once the agent is idle");
@@ -386,7 +428,7 @@ impl ExploreSession {
             .flatten()
             .is_some_and(|agent| agent.agent_status.waits_for_prompt())
         {
-            self.run_ahead_take();
+            self.run_ahead_idle();
         }
     }
 
@@ -423,11 +465,13 @@ impl ExploreSession {
                 fork,
                 result,
             } => self.run_ahead_settled(&round, &fork, *result),
+            Event::Quiet { number } => self.run_ahead_quiet(number),
         }
     }
 
     /// The watched agent's `status`: its first idle takes the forks; an idle after work that
-    /// moved its session takes them again.
+    /// moved its session takes them again. While the reviewer talks in the round's conversation,
+    /// its idle after its reply starts the quiet wait instead, and its work stops it.
     fn run_ahead_status(&mut self, generation: u64, status: AgentStatus) {
         let Some(armed) = self
             .run_ahead
@@ -439,13 +483,16 @@ impl ExploreSession {
         };
         if matches!(status, AgentStatus::Working | AgentStatus::Blocked) {
             armed.worked |= armed.taken.is_some();
+            if let Some(talk) = &mut armed.talk {
+                talk.interrupt();
+            }
             return;
         }
         if !status.waits_for_prompt() {
             return;
         }
         let Some(taken) = &armed.taken else {
-            self.run_ahead_take();
+            self.run_ahead_idle();
             return;
         };
         if !std::mem::take(&mut armed.worked) {
@@ -543,17 +590,35 @@ impl ExploreSession {
     }
 }
 
-/// When the agent's turn that asked `question` was saved in `round`, in milliseconds since the
-/// epoch, when the round knows when its prompt went out and how long the agent took.
-fn asked_at_ms(round: &review_explore::ExploreRound, question: &Question) -> Option<u64> {
-    let request = &round
+/// The request of the agent's turn that asked `question` in `round`.
+fn asking_request<'a>(
+    round: &'a review_explore::ExploreRound,
+    question: &Question,
+) -> Option<&'a str> {
+    let turn = round
         .exploration
         .conversation
         .iter()
-        .rfind(|turn| turn.update.next.as_ref() == Some(question))?
-        .update
-        .request;
-    let started = round.turns.get(request)?.started_at_ms?;
-    let elapsed = round.exploration.agent_elapsed_ms.get(request)?;
+        .rfind(|turn| turn.update.next.as_ref() == Some(question))?;
+    Some(&turn.update.request)
+}
+
+/// When the prompt of the agent's turn that asked `question` went out, in milliseconds since the
+/// epoch, when `round` knows it.
+fn asking_started_ms(round: &review_explore::ExploreRound, question: &Question) -> Option<u64> {
+    round
+        .turns
+        .get(asking_request(round, question)?)?
+        .started_at_ms
+}
+
+/// When the agent's turn that asked `question` was saved in `round`, in milliseconds since the
+/// epoch, when the round knows when its prompt went out and how long the agent took.
+fn asked_at_ms(round: &review_explore::ExploreRound, question: &Question) -> Option<u64> {
+    let started = asking_started_ms(round, question)?;
+    let elapsed = round
+        .exploration
+        .agent_elapsed_ms
+        .get(asking_request(round, question)?)?;
     Some(started.saturating_add(*elapsed))
 }

@@ -23,6 +23,8 @@ struct Service {
     errors: Arc<Mutex<Vec<String>>>,
     /// The outcome of each wakeup, as the worker published it.
     wakeups: Arc<Mutex<Vec<Option<WakeupFailure>>>>,
+    /// The messages the worker said the reviewer posted in a round's conversation.
+    round_messages: Arc<Mutex<Vec<crate::RoundMessage>>>,
     seen_prompts: usize,
     _store: TempDir,
 }
@@ -36,9 +38,12 @@ impl Service {
         let target = AgentTarget::new(workspace(), Some(pane("first")));
         let errors = Arc::new(Mutex::new(Vec::new()));
         let wakeups = Arc::new(Mutex::new(Vec::new()));
+        let round_messages = Arc::new(Mutex::new(Vec::new()));
         let published = errors.clone();
         let outcomes = wakeups.clone();
+        let heard = round_messages.clone();
         let publish = move |event| match event {
+            Event::RoundMessage(message) => heard.lock().unwrap().push(message),
             Event::Error(error) => published.lock().unwrap().push(error),
             Event::Wakeup { failure, .. } => {
                 if let Some(failure) = &failure {
@@ -66,6 +71,7 @@ impl Service {
             target,
             errors,
             wakeups,
+            round_messages,
             seen_prompts: 0,
             _store: directory,
         }
@@ -174,6 +180,18 @@ impl Service {
         });
         id
     }
+}
+
+/// The messages the worker said the reviewer posted in `round`'s conversation, oldest first.
+fn round_messages(service: &Service, round: &str) -> Vec<MessageId> {
+    service
+        .round_messages
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|heard| heard.review_unit == ReviewUnit::from(UNIT) && heard.round == round)
+        .map(|heard| heard.message.clone())
+        .collect()
 }
 
 /// The single wakeup a delivery pass sent: its pane and review access value.
@@ -652,4 +670,31 @@ fn a_wakeup_without_an_agent_to_receive_it_names_the_comments_it_left_waiting() 
         failure.through,
         book.round_conversation("round-7").unwrap().messages[0].sequence()
     );
+}
+
+#[test]
+fn each_new_message_in_a_round_s_conversation_is_published_once_with_its_round() {
+    let mut service = Service::start();
+    let first = service.talk("round-7", "Why a lock here?", None);
+    // A reply typed in the pane names the conversation's thread only.
+    let conversation = service.state.books[&ReviewUnit::from(UNIT)]
+        .round_conversation("round-7")
+        .unwrap()
+        .id
+        .clone();
+    let reply = Post::reply(conversation, "And the timeout?".into());
+    let second = reply.message().id.clone();
+    service.thread(ThreadCommand::Post {
+        review_unit: UNIT.into(),
+        post: reply.clone(),
+    });
+    // A repeat of a post the threads hold, and a comment on code, are not new round messages.
+    service.thread(ThreadCommand::Post {
+        review_unit: UNIT.into(),
+        post: reply,
+    });
+    service.start_thread("Rename this");
+
+    assert_eq!(round_messages(&service, "round-7"), [first, second]);
+    assert_eq!(service.round_messages.lock().unwrap().len(), 2);
 }

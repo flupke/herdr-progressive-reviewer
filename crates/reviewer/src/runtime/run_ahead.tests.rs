@@ -709,6 +709,32 @@ fn a_reset_stops_every_fork_and_deletes_its_transcript() {
 }
 
 #[test]
+fn a_message_in_the_round_s_conversation_stops_every_fork() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    run.wait_for_forks(2);
+    let processes = run.processes();
+
+    run.flow
+        .fixture
+        .runtime
+        .perform([Action::Thread(review_threads::ThreadCommand::Post {
+            review_unit: run.flow.fixture.review_unit.clone(),
+            post: review_threads::Post::to_round(
+                &run.flow.exploration.instance,
+                "Why does the policy exist?".into(),
+                None,
+                None,
+            ),
+        })]);
+
+    run.wait_until_gone(&processes);
+    assert!(run.saved().forks.iter().all(|fork| {
+        fork.discarded.as_ref().map(|discard| discard.reason) == Some(DiscardReason::ChatMessage)
+    }));
+}
+
+#[test]
 fn cancelling_the_answer_stops_the_forks_of_the_question_it_led_to() {
     let mut run = RunAheadFlow::start();
     run.flow.turn(None, 1);

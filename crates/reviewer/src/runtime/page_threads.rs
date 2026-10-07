@@ -43,7 +43,7 @@ impl PageThreads {
                     reply.send(posted.result.clone().map_err(CommandRefusal::Failed));
                 }
             }
-            comments::Event::Error(_) => {}
+            comments::Event::RoundMessage(_) | comments::Event::Error(_) => {}
         }
     }
 

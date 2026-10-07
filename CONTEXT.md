@@ -257,7 +257,9 @@ _Avoid_: prefetch, speculation, preparation (the earlier, discarded approaches)
 A copy of the agent's session that run-ahead starts in the background for one choice of the
 question that waits, with its own access value, which lets it submit only the turn it was
 forked for. A fork is discarded, stopped and its transcript deleted, once its question no
-longer waits, unless the agent in the pane continues as it.
+longer waits, unless the agent in the pane continues as it, and as soon as the reviewer writes
+in the round conversation: forks are taken again once the agent replied and the round
+conversation has been quiet for a minute.
 _Avoid_: branch, clone, subagent
 
 **Prepared turn**:

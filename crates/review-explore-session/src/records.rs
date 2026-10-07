@@ -10,7 +10,7 @@ use review_explore::{
 use review_explore_round_settings::{RunAhead, WritingStyle};
 use review_run_ahead::RoundForks;
 use review_store::{Error, Result, ReviewStore};
-use review_threads::{AskedUnder, Author};
+use review_threads::{AskedUnder, Author, MessageId};
 use review_types::ReviewUnit;
 
 fn explore_error(reason: &str) -> Error {
@@ -111,6 +111,27 @@ impl SavedRounds {
                 || !conversation.is_answered(message);
             message.author == Author::Reviewer && (under || since) && unknown_to_forks
         }))
+    }
+
+    /// The reviewer's messages in the conversation of the round `instance` of `unit` that the
+    /// agent has not replied to, oldest first, each with when the review received it.
+    pub(crate) fn unanswered_round_messages(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+    ) -> Result<Vec<(MessageId, Option<u64>)>> {
+        let threads = self.store.load_threads(unit)?;
+        let Some(conversation) = threads.round_conversation(instance) else {
+            return Ok(Vec::new());
+        };
+        Ok(conversation
+            .messages
+            .iter()
+            .filter(|message| {
+                message.author == Author::Reviewer && !conversation.is_answered(message)
+            })
+            .map(|message| (message.id.clone(), message.posted_at_ms))
+            .collect())
     }
 
     pub(crate) fn history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {

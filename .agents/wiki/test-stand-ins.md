@@ -94,6 +94,11 @@ records each fork's process before it takes another input, so once the forks rep
 - `ForkWaits` (claude-fork, through `RunAheadSetup.waits`): the run-ahead tests ask Herdr
   where the agent stands every 10 ms, and the switch that Herdr never confirms waits 200 ms
   for Herdr instead of 20 s.
+- `talk_quiet` (the session's `Collaborators`, through `RunAheadSetup.talk_quiet`): the quiet
+  minute after a talk in the round conversation before run-ahead forks again is zero in the
+  reviewer's tests. The session's tests keep the minute and end it by hand (`end_quiet_wait`),
+  so that a talk of several messages shows no fork between them; one sets it to zero
+  (`quiet_for`) and waits on the session's inbox for its end.
 - `HerdrClient::with_prompt_start_timeout`: the kickoff the agent does not start on waits
   200 ms for Herdr instead of Herdr's 5 seconds.
 

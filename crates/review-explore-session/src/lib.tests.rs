@@ -116,6 +116,7 @@ impl Harness {
                 turns: None,
                 page: publisher,
                 forks: Arc::new(run_ahead::FakeForks::default()),
+                talk_quiet: TALK_QUIET,
             }),
             events,
             event_sender,
@@ -168,6 +169,7 @@ impl Harness {
             turns: self.turns.clone(),
             page: publisher,
             forks: Arc::new(self.forks.clone()),
+            talk_quiet: TALK_QUIET,
         });
         let unit = self.unit.clone();
         self.session.checkpoint_changed(&unit);

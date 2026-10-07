@@ -10,8 +10,13 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
 
 ## Cost and needs
 
-- Run-ahead is experimental: the turns it prepares can be wasted when the reviewer talks with
-  the agent in the chat while a question waits.
+- Run-ahead is experimental. A talk in the round conversation is its main waste: each message
+  changes what the agent knows, and each set of forks re-reads the agent's whole prompt cache.
+  So a message the reviewer posts in the round conversation discards the forks of the question
+  that waits at once (the thread worker tells the session, `Input::RoundMessage`), and forks
+  are taken again only once the agent replied to every message of the talk and the round
+  conversation stayed quiet for a minute (`TALK_QUIET`, injected through
+  `Collaborators::talk_quiet`).
 - Each fork costs about one agent turn; it reads the agent's prompt cache.
 - It needs Claude Code in the agent's pane, started with options run-ahead knows and
   without a `--settings` of its own. Only Linux has the parent-death signal: elsewhere, macOS

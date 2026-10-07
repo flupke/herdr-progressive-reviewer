@@ -279,7 +279,20 @@ impl State {
 
     fn post_comment(&mut self, review_unit: &ReviewUnit, post: Post) {
         let message_id = post.message().id.clone();
-        let result = self.update(review_unit, |book| book.post(post).map(|_| ()));
+        let thread_id = post.thread_id().clone();
+        let result = self.update(review_unit, |book| {
+            let new = book.message(&post.message().id).is_none();
+            book.post(post)?;
+            Ok(new)
+        });
+        let round = match &result {
+            Ok(true) => self.books[review_unit]
+                .thread(&thread_id)
+                .and_then(|thread| thread.round())
+                .map(str::to_owned),
+            _ => None,
+        };
+        let result = result.map(|_| ());
         let posted = result.is_ok();
         if posted {
             // Updating the drafts forgets every draft whose post the threads now hold. A
@@ -289,9 +302,16 @@ impl State {
         }
         (self.publish)(Event::Posted(ui_events::ThreadPostFinished {
             review_unit: review_unit.clone(),
-            message_id,
+            message_id: message_id.clone(),
             result,
         }));
+        if let Some(round) = round {
+            (self.publish)(Event::RoundMessage(crate::RoundMessage {
+                review_unit: review_unit.clone(),
+                round,
+                message: message_id,
+            }));
+        }
         if posted && let Err(error) = self.schedule(review_unit, false) {
             self.undelivered(Some(review_unit), error);
         }
