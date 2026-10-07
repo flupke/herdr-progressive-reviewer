@@ -369,12 +369,7 @@ async fn serve(owner: Owner) -> SocketAddr {
         |_| {},
     );
     let app = page.into_router(axum::Router::new());
-    // Without Nagle's algorithm, a reply is sent at once instead of after the delayed
-    // acknowledgement of the view before it.
-    let listener = axum::serve::ListenerExt::tap_io(listener, |stream| {
-        let _ = stream.set_nodelay(true);
-    });
-    tokio::spawn(async move { axum::serve(listener, app).await });
+    tokio::spawn(async move { axum::serve(super::page_listener(listener), app).await });
     address
 }
 

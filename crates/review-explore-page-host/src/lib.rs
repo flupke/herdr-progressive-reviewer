@@ -32,7 +32,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
+use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token, page_listener};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
@@ -208,7 +208,7 @@ impl PageHost {
                     let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
                         return;
                     };
-                    let _ = axum::serve(listener, app)
+                    let _ = axum::serve(page_listener(listener), app)
                         .with_graceful_shutdown(async move {
                             let _ = stopped.await;
                         })

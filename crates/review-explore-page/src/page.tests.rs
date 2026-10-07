@@ -51,7 +51,7 @@ async fn serve() -> SocketAddr {
     );
     let caller = Router::new().route("/test/sessions", post(|| async { StatusCode::OK }));
     let app = page.into_router(caller);
-    tokio::spawn(async move { axum::serve(listener, app).await });
+    tokio::spawn(async move { axum::serve(crate::page_listener(listener), app).await });
     address
 }
 

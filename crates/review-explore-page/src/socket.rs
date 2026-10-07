@@ -27,6 +27,18 @@ use crate::status::StatusCard;
 use crate::view::PageView;
 use crate::{Rounds, notice::Notice};
 
+/// Wraps `listener` so that each page's connection sends without Nagle's algorithm: a reply leaves
+/// at once instead of after the delayed acknowledgement of the view sent before it, about 40 ms
+/// later.
+pub fn page_listener(
+    listener: tokio::net::TcpListener,
+) -> impl axum::serve::Listener<Io = tokio::net::TcpStream, Addr = std::net::SocketAddr> {
+    axum::serve::ListenerExt::tap_io(listener, |stream| {
+        // A connection that keeps Nagle's algorithm is only slower.
+        let _ = stream.set_nodelay(true);
+    })
+}
+
 /// How often the tool pings each open page.
 pub(crate) const HEARTBEAT: Duration = Duration::from_secs(10);
 

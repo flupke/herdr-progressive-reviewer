@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use quick_tunnel::{QuickTunnel, TunnelEvent, TunnelProgram};
-use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
+use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token, page_listener};
 pub use review_explore_page_tunnel::TunnelState;
 use tokio::runtime::Handle;
 
@@ -259,7 +259,7 @@ impl TunnelShare {
             let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
                 return;
             };
-            let _ = axum::serve(listener, app).await;
+            let _ = axum::serve(page_listener(listener), app).await;
         }));
         self.state = TunnelState::Open {
             url: self.token.tunnel_url(host),

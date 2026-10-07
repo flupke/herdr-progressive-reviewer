@@ -33,7 +33,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use review_explore_page::{ExplorePage, Hosts, PageEvent, PageFiles, Token};
+use review_explore_page::{ExplorePage, Hosts, PageEvent, PageFiles, Token, page_listener};
 
 use crate::round_data::RoundData;
 use crate::sessions::{Clock, Sessions};
@@ -125,7 +125,7 @@ fn serve(options: Options) -> Result<(), String> {
         let listener =
             tokio::net::TcpListener::from_std(listener).map_err(|error| error.to_string())?;
         println!("Explore page: {url}");
-        axum::serve(listener, app)
+        axum::serve(page_listener(listener), app)
             .await
             .map_err(|error| error.to_string())
     })

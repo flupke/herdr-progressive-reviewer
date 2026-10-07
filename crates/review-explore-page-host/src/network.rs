@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError, Weak, mpsc};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
+use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token, page_listener};
 pub use review_explore_page_settings::NetworkAccess;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
@@ -124,7 +124,7 @@ impl PageNetwork {
             let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
                 return;
             };
-            let _ = axum::serve(listener, app).await;
+            let _ = axum::serve(page_listener(listener), app).await;
         });
         tokens.announce_to(Some(Announcer {
             address,
