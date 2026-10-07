@@ -204,13 +204,30 @@ impl Harness {
         exploration.request(answer, question.as_ref()).unwrap()
     }
 
-    /// Post a turn and return the access value its delivered prompt grants.
-    fn turn(&mut self, request: &TurnRequest) -> String {
+    /// Post a turn as the pane does, and adopt the round saved, as the pane does too: the
+    /// session may save an answer under other identities. Returns the turn as saved.
+    fn post_turn(&mut self, request: &TurnRequest) -> TurnRequest {
         self.session
             .handle(Input::Command(Command::Turn(Box::new(request.clone()))));
-        self.next::<ui_events::ExplorePosted>()
-            .result
-            .expect("the turn is posted");
+        let posted = self.next::<ui_events::ExplorePosted>();
+        assert_eq!(
+            posted.request, *request,
+            "the front end hears of the turn as it posted it"
+        );
+        let round = posted.result.expect("the turn is posted");
+        let mut exploration = round.exploration.clone();
+        exploration.comparison = self.exploration().comparison.clone();
+        self.exploration = Some(exploration);
+        round
+            .exploration
+            .retry_request()
+            .expect("the turn is saved")
+            .clone()
+    }
+
+    /// Post a turn and return the access value its delivered prompt grants.
+    fn turn(&mut self, request: &TurnRequest) -> String {
+        let request = &self.post_turn(request);
         let prompt = self.delivered_prompt();
         assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
         if let Some(answer) = &request.answer {
@@ -271,6 +288,7 @@ impl Harness {
             ..AnswerInput::default()
         }));
         let access = self.turn(&request);
+        let request = self.exploration().retry_request().unwrap().clone();
         (request, access)
     }
 

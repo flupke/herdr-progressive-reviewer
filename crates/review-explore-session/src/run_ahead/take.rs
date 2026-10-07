@@ -1,12 +1,12 @@
 //! Taking the forks of the question that waits: one per choice the setting names, each told
-//! the prompt the agent would get after that answer.
+//! the prompt the agent would get after that answer, under the identities reserved for it.
 
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use agent_fork::ProcessStamp;
-use review_explore::{Alternative, AnswerInput, Comparison, ExploreRound, Question, TurnRequest};
+use review_explore::{Alternative, AnswerInput, Comparison, ExploreRound, Question};
 use review_explore_round_settings::RunAhead;
 use review_explore_runner::{EarlierDecisions, PreparedTurn, Unreviewed};
 use review_run_ahead::{FAILURES_TO_HALT, ForkPoint, ForkRecord, ForkStart, RoundForks};
@@ -14,7 +14,7 @@ use review_types::MarkAuthor;
 use tempfile::TempDir;
 
 use super::settle::Trigger;
-use super::{Event, RoundKey, RunAheadInput, Taken, TakenFork};
+use super::{Event, ReservedIds, RoundKey, RunAheadInput, Taken, TakenFork};
 use crate::unreviewed_diffs::UnreviewedDiffs;
 use crate::{ExploreSession, Input};
 
@@ -105,16 +105,22 @@ impl ExploreSession {
         let (unreviewed, files) = self
             .unreviewed_after_answer(&round)
             .map_err(|error| format!("{error:#}"))?;
+        // Kept while the question waits: forks taken again are told the same.
+        let armed = self.run_ahead.armed.as_mut().ok_or("no question waits")?;
         let forks = choices
             .iter()
             .map(|choice| {
+                let reserved = armed
+                    .reserved
+                    .entry(choice.id.clone())
+                    .or_insert_with(ReservedIds::new);
                 fork_turn(
                     &round,
                     &question,
                     choice,
                     &comparison,
                     &unreviewed,
-                    |request| self.request_as_told(request),
+                    reserved,
                 )
             })
             .collect::<Result<_, _>>()?;
@@ -342,17 +348,18 @@ pub(super) fn halted() -> String {
 }
 
 /// The fork that answers `question` with `choice`, and the prompt it gets: the one the agent
-/// would get after that answer, with the fork's own request, answer and access value.
+/// would get after that answer, under the identities `reserved` for the choice, with the
+/// fork's own access value.
 fn fork_turn(
     round: &ExploreRound,
     question: &Question,
     choice: &Alternative,
     comparison: &Arc<Comparison>,
     unreviewed: &Unreviewed,
-    as_told: impl Fn(&TurnRequest) -> TurnRequest,
+    reserved: &ReservedIds,
 ) -> Result<(TakenFork, String), String> {
     let mut exploration = round.exploration.clone();
-    let request = exploration
+    let mut request = exploration
         .request(
             Some(AnswerInput {
                 option: Some(choice.id.clone()),
@@ -363,6 +370,7 @@ fn fork_turn(
             Some(question),
         )
         .map_err(|error| format!("no turn for the choice {}: {error}", choice.id))?;
+    reserved.apply(&mut request);
     let access = uuid::Uuid::new_v4().to_string();
     let answered = request
         .answer
@@ -370,7 +378,7 @@ fn fork_turn(
         .and_then(|answer| round.exploration.answered_number(answer))
         .map(Into::into);
     let prompt = PreparedTurn::prepare(
-        &as_told(&request),
+        &request,
         comparison,
         &access,
         unreviewed,

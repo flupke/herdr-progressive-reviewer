@@ -53,12 +53,31 @@ impl ExploreFlow {
         }
     }
 
+    /// Posts the turn `request` as the pane does, and adopts the round saved, as the pane does
+    /// too: the session may save an answer under other identities. Returns the turn as saved.
+    pub(super) fn post_turn(
+        &mut self,
+        request: &review_explore::TurnRequest,
+    ) -> review_explore::TurnRequest {
+        self.fixture
+            .explore(ExploreCommand::Turn(Box::new(request.clone())));
+        loop {
+            let event = self.fixture.runtime.next_event();
+            if let Some(posted) = event.downcast_ref::<ui_events::ExplorePosted>()
+                && posted.request.request == request.request
+            {
+                let round = posted.result.as_ref().expect("the turn is saved");
+                self.exploration = round.exploration.clone();
+                return round.exploration.retry_request().unwrap().clone();
+            }
+        }
+    }
+
     pub(super) fn turn(&mut self, answer: Option<AnswerInput>, version: u32) {
         let question = self.exploration.questions.last().cloned();
         let request = self.exploration.request(answer, question.as_ref()).unwrap();
         let from = self.fixture.herdr.events().received().len();
-        self.fixture
-            .explore(ExploreCommand::Turn(Box::new(request.clone())));
+        let request = self.post_turn(&request);
         self.wait_for_prompt(&request);
         let statuses = self.holds_turns.then(|| {
             // The agent submits during its turn, which Herdr saw start.

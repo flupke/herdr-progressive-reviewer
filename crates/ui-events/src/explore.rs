@@ -49,6 +49,8 @@ pub enum ExploreProgress {
 
 #[derive(Clone, Debug)]
 pub struct ExplorePosted {
+    /// The turn as the front end posted it. A new answer that picks a choice run-ahead prepared
+    /// is saved under the identities reserved for that choice: `result` holds it so.
     pub request: review_explore::TurnRequest,
     pub result: Result<Arc<review_explore::ExploreRound>, String>,
 }

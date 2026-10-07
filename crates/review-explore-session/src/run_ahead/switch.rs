@@ -1,15 +1,14 @@
 //! The switch of the pane's agent to the fork the reviewer's answer chose. The answer's turn is
 //! the agent's from the start of the switch, as if its prompt were on its way: the page shows
 //! the agent working. Once Herdr reports the agent on the fork's session, the fork's turn
-//! becomes the round's, under the identities of the reviewer's answer, and only that session
-//! may call the reviewer. A switch that fails leaves the turn interrupted with the reason, and
-//! Retry sends the answer to the agent in the pane: the round is never ahead of the agent. When
-//! the agent may run the fork's session but the round does not take the fork's turn, the agent
-//! goes back to the session it ran before (`settle.rs`), so that it never takes the answer
-//! twice. No prompt reaches the agent while it switches.
+//! becomes the round's, under the identities the fork was told, which are the answer's, and
+//! only that session may call the reviewer. A switch that fails leaves the turn interrupted
+//! with the reason, and Retry sends the answer to the agent in the pane: the round is never
+//! ahead of the agent. When the agent may run the fork's session but the round does not take
+//! the fork's turn, the agent goes back to the session it ran before (`settle.rs`), so that it
+//! never takes the answer twice. No prompt reaches the agent while it switches.
 
 use herdr_client::protocol::Agent;
-use review_explore::{InterviewUpdate, TurnRequest};
 use review_run_ahead::{
     Continuation, DiscardReason, ForkPoint, PlainReason, SwitchFailure, TurnPath,
 };
@@ -46,22 +45,6 @@ impl Switching {
     /// delivery would end with `result`. The dispatch reports a storage failure itself.
     fn finish(&self, result: &Result<(), PromptError>) {
         let _ = self.dispatch.finished(result);
-    }
-}
-
-impl TakenFork {
-    /// The turn the fork submitted, as the turn of the reviewer's answer `real`: the same turn,
-    /// under the identities of the answer.
-    fn turn_for(&self, real: &TurnRequest) -> Option<InterviewUpdate> {
-        let mut turn = self.kept.clone()?;
-        turn.request.clone_from(&real.request);
-        if let (Some(interpretation), Some(forked), Some(real)) =
-            (&mut turn.interpretation, &self.request.answer, &real.answer)
-            && interpretation.answer == forked.id
-        {
-            interpretation.answer.clone_from(&real.id);
-        }
-        Some(turn)
     }
 }
 
@@ -185,7 +168,7 @@ impl ExploreSession {
                 .round
                 .as_ref()
                 .is_some_and(|round| round.exploration.instance == request.instance);
-        let Some(turn) = switching.fork.turn_for(request).filter(|_| delivering) else {
+        let Some(turn) = switching.fork.kept.clone().filter(|_| delivering) else {
             self.log_switch(
                 &switching,
                 "the answer's turn no longer waits: the fork's turn is not saved",

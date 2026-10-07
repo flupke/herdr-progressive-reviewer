@@ -568,6 +568,24 @@ fn forks_are_taken_again_when_the_agent_worked_and_its_session_moved() {
             .all(|fork| discarded_for(fork) == Some(DiscardReason::SessionMoved))
     );
     assert!(saved.forks[2..].iter().all(|fork| fork.discarded.is_none()));
+    // Each choice's fork is told the same request and answer as before.
+    let identities = |prompt: &str| {
+        (
+            fork_line(prompt, "Selected option ID: "),
+            fork_line(prompt, "Explore request: "),
+            fork_line(prompt, "Answer ID: "),
+        )
+    };
+    let started = harness.forks.started();
+    let before: Vec<_> = started[..2]
+        .iter()
+        .map(|(_, prompt)| identities(prompt))
+        .collect();
+    let again: Vec<_> = started[2..]
+        .iter()
+        .map(|(_, prompt)| identities(prompt))
+        .collect();
+    assert_eq!(again, before);
 }
 
 #[test]
@@ -775,10 +793,7 @@ impl Harness {
             text: text.into(),
             ..AnswerInput::default()
         }));
-        self.session
-            .handle(Input::Command(Command::Turn(Box::new(request.clone()))));
-        assert!(self.next::<ui_events::ExplorePosted>().result.is_ok());
-        request
+        self.post_turn(&request)
     }
 
     /// The fork for `choice`, by session, submits the next question for its turn.
@@ -1840,14 +1855,17 @@ fn a_reopened_reviewer_keeps_the_agent_on_a_fork_whose_turn_the_round_took() {
 }
 
 #[test]
-fn cancelling_a_prepared_turn_names_the_answer_as_the_agent_knows_it() {
+fn cancelling_a_prepared_turn_names_the_answer_by_the_id_its_fork_was_told() {
     let mut harness = Harness::start();
     let (fork, request) = harness.answer_while_prepared("keep");
     let told = fork_line(&harness.fork_prompt(&fork), "Answer ID: ");
     harness.forks.finish_switch(Ok(harness.agent_on(&fork)));
     harness.pump();
     let answer = request.answer.unwrap().id;
-    assert_ne!(answer, told);
+    assert_eq!(
+        answer, told,
+        "the round saved the answer under its fork's ID"
+    );
 
     harness
         .session
@@ -1866,7 +1884,95 @@ fn cancelling_a_prepared_turn_names_the_answer_as_the_agent_knows_it() {
         prompt.contains(&format!("Cancelled answer: {told}\n")),
         "the agent learns that the answer it knows is cancelled: {prompt}"
     );
-    assert!(!prompt.contains(&format!("Cancelled answer: {answer}\n")));
+}
+
+#[test]
+fn after_a_prepared_turn_the_agent_reconsiders_the_answer_by_the_id_its_fork_was_told() {
+    let mut harness = Harness::start();
+    let (fork, request) = harness.answer_while_prepared("keep");
+    let told = fork_line(&harness.fork_prompt(&fork), "Answer ID: ");
+    harness.forks.finish_switch(Ok(harness.agent_on(&fork)));
+    harness.pump();
+    assert_eq!(
+        harness.latest_path(),
+        TurnPath::Prepared {
+            session: fork.clone()
+        }
+    );
+    harness.exploration = Some(harness.saved().exploration);
+
+    // The reviewer comments the next question; the agent, on the fork's session, takes the
+    // turn and reconsiders the decision of the prepared turn's answer.
+    let (next, access) = harness.answer("Keep it, but the first decision needs another look.");
+    let Operation::SubmitQuestion(mut update) = question(&next, 3) else {
+        unreachable!("a question");
+    };
+    update.agenda.push(review_explore::AgendaChange {
+        topic: "topic1".into(),
+        action: review_explore::AgendaAction::Reconsider,
+        reason: "The reviewer asked to look again.".into(),
+        answer: next.answer.as_ref().map(|answer| answer.id.clone()),
+        evidence: Vec::new(),
+        replacement: None,
+        decision: Some(told.clone()),
+    });
+
+    let result = harness.submit(&access, Operation::SubmitQuestion(update));
+
+    assert!(applied(result), "the round accepts the reconsideration");
+    assert_eq!(request.answer.unwrap().id, told);
+}
+
+#[test]
+fn an_answer_with_a_comment_to_a_prepared_choice_keeps_the_ids_its_fork_was_told() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let (fork, _) = harness.fork_submits("keep");
+    let prompt = harness.fork_prompt(&fork);
+
+    let request = harness.post_answer(Some("keep"), "Keep it, with a test.");
+
+    assert_eq!(
+        harness.latest_path(),
+        TurnPath::Plain {
+            reason: PlainReason::Comment
+        }
+    );
+    assert_eq!(request.request, fork_line(&prompt, "Explore request: "));
+    assert_eq!(
+        request.answer.as_ref().unwrap().id,
+        fork_line(&prompt, "Answer ID: ")
+    );
+    assert_eq!(harness.agent_takes(&request), Some(harness.latest_path()));
+}
+
+#[test]
+fn an_answer_to_a_choice_with_no_fork_keeps_the_ids_its_front_end_gave() {
+    let mut harness = Harness::start();
+    harness
+        .store
+        .save_explore_run_ahead(RunAhead::Recommended)
+        .unwrap();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.next.as_mut().unwrap().alternatives[1].recommendation = Some("Safer.".into());
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    harness.exploration = Some(harness.saved().exploration);
+    let posted = harness.request(Some(AnswerInput {
+        option: Some("keep".into()),
+        ..AnswerInput::default()
+    }));
+
+    let saved = harness.post_turn(&posted);
+
+    assert_eq!(saved.request, posted.request);
+    assert_eq!(saved.answer, posted.answer);
 }
 
 #[test]

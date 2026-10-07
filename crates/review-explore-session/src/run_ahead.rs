@@ -3,7 +3,9 @@
 //! While a question waits and the reviewer's settings turn run-ahead on, the session watches
 //! the agent that asked it. Once that agent is idle, the session forks its session once per
 //! choice the setting names. Each fork gets the prompt the agent would get after that answer,
-//! with a request, an answer and an access value of its own, and takes a normal turn. The
+//! with an access value of its own, and takes a normal turn. Its request and its answer have
+//! the identities reserved for its choice while the question waits, which the round gives the
+//! reviewer's answer that picks that choice: the agent and the round name each answer alike. The
 //! session checks what a fork submits as it checks the agent's turns, keeps it for the fork's
 //! choice beside the round, and shows it to nobody. When that agent works on something else
 //! while the question waits and its session moves, the forks are taken again. A message the
@@ -139,6 +141,8 @@ struct Armed {
     /// The reviewer's talk with the agent in the round's conversation, while it keeps the forks
     /// from being taken.
     talk: Option<talk::Talk>,
+    /// The identities reserved for each choice whose forks were taken, by choice.
+    reserved: BTreeMap<String, ReservedIds>,
 }
 
 /// A question run-ahead watches, in its round, and the agent that asked it.
@@ -162,6 +166,31 @@ impl Asked {
 /// How the log names the question numbered `number` on the reviewer's screens.
 fn label(number: Option<usize>) -> String {
     number.map_or_else(|| "Q?".to_owned(), |number| format!("Q{number}"))
+}
+
+/// The identities of the reviewer's answer that picks a prepared choice, and of its turn: the
+/// forks of the choice are told them, and the round saves that answer under them.
+#[derive(Clone, Debug)]
+struct ReservedIds {
+    request: String,
+    answer: String,
+}
+
+impl ReservedIds {
+    fn new() -> Self {
+        Self {
+            request: uuid::Uuid::new_v4().to_string(),
+            answer: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    /// Gives `request` and its answer these identities.
+    fn apply(&self, request: &mut TurnRequest) {
+        request.request.clone_from(&self.request);
+        if let Some(answer) = &mut request.answer {
+            answer.id.clone_from(&self.answer);
+        }
+    }
 }
 
 /// The forks of one question, taken from one point of the agent's session.
@@ -267,6 +296,24 @@ impl TakenFork {
 }
 
 impl Armed {
+    /// The identities reserved for the choice of `request`, when it answers this question in
+    /// its round with a choice whose forks were taken.
+    fn reserved_for(&self, request: &TurnRequest) -> Option<&ReservedIds> {
+        if self.asked.round.instance != request.instance {
+            return None;
+        }
+        let answer = request.answer.as_ref()?;
+        let question = answer.question.as_ref()?;
+        if !self
+            .asked
+            .question
+            .is_version(&question.id, question.version)
+        {
+            return None;
+        }
+        self.reserved.get(&answer.option.as_ref()?.id)
+    }
+
     fn is_for(&self, round: &RoundKey, question: &Question) -> bool {
         self.asked.round == *round
             && self
@@ -417,6 +464,7 @@ impl ExploreSession {
             worked: false,
             refusal: None,
             talk,
+            reserved: BTreeMap::new(),
         });
         self.run_ahead
             .log("the question waits; its forks start once the agent is idle");
@@ -567,26 +615,6 @@ impl Move {
                 ),
             }
         });
-    }
-}
-
-impl ExploreSession {
-    /// `request` as the pane's agent knows it: each cancelled answer by the ID the agent was
-    /// told, which is its fork's when the agent continued as the fork that answer chose.
-    pub(crate) fn request_as_told(&self, request: &TurnRequest) -> TurnRequest {
-        let mut told = request.clone();
-        if told.cancelled.is_empty() {
-            return told;
-        }
-        if let Ok(forks) = self
-            .rounds
-            .forks(&request.checkpoint.review_unit, &request.instance)
-        {
-            for answer in &mut told.cancelled {
-                *answer = forks.answer_as_told(answer).to_owned();
-            }
-        }
-        told
     }
 }
 

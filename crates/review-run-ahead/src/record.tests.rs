@@ -163,17 +163,6 @@ fn a_turn_is_prepared_once_the_pane_s_agent_runs_its_fork_s_session_and_every_pl
     );
     assert_eq!(forks.continued_as("switching"), Some("r3"));
     assert_eq!(forks.continued_as("other"), None);
-    assert_eq!(
-        forks.answer_as_told("answer-r1"),
-        "fork-answer",
-        "the agent knows the answer by the ID its fork was told"
-    );
-    assert_eq!(forks.answer_as_told("answer-r2"), "answer-r2");
-    assert_eq!(
-        forks.answer_as_told("answer-r3"),
-        "answer-r3",
-        "the agent does not run a fork it is still switching to"
-    );
 }
 
 #[test]

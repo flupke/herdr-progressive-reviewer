@@ -38,25 +38,29 @@ impl ExploreSession {
         self.deliver_turn(request, Some((&retry.0, retry.1)))
     }
 
-    /// Saves the turn `request`, then prompts the agent with it, and tells the front ends
+    /// Saves the turn `posted`, then prompts the agent with it, and tells the front ends
     /// through `ExplorePosted`. Errs, with the reason, only when the turn was not saved: a
-    /// prompt that fails after the save leaves the turn waiting for Retry.
+    /// prompt that fails after the save leaves the turn waiting for Retry. A new answer that
+    /// picks a choice run-ahead prepared is saved under the identities reserved for it; the
+    /// front ends hear of the turn as they posted it.
     pub(crate) fn deliver_turn(
         &mut self,
-        request: TurnRequest,
+        posted: TurnRequest,
         retry_agent: Option<(&Agent, PinnedAgent)>,
     ) -> Result<(), String> {
         // A kickoff saves the agent it selects with the new round.
         let kickoff = self.state.round.is_none();
         // Preserve the posted contribution even when its subsequent wakeup cannot be sent.
         if retry_agent.is_none() && kickoff {
-            self.admit_kickoff(&request)?;
+            self.admit_kickoff(&posted)?;
         }
+        // A Retry finds no question waiting: its turn keeps the identities it was saved with.
+        let request = self.with_reserved_ids(posted.clone());
         let persisted =
             self.persist_request(&request, retry_agent.as_ref().map(|(agent, _)| *agent));
         let round = match persisted {
             Ok(round) => round,
-            Err(error) => return Err(self.turn_refused(request, &error)),
+            Err(error) => return Err(self.turn_refused(posted, &error)),
         };
         self.state.prompt = None;
         self.state.implementation = None;
@@ -73,7 +77,7 @@ impl ExploreSession {
         self.state.renew_access();
         self.state.round = Some(round.clone());
         let _ = self.events.send(ui_events::ExplorePosted {
-            request: request.clone(),
+            request: posted,
             result: Ok(Arc::new(round.clone())),
         });
         let turn = SavedTurn {
@@ -254,7 +258,7 @@ impl ExploreSession {
             .and_then(|(round, answer)| round.exploration.answered_number(answer))
             .map(Into::into);
         let prompt = review_explore_runner::PreparedTurn::prepare(
-            &self.request_as_told(request),
+            request,
             comparison,
             access,
             &unreviewed,

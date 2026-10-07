@@ -520,10 +520,7 @@ impl RunAheadFlow {
                 question.as_ref(),
             )
             .unwrap();
-        self.flow
-            .fixture
-            .explore(ExploreCommand::Turn(Box::new(request.clone())));
-        request
+        self.flow.post_turn(&request)
     }
 
     /// Waits until the saved round has `count` questions, and returns it.
@@ -1130,9 +1127,7 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
             Some(&question),
         )
         .unwrap();
-    run.flow
-        .fixture
-        .explore(ExploreCommand::Turn(Box::new(next.clone())));
+    let next = run.flow.post_turn(&next);
     run.flow.wait_for_prompt(&next);
     let prompt = super::prompts_text(&run.herdr().prompts()[offset..]);
     real.agent_turn(&prompt, Some(&fork.session));

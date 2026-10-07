@@ -12,10 +12,26 @@ use super::{Armed, Asked};
 use crate::ExploreSession;
 use crate::turn::SavedTurn;
 
-/// Where an identity of a prompt stands, so that two prompts compare but for their identities.
-const IDENTITY: &str = "<identity>";
+/// Where the unreviewed diffs of a prompt stand, so that two prompts compare but for where
+/// each one's diffs were written.
+const DIFFS: &str = "<diffs>";
 
 impl ExploreSession {
+    /// `request` under the identities reserved for its choice, when it answers the question that
+    /// waits with a choice whose forks were taken: with a comment too, so that the agent knows
+    /// the answer by the same ID whichever path its turn takes.
+    pub(crate) fn with_reserved_ids(&self, mut request: TurnRequest) -> TurnRequest {
+        if let Some(reserved) = self
+            .run_ahead
+            .armed
+            .as_ref()
+            .and_then(|armed| armed.reserved_for(&request))
+        {
+            reserved.apply(&mut request);
+        }
+        request
+    }
+
     /// Decides what the reviewer's answer, the saved turn `turn` with its marks applied, does
     /// with the forks of its question. Returns whether the pane's agent continues as a fork:
     /// its switch then runs, and the answer needs no prompt.
@@ -171,8 +187,9 @@ impl ExploreSession {
     }
 
     /// Whether the agent's prompt for the answer of `switching` would be the prompt of its
-    /// fork, but for their identities, and list the same unreviewed lines as the fork's diffs;
-    /// otherwise why not. The session keeps the diffs of that prompt, as for a prompt it sends.
+    /// fork, but for where their diffs were written, and list the same unreviewed lines as the
+    /// fork's diffs; otherwise why not. The session keeps the diffs of that prompt, as for a
+    /// prompt it sends.
     fn same_turn(&mut self, switching: &Switching) -> Result<(), PlainReason> {
         let Switching {
             turn: SavedTurn { request, .. },
@@ -194,28 +211,10 @@ impl ExploreSession {
         {
             return Err(PlainReason::UnreviewedChanged);
         }
-        let real_answer = request.answer.as_ref().map(|answer| answer.id.as_str());
-        let fork_answer = fork
-            .request
-            .answer
-            .as_ref()
-            .map(|answer| answer.id.as_str());
-        let identities = |prompt: &str, request: &str, answer: Option<&str>, diffs: &str| {
-            let prompt = prompt.replace(request, IDENTITY).replace(diffs, IDENTITY);
-            answer.map_or(prompt.clone(), |answer| prompt.replace(answer, IDENTITY))
-        };
-        let real = identities(
-            &prompt,
-            &request.request,
-            real_answer,
-            &unreviewed.directory.to_string_lossy(),
-        );
-        let prepared = identities(
-            &fork.prompt,
-            &fork.request.request,
-            fork_answer,
-            &files.diffs().directory().to_string_lossy(),
-        );
+        let real = prompt.replace(&*unreviewed.directory.to_string_lossy(), DIFFS);
+        let prepared = fork
+            .prompt
+            .replace(&*files.diffs().directory().to_string_lossy(), DIFFS);
         if real != prepared {
             return Err(PlainReason::PromptChanged);
         }

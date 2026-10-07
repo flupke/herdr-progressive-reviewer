@@ -83,28 +83,6 @@ impl RoundForks {
         })
     }
 
-    /// The ID under which the pane's agent knows the reviewer's answer `answer`: the answer
-    /// its fork was told, when the agent continued as that fork, else `answer` itself.
-    pub fn answer_as_told<'a>(&'a self, answer: &'a str) -> &'a str {
-        self.answers
-            .iter()
-            .filter(|record| record.answer == answer)
-            .find_map(|record| {
-                let TurnPath::Prepared { session } = &record.path else {
-                    return None;
-                };
-                self.forks
-                    .iter()
-                    .find(|fork| {
-                        fork.session == *session
-                            && matches!(fork.continued, Some(Continuation::Switched { .. }))
-                    })?
-                    .answer
-                    .as_deref()
-            })
-            .unwrap_or(answer)
-    }
-
     /// The path of each turn an answer started, by request: a prepared turn once the pane's
     /// agent runs its fork's session, and every plain chain. A turn whose switch to a fork did not
     /// end, after a reviewer that stopped meanwhile, has no path: Retry sends it to the agent.
@@ -130,8 +108,8 @@ pub struct ForkRecord {
     pub version: u32,
     /// The choice the fork was told the reviewer picked, by ID.
     pub choice: String,
-    /// The answer the fork was told, by ID: once the pane's agent continues as the fork, it
-    /// knows the reviewer's answer by this ID. `None` in records saved before it was kept.
+    /// The answer the fork was told, by ID: the one reserved for its choice, which the round
+    /// gives the reviewer's answer that picks it. `None` in records saved before it was kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<String>,
     /// The session ID the fork runs as, chosen before it started.

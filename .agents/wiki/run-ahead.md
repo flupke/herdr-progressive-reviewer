@@ -42,9 +42,12 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   (`crates/review-explore-runner/src/interview.md`) must keep that option.
 - Claude Code runs a fork's shell commands in the user's shell, Bash or Zsh, with the user's
   options: the guard must read a command as both would.
-- Cancel answer after a prepared turn: the agent knows that answer by the ID its fork was
-  told, so the next prompts name it so in their `Cancelled answer:` lines
-  (`RoundForks::answer_as_told`).
+- The agent and the round name each answer alike: while a question waits, the session reserves
+  a request ID and an answer ID per choice it forks, tells them to every fork of that choice,
+  forks taken again included, and saves a new answer that picks the choice under them, with a
+  comment too. The pane builds its turns with IDs of its own, so it hears of its post as it
+  posted it (`ExplorePosted::request`) and adopts the saved round. A Cancel answer or a
+  reconsideration after a prepared turn then names the answer as the agent knows it.
 
 ## How Herdr and Claude Code behave
 
