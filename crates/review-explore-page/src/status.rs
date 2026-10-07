@@ -250,13 +250,9 @@ impl StatusCard {
                 hint: Some("Cancel stops the request if it has not reached the agent yet."),
             })),
             ImplementationState::Sent => {
-                let items = implementation.items();
                 Self::new(Ok, ID, "The agent received the implementation request")
                     .time("Sent at", implementation.sent_at_ms)
-                    .reason(format!(
-                        "It implements the {items} {}; this round is done.",
-                        if items == 1 { "item" } else { "items" }
-                    ))
+                    .reason("It implements the list; this round is done.")
             }
             ImplementationState::NotStarted => Self::new(
                 Warn,

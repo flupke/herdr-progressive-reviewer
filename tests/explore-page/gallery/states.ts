@@ -220,8 +220,7 @@ const QUIZ_RIGHT = 'Once, about two seconds after the fifth reply';
 const QUIZ_WRONG = 'The reply itself, which was only in the queue';
 const QUIZ_LAST_RIGHT = 'At the twentieth reply';
 
-// The conclusion's Implement, which counts the ten items of its list.
-const IMPLEMENT = 'Implement 10 items';
+const IMPLEMENT = 'Implement';
 
 const COMMENT =
   'Two seconds feels short when I read the cited code between replies; I would rather see the count of waiting replies first.';

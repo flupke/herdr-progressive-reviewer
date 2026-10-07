@@ -102,7 +102,7 @@ test('a reply to the conclusion keeps its text and its focus while the implement
 }) => {
   await explore.open();
   await explore.conclude();
-  await screen.getByRole('button', 'Implement 1 item').tap();
+  await screen.getByRole('button', 'Implement', { exact: true }).tap();
   await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
   await screen.getByRole('button', 'Not ready? Reply to the agent instead').tap();
   const reply = screen.getByRole('textbox', 'Message to the agent');

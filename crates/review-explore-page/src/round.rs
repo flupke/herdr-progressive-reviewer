@@ -336,19 +336,6 @@ pub struct PageImplementation {
     pub sent_at_ms: Option<u64>,
 }
 
-impl PageImplementation {
-    /// How many items the request's list has.
-    pub(crate) fn items(&self) -> usize {
-        list_items(&self.text)
-    }
-}
-
-/// How many items the list to be implemented `text` has: its lines that are not blank, as the
-/// page counts the list the reviewer edits (assets/client/conclusion.js).
-pub(crate) fn list_items(text: &str) -> usize {
-    text.lines().filter(|line| !line.trim().is_empty()).count()
-}
-
 /// What the page shows of a conclusion's quiz beside its items: the lines of each item's proof,
 /// and what the reviewer answered. A conclusion without a quiz has neither.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

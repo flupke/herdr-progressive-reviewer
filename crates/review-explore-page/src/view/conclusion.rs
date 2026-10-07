@@ -9,9 +9,7 @@ use ts_rs::TS;
 
 use super::question::CitationView;
 use super::{markdown, markdown_if_any};
-use crate::round::{
-    ImplementationState, PageImplementation, PageQuiz, RoundSnapshot, RoundStage, list_items,
-};
+use crate::round::{ImplementationState, PageImplementation, PageQuiz, RoundSnapshot, RoundStage};
 use crate::status::StatusCard;
 
 #[derive(Debug, Serialize, TS)]
@@ -50,10 +48,10 @@ enum ListView {
     /// The draft, which the reviewer edits, then sends with Implement.
     Editable,
     /// The draft, read only: the page offers no action on it.
-    Draft { html: String, items: usize },
+    Draft { html: String },
     /// The latest request's list, read only.
     Request {
-        /// What the list is, before its count: "Saved request", "The request", "Sent".
+        /// What the list is: "Saved request", "The request", "Sent".
         label: &'static str,
         /// Whether the request is out of the reviewer's hands, which mutes its list.
         settled: bool,
@@ -88,8 +86,6 @@ struct ImplementationView {
     /// The request's delivery identity.
     delivery: String,
     text_html: String,
-    /// How many items its list has: its lines that are not blank.
-    items: usize,
 }
 
 /// A conclusion's quiz: an item at a time before the conclusion, until the reviewer answered or
@@ -187,7 +183,6 @@ impl ConclusionView {
             implementation: implementation.map(|implementation| ImplementationView {
                 delivery: implementation.delivery.clone(),
                 text_html: markdown(&implementation.text, 3),
-                items: implementation.items(),
             }),
             implementation_card: implementation.map(|implementation| {
                 StatusCard::implementation(
@@ -229,7 +224,6 @@ impl ListView {
             } else {
                 Self::Draft {
                     html: markdown(draft, 3),
-                    items: list_items(draft),
                 }
             };
         };

@@ -189,7 +189,7 @@ function list(conclusion, reset) {
     case 'editable':
       return implementForm(conclusion, null, 'primary');
     case 'draft':
-      return [eyebrow('To be implemented', shown.items), listBlock(markdown(shown.html), false)];
+      return [h('p', { class: 'eyebrow' }, 'To be implemented'), listBlock(markdown(shown.html), false)];
     case 'request':
       if (!implementation) return [];
       return [
@@ -226,7 +226,8 @@ function savedList(implementation, label, settled) {
   const text = listBlock(markdown(implementation.text_html), settled);
   const hidden = [...text.querySelectorAll('li')].filter((item) => item.parentElement?.parentElement === text).slice(SHOWN_ITEMS);
   for (const item of hidden) item.hidden = true;
-  if (hidden.length === 0) return [eyebrow(label, implementation.items), text];
+  const eyebrow = h('p', { class: 'eyebrow' }, label);
+  if (hidden.length === 0) return [eyebrow, text];
   const more = h(
     'button',
     {
@@ -239,14 +240,13 @@ function savedList(implementation, label, settled) {
     },
     `… ${hidden.length} more`,
   );
-  return [eyebrow(label, implementation.items), text, more];
+  return [eyebrow, text, more];
 }
 
 /**
  * The form that sends the list the reviewer edits: as the conclusion's first request, in place
  * of one the agent did not receive, or, under "Edit before sending", in place of a saved one.
- * `label` names its button, or `null` for "Implement N items" under the eyebrow "To be
- * implemented · N items", which count the items as the reviewer types.
+ * `label` names its button, or `null` for Implement under the eyebrow "To be implemented".
  * @param {ConclusionView} conclusion
  * @param {string | null} label
  * @param {'primary' | 'secondary'} tier
@@ -258,41 +258,24 @@ function implementForm(conclusion, label, tier) {
     `implement:${conclusion.request}:${replaces ?? ''}`,
     conclusion.draft,
   );
-  const count = h('span', {});
-  const button = h('button', { class: `button ${tier} block`, type: 'submit' }, label ?? '');
-  const follow = () => {
-    const items = countItems(box.value);
-    count.textContent = itemsWords(items);
-    // Without `field-sizing`, the box grows by its rows.
+  // Without `field-sizing`, the box grows by its rows.
+  const grow = () => {
     box.rows = box.value.split('\n').length + 1;
-    if (label !== null) return;
-    button.textContent = `Implement ${itemsWords(items)}`;
-    // The tool refuses an empty list, as the pane does: the button waits for an item
-    // (actions.js enables the buttons again after each edit).
-    button.dataset.blocked = String(items === 0);
   };
-  box.addEventListener('input', follow);
+  box.addEventListener('input', grow);
   const form = h(
     'form',
-    { class: 'implement', 'data-method': 'implement' },
+    // The tool refuses a blank list, as the pane does: Implement waits for a task.
+    { class: 'implement', 'data-method': 'implement', 'data-requires': label === null ? 'text' : null },
     h('input', { type: 'hidden', name: 'conclusion', value: conclusion.request }),
     replaces !== null ? h('input', { type: 'hidden', name: 'replaces', value: replaces }) : null,
-    label === null ? h('p', { class: 'eyebrow' }, 'To be implemented · ', count) : null,
+    label === null ? h('p', { class: 'eyebrow' }, 'To be implemented') : null,
     box,
     h('p', { class: 'hint' }, 'Implement asks the agent to implement this list, and nothing else.'),
-    button,
+    h('button', { class: `button ${tier} block`, type: 'submit' }, label ?? 'Implement'),
   );
-  follow();
+  grow();
   return form;
-}
-
-/**
- * The eyebrow of a list, with its count: "Saved request · 10 items".
- * @param {string} label
- * @param {number} items
- */
-function eyebrow(label, items) {
-  return h('p', { class: 'eyebrow' }, `${label} · ${itemsWords(items)}`);
 }
 
 /**
@@ -304,18 +287,4 @@ function listBlock(text, settled) {
   text.classList.add('saved-list');
   if (settled) text.classList.add('muted');
   return text;
-}
-
-/**
- * How many items the list `text` has: its lines that are not blank, as the tool counts them
- * (`PageImplementation::items` in src/round.rs).
- * @param {string} text
- */
-function countItems(text) {
-  return text.split('\n').filter((line) => line.trim() !== '').length;
-}
-
-/** @param {number} items */
-function itemsWords(items) {
-  return `${items} ${items === 1 ? 'item' : 'items'}`;
 }

@@ -387,11 +387,7 @@ export type ImplementationView = {
 /**
  * The request's delivery identity.
  */
-delivery: string, text_html: string, 
-/**
- * How many items its list has: its lines that are not blank.
- */
-items: number, };
+delivery: string, text_html: string, };
 /**
  * The agent's recap of the answer, and the follow-ups it recorded.
  */
@@ -436,9 +432,9 @@ comment: string, };
 /**
  * How the panel shows the list to be implemented, and the actions around it besides the card's.
  */
-export type ListView = { "kind": "editable" } | { "kind": "draft", html: string, items: number, } | { "kind": "request", 
+export type ListView = { "kind": "editable" } | { "kind": "draft", html: string, } | { "kind": "request", 
 /**
- * What the list is, before its count: "Saved request", "The request", "Sent".
+ * What the list is: "Saved request", "The request", "Sent".
  */
 label: string, 
 /**
