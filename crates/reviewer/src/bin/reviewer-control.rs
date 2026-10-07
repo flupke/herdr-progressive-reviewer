@@ -76,6 +76,11 @@ fn main() -> eyre::Result<()> {
         Some("fork-exec") => Err(agent_fork::run_wrapper(env::args_os().skip(2)).into()),
         // The hook of every run-ahead fork, which keeps it read-only.
         Some("fork-guard") => std::process::exit(claude_fork::run_guard()),
+        // Each hook of the reviewer's Claude Code plugin, in every Claude Code session.
+        Some(claude_hooks::SUBCOMMAND) => {
+            claude_hooks::run_hook();
+            Ok(())
+        }
         _ => Control::from_env()?.run(),
     }
 }

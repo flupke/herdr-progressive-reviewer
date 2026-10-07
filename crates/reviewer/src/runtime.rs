@@ -197,6 +197,7 @@ impl Runtime {
                     log: Some(self.state_dir.join("run-ahead.log")),
                     waits: claude_fork::ForkWaits::default(),
                     talk_quiet: explore_session::TALK_QUIET,
+                    hooks: agent_hooks::HookDirectory::from_env(),
                 },
             },
             &Outputs {

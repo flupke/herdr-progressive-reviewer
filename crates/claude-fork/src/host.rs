@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use agent_fork::{Launcher, ProcessStamp, Wrapper};
+use agent_hooks::{AgentHooks, HookDirectory};
 use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{Agent, AgentPort, AgentStatus, PaneId, PaneProcess};
 use review_run_ahead::{
@@ -30,11 +31,11 @@ pub struct ForkWaits {
     /// How long a switch waits for the answer to the fork's submit to reach the fork, which
     /// then writes it in its transcript, before it stops the fork anyway.
     pub answer: Duration,
-    /// How long a switch waits for Herdr to report the agent on the fork's session, ready for
-    /// a prompt, once the agent was told to resume it.
+    /// How long a switch waits, once the agent was told to resume the fork's session, for the
+    /// agent's hook to say that it did, and for Herdr to report it there, ready for a prompt.
     pub resume: Duration,
-    /// How often a switch asks Herdr where the agent stands while it waits: Herdr sends no
-    /// event when an agent's session changes.
+    /// How often a switch asks Herdr where the agent stands, once the agent's hook said that it
+    /// resumed the session: Herdr sends no event when an agent's session changes.
     pub resume_poll: Duration,
     /// How long a status watch waits before it subscribes again after Herdr dropped it.
     pub resubscribe: Duration,
@@ -95,6 +96,8 @@ pub struct ClaudeForks {
     /// Run-ahead's log; `None` writes none.
     log: Option<PathBuf>,
     waits: ForkWaits,
+    /// What the hooks of the agents say, when the reviewer listens to them.
+    hooks: Option<Arc<AgentHooks>>,
     /// The forks that run, by session.
     live: Arc<Mutex<HashMap<String, LiveFork>>>,
     /// The discards under way, which stop a fork and delete its transcript.
@@ -103,22 +106,33 @@ pub struct ClaudeForks {
 
 impl ClaudeForks {
     /// Forks of the agents `herdr` reports, started through `tools`, logged to `log`, waiting
-    /// on Herdr and on the forks as `waits` say.
+    /// on Herdr and on the forks as `waits` say, and on what the agents' hooks tell the reviewer
+    /// in `hooks`, the directory of Herdr's server, when it is known.
     pub fn new(
         herdr: HerdrClient,
         tools: ForkTools,
         log: Option<PathBuf>,
         waits: ForkWaits,
+        hooks: Option<&HookDirectory>,
     ) -> Self {
-        Self {
+        let mut forks = Self {
             launcher: Launcher::start(tools.wrapper()),
             herdr,
             tools,
             log,
             waits,
+            hooks: None,
             live: Arc::default(),
             discards: Mutex::default(),
+        };
+        match hooks.map(AgentHooks::listen) {
+            Some(Ok(hooks)) => forks.hooks = Some(Arc::new(hooks)),
+            Some(Err(error)) => forks.log(&format!("cannot listen to the agents' hooks: {error}")),
+            None => forks.log(
+                "cannot listen to the agents' hooks: XDG_RUNTIME_DIR or HERDR_SOCKET_PATH is not set",
+            ),
         }
+        forks
     }
 
     fn live(&self) -> std::sync::MutexGuard<'_, HashMap<String, LiveFork>> {
@@ -327,7 +341,7 @@ impl ForkHost for ClaudeForks {
             switch.pane.clone(),
             switch.fork.session.to_owned(),
         );
-        let waits = self.waits;
+        let (waits, hooks) = (self.waits, self.hooks.clone());
         thread::spawn(move || {
             let switch = Switch {
                 pane: AgentPane {
@@ -337,6 +351,7 @@ impl ForkHost for ClaudeForks {
                 session: &session,
                 fork,
                 waits,
+                hooks: hooks.as_deref(),
             };
             done(switch.run());
         });
@@ -349,7 +364,7 @@ impl ForkHost for ClaudeForks {
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     ) {
         let (herdr, pane, session) = (self.herdr.clone(), pane.clone(), session.to_owned());
-        let waits = self.waits;
+        let (waits, hooks) = (self.waits, self.hooks.clone());
         thread::spawn(move || {
             let resume = Resume {
                 pane: AgentPane {
@@ -358,6 +373,7 @@ impl ForkHost for ClaudeForks {
                 },
                 session: &session,
                 waits,
+                hooks: hooks.as_deref(),
             };
             done(resume.run());
         });

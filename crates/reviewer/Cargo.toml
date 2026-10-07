@@ -10,7 +10,9 @@ jev-evals = ["dep:serde"]
 
 [dependencies]
 agent-fork = { path = "../agent-fork" }
+agent-hooks = { path = "../agent-hooks" }
 claude-fork = { path = "../claude-fork" }
+claude-hooks = { path = "../claude-hooks" }
 review-explore = { path = "../review-explore" }
 review-explore-page = { path = "../review-explore-page" }
 review-explore-page-host = { path = "../review-explore-page-host" }

@@ -1,19 +1,17 @@
 [package]
-name = "claude-fork"
+name = "claude-hooks"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Forks of a Claude Code session in a Herdr pane, for run-ahead."
+description = "The reviewer's Claude Code plugin, whose hooks tell the reviewer what the agent in its Herdr pane does."
 
 [dependencies]
-agent-fork = { path = "../agent-fork" }
 agent-hooks = { path = "../agent-hooks" }
 herdr-client = { path = "../herdr-client" }
-review-run-ahead = { path = "../review-run-ahead" }
+serde.workspace = true
 serde_json.workspace = true
-time.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

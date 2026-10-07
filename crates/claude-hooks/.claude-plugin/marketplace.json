@@ -1,0 +1,14 @@
+{
+  "name": "herdr-progressive-reviewer",
+  "description": "The Claude Code plugin of the progressive reviewer, a Herdr plugin.",
+  "owner": {
+    "name": "Luper Rouch"
+  },
+  "plugins": [
+    {
+      "name": "progressive-reviewer",
+      "source": "./plugin",
+      "description": "Tells the progressive reviewer what the agent in its Herdr pane does, for run-ahead."
+    }
+  ]
+}

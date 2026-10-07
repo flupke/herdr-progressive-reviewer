@@ -68,6 +68,7 @@ impl EffectsFixture {
                 log: Some(state.path().join("run-ahead.log")),
                 waits: claude_fork::ForkWaits::default(),
                 talk_quiet: Duration::ZERO,
+                hooks: None,
             },
         };
         configure(&mut setup);

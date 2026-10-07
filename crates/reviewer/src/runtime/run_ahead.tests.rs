@@ -35,13 +35,16 @@ impl StandIn {
             "REVIEW_AGENT_E2E_STANDIN={}",
             root.join("standin").display()
         );
+        // Claude Code runs the hooks of the reviewer's plugin.
+        let plugin = "REVIEW_AGENT_E2E_HOOKS=1".to_owned();
         match self {
             Self::Plain => Vec::new(),
             Self::Forkable => vec![
                 stand_in,
+                plugin,
                 format!("CLAUDE_CONFIG_DIR={}", root.join("claude-config").display()),
             ],
-            Self::ForkedForReal => vec![stand_in],
+            Self::ForkedForReal => vec![stand_in, plugin],
         }
     }
 
@@ -634,22 +637,23 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
 }
 
 #[test]
-fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
-    // The switch waits for Herdr a moment, in place of 20 seconds: Herdr never confirms it.
+fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
+    // The switch waits a second, in place of 20: neither the agent's hook nor Herdr confirms
+    // it. The agent's move back to its own session, which they confirm, gets as long.
     let mut run = RunAheadFlow::start_with(claude_fork::ForkWaits {
-        resume: Duration::from_millis(200),
+        resume: Duration::from_secs(1),
         ..test_waits()
     });
     run.flow.turn(None, 1);
     let sessions = run.wait_for_forks(2);
     let fork = sessions[0].clone();
     run.fork_submits(&fork);
-    fs::write(run.root().join("unreported-resumes"), "").unwrap();
+    fs::write(run.root().join("unreported-resume"), "").unwrap();
     let prompts = run.herdr().prompts().len();
 
     let request = run.answer_bare("keep");
 
-    // The switch waits for Herdr in vain, then the agent goes back to its own session.
+    // The switch waits in vain, then the agent goes back to its own session.
     run.wait_for_saved("the switch undone", |saved| {
         matches!(saved.forks[0].continued, Some(Continuation::Undone { .. })).then_some(())
     });
@@ -663,7 +667,6 @@ fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_s
     let saved = run.wait_for_questions(1);
     assert_eq!(saved.exploration.conversation.len(), 1);
 
-    fs::remove_file(run.root().join("unreported-resumes")).unwrap();
     run.flow
         .fixture
         .explore(ExploreCommand::Retry(Box::new(request.clone())));

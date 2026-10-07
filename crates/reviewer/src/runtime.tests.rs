@@ -274,6 +274,17 @@ impl IsolatedHerdrServer {
         self.server.client()
     }
 
+    /// Where the hooks of the agents of this server reach a reviewer, as a hook in one of its
+    /// panes finds it.
+    fn hook_directory(&self) -> agent_hooks::HookDirectory {
+        let variable =
+            |name: &str| PathBuf::from(&self.server.environment()[std::ffi::OsStr::new(name)]);
+        agent_hooks::HookDirectory::for_server(
+            &variable("XDG_RUNTIME_DIR"),
+            &variable("HERDR_SOCKET_PATH"),
+        )
+    }
+
     /// What the stand-ins report.
     fn events(&self) -> &StandInEvents {
         &self.events
@@ -551,6 +562,7 @@ fn e2e_agent_process() {
         binary,
         pane: pane_id,
         agent: agent.clone(),
+        plugin: std::env::var_os("REVIEW_AGENT_E2E_HOOKS").is_some(),
         report: Arc::clone(&report),
     };
     if let Ok(session) = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
@@ -599,7 +611,7 @@ fn e2e_agent_process() {
 
 /// The prompts the test agent reads, and what it does with each.
 struct AgentPrompts {
-    /// The directory of the test's switches, such as `unreported-resumes`.
+    /// The directory of the test's switches, such as `unreported-resume`.
     directory: PathBuf,
     transcript: run_ahead::StandInTranscript,
     turns: AgentTurns,
@@ -620,9 +632,9 @@ impl AgentPrompts {
             self.report.report(&StandInEvent::ResumeReceived {
                 session: session.to_owned(),
             });
-            // While this file exists, Herdr never hears of the resume, as when Claude Code's
-            // session hook fails or comes too late.
-            if !self.directory.join("unreported-resumes").exists() {
+            // This file keeps Herdr and the reviewer from hearing of the next resume, as when
+            // Claude Code's session hooks fail or come too late.
+            if fs::remove_file(self.directory.join("unreported-resume")).is_err() {
                 self.hook.report(session, "resume");
             }
             return;
@@ -636,16 +648,28 @@ impl AgentPrompts {
 }
 
 /// Reports the test agent's session to Herdr as Claude Code's session hook does: from
-/// Claude Code's `startup` or `resume`, each report newer than the last.
+/// Claude Code's `startup` or `resume`, each report newer than the last. With the reviewer's
+/// `plugin`, its hook tells the reviewer first, through `reviewer-control`, as Claude Code
+/// runs it: Herdr may hear of the session after the reviewer.
 struct SessionHook {
     binary: std::ffi::OsString,
     pane: String,
     agent: String,
+    plugin: bool,
     report: Arc<StandInConnection>,
 }
 
 impl SessionHook {
     fn report(&self, session: &str, start: &str) {
+        if self.plugin {
+            run_plugin_hook(&serde_json::json!({
+                "session_id": session,
+                "transcript_path": "",
+                "cwd": std::env::current_dir().unwrap(),
+                "hook_event_name": "SessionStart",
+                "source": start,
+            }));
+        }
         let sequence = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -675,6 +699,25 @@ impl SessionHook {
             start: start.to_owned(),
         });
     }
+}
+
+/// Runs the hook of the reviewer's Claude Code plugin on Claude Code's event `event`, as
+/// Claude Code does, and returns what it printed.
+fn run_plugin_hook(event: &serde_json::Value) -> String {
+    let mut hook = Command::new(effects::fixture::test_fork_tools().control)
+        .arg(claude_hooks::SUBCOMMAND)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    hook.stdin
+        .take()
+        .unwrap()
+        .write_all(event.to_string().as_bytes())
+        .unwrap();
+    let output = hook.wait_with_output().unwrap();
+    assert!(output.status.success(), "the plugin's hook failed");
+    String::from_utf8(output.stdout).unwrap()
 }
 
 #[test]
@@ -852,6 +895,7 @@ impl ReviewFlowFixture {
             setup.target =
                 AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone()));
             setup.endpoint = Ok(endpoint);
+            setup.run_ahead.hooks = Some(herdr.hook_directory());
             adjust(setup);
         });
         let review_unit = runtime.refreshed_checkpoint().review_unit;

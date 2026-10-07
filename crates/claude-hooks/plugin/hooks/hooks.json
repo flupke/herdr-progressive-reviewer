@@ -1,0 +1,17 @@
+{
+  "description": "Each hook hands the event, with the agent's Herdr pane, to the reviewers of its Herdr server.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.control}",
+            "args": ["agent-hook"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

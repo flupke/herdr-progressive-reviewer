@@ -36,7 +36,12 @@ The stand-in agent of a second pane connects as `StandInRole::SecondAgent`
 (`REVIEW_AGENT_E2E_ROLE=second`). The test's switches that must reach the agent before a
 prompt, in the order Herdr types them, stay files in the server's directory, which the agent
 reads as it reads the prompt: `swallow` makes it read each prompt without starting on it,
-`unreported-resumes` keeps Herdr from hearing of its `/resume`.
+`unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`.
+
+The Claude Code stand-in of the run-ahead tests (`REVIEW_AGENT_E2E_HOOKS`) runs the hook of the
+reviewer's Claude Code plugin as Claude Code does, through the `reviewer-control` that Cargo
+built beside the test binary: the tests take the hooks' real path to the reviewer, whose
+`RunAheadSetup.hooks` names the directory of the test's Herdr server.
 
 ### Proving that nothing happened
 
@@ -92,8 +97,8 @@ records each fork's process before it takes another input, so once the forks rep
 ## Waits the tests inject
 
 - `ForkWaits` (claude-fork, through `RunAheadSetup.waits`): the run-ahead tests ask Herdr
-  where the agent stands every 10 ms, and the switch that Herdr never confirms waits 200 ms
-  for Herdr instead of 20 s.
+  where the agent stands every 10 ms, and the switch that the agent never confirms waits 1 s
+  instead of 20 s.
 - `talk_quiet` (the session's `Collaborators`, through `RunAheadSetup.talk_quiet`): the quiet
   minute after a talk in the round conversation before run-ahead forks again is zero in the
   reviewer's tests. The session's tests keep the minute and end it by hand (`end_quiet_wait`),

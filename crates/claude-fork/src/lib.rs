@@ -6,7 +6,8 @@
 //! `PreToolUse` hook keeps it read-only: a hook leaves the tool list, and so the prompt cache,
 //! as the agent has them. [`ClaudeForks`] is the [`review_run_ahead::ForkHost`] that starts,
 //! follows and stops them, reads the agent's input box off its screen, and switches the agent to
-//! a fork's session with Claude Code's own `/resume`.
+//! a fork's session with Claude Code's own `/resume`, which the hooks of the reviewer's Claude
+//! Code plugin confirm (`agent_hooks`).
 
 mod arguments;
 mod guard;

@@ -125,9 +125,9 @@ pub trait ForkHost: Send + Sync {
     /// Switches the agent of `switch.pane` to the session of the fork `switch.fork`, on a
     /// thread of its own. Once the fork's submit has its answer, or its process ended, it stops
     /// the fork's process and keeps its transcript; then, with the agent idle and its input box
-    /// empty, it has the agent resume the fork's session, and waits until Herdr reports the
-    /// agent on that session and ready for a prompt. `done` gets the agent as Herdr then
-    /// reports it, or why the switch failed.
+    /// empty, it has the agent resume the fork's session, and waits until the agent's hook says
+    /// that it did, and Herdr reports the agent on that session and ready for a prompt. `done`
+    /// gets the agent as Herdr then reports it, or why the switch failed.
     fn switch(
         &self,
         switch: SwitchTo<'_>,
@@ -135,10 +135,10 @@ pub trait ForkHost: Send + Sync {
     );
 
     /// Has the agent of `pane`, idle with an empty input box, resume the session `session`, on
-    /// a thread of its own, and waits until Herdr reports the agent on that session and ready
-    /// for a prompt, as [`ForkHost::switch`] does once the fork stopped: it puts the agent back
-    /// on the session its forks were taken from. `done` gets the agent as Herdr then reports
-    /// it, or why it was not put back.
+    /// a thread of its own, and waits until the agent's hook says that it did, and Herdr reports
+    /// the agent on that session and ready for a prompt, as [`ForkHost::switch`] does once the
+    /// fork stopped: it puts the agent back on the session its forks were taken from. `done`
+    /// gets the agent as Herdr then reports it, or why it was not put back.
     fn resume(
         &self,
         pane: &PaneId,

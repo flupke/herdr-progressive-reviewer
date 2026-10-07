@@ -127,10 +127,20 @@ complexity:
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
+# The reviewer's Claude Code plugin (crates/claude-hooks), whose hooks tell run-ahead what the
+# agent does: its marketplace is a directory of this checkout, and its hooks run this checkout's
+# reviewer-control. An agent started before the install runs without them until it restarts.
+CLAUDE_MARKETPLACE = herdr-progressive-reviewer
+CLAUDE_PLUGIN = progressive-reviewer@$(CLAUDE_MARKETPLACE)
+
 # Builds and installs without running the checks: run the gate (AGENTS.md, step 5) first.
 install: build
 	bin/reviewer-control mcp-install
+	claude plugin marketplace add "$(CURDIR)/crates/claude-hooks"
+	claude plugin install $(CLAUDE_PLUGIN) --config control="$(CURDIR)/bin/reviewer-control"
 	herdr plugin link . --enabled
 
 uninstall:
 	herdr plugin unlink herdr.progressive-reviewer
+	claude plugin uninstall $(CLAUDE_PLUGIN)
+	claude plugin marketplace remove $(CLAUDE_MARKETPLACE)

@@ -1,19 +1,18 @@
 [package]
-name = "claude-fork"
+name = "agent-hooks"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Forks of a Claude Code session in a Herdr pane, for run-ahead."
+description = "The events the hooks of an agent in a Herdr pane send to the reviewers of its Herdr server."
 
 [dependencies]
-agent-fork = { path = "../agent-fork" }
-agent-hooks = { path = "../agent-hooks" }
 herdr-client = { path = "../herdr-client" }
-review-run-ahead = { path = "../review-run-ahead" }
+rustix = { version = "1.1", default-features = false, features = ["std", "process"] }
+serde.workspace = true
 serde_json.workspace = true
-time.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

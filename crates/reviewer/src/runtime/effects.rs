@@ -70,6 +70,9 @@ pub(super) struct RunAheadSetup {
     /// How long the reviewer's talk with the agent in the round conversation stays quiet
     /// before run-ahead takes forks again.
     pub(super) talk_quiet: std::time::Duration,
+    /// Where the hooks of the agents of Herdr's server reach the reviewer; `None` when it is
+    /// not known.
+    pub(super) hooks: Option<agent_hooks::HookDirectory>,
 }
 
 impl RunAheadSetup {
@@ -80,6 +83,7 @@ impl RunAheadSetup {
             self.tools,
             self.log,
             self.waits,
+            self.hooks.as_ref(),
         ))
     }
 }

@@ -1,0 +1,17 @@
+{
+  "name": "progressive-reviewer",
+  "version": "0.1.0",
+  "description": "Tells the progressive reviewer what the agent in its Herdr pane does, for run-ahead. Outside Herdr, or with no reviewer open, its hooks do nothing.",
+  "author": {
+    "name": "Luper Rouch"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "control": {
+      "type": "string",
+      "title": "reviewer-control",
+      "description": "The reviewer-control program of the reviewer's installation, which each hook runs.",
+      "required": true
+    }
+  }
+}
