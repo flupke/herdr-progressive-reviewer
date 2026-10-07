@@ -198,3 +198,26 @@ fn a_reopened_reviewer_starts_once_the_old_one_has_stopped() {
         .unwrap();
     assert_eq!(reply["isError"], false, "{reply}");
 }
+
+#[test]
+fn a_reviewer_process_that_already_ended_counts_as_stopped() {
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    ended.wait().unwrap();
+    terminate(ended.id()).unwrap();
+}
+
+#[test]
+fn a_running_reviewer_process_is_asked_to_stop() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut running = std::process::Command::new("sleep")
+        .arg("600")
+        .spawn()
+        .unwrap();
+    if let Err(error) = terminate(running.id()) {
+        running.kill().unwrap();
+        panic!("{error}");
+    }
+    // SIGTERM is 15 on Linux and macOS.
+    assert_eq!(running.wait().unwrap().signal(), Some(15));
+}

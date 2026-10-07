@@ -326,11 +326,10 @@ impl Session {
             .herdr()
             .pane_process_info(&PaneId(self.panes.reviewer.clone()))?
             .foreground_processes;
-        let status = std::process::Command::new("kill")
-            .arg("-TERM")
-            .args(processes.iter().map(|process| process.pid.to_string()))
-            .status()?;
-        ensure!(status.success(), "cannot stop the reviewer's processes");
+        ensure!(!processes.is_empty(), "the reviewer's pane runs no process");
+        for process in &processes {
+            terminate(process.pid)?;
+        }
         frames
             .wait_exit(&self.panes.reviewer, REACTION_GUARD)
             .map_err(|error| anyhow!("the reviewer did not stop: {error}"))
@@ -383,6 +382,26 @@ impl Session {
             .request("pane.send_text", &json!({"pane_id": pane, "text": text}))?;
         Ok(())
     }
+}
+
+/// Ask process `pid` to stop. A short-lived child of the reviewer, such as a jj command, can end
+/// between the listing of the pane's processes and its signal: a process that is gone counts as
+/// stopped. `ps` tells whether it is gone, which `kill -0` cannot when it is not allowed to signal.
+fn terminate(pid: u32) -> Result<()> {
+    let pid = pid.to_string();
+    let succeeds = |program: &str, arguments: &[&str]| {
+        std::process::Command::new(program)
+            .args(arguments)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+    };
+    ensure!(
+        succeeds("kill", &["-TERM", &pid])? || !succeeds("ps", &["-p", &pid])?,
+        "cannot stop the reviewer's process {pid}"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
