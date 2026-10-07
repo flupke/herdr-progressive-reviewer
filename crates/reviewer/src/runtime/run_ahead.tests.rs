@@ -544,10 +544,11 @@ impl RunAheadFlow {
         )
     }
 
-    /// The sessions the agent in the pane resumed, in order, once it read what was typed in
-    /// its pane so far.
+    /// The sessions the agent in the pane resumed, in order, once the reviewer sent every
+    /// prompt its inputs so far lead to and the agent read what was typed in its pane. A
+    /// `/resume` that a thread of the forks' host types later is not among them.
     fn resumed(&self) -> Vec<String> {
-        self.herdr().mark();
+        self.flow.fixture.settle();
         self.herdr().resumed()
     }
 }
@@ -629,13 +630,17 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
             .any(|pair| pair == ["--resume", fork.as_str()]),
         "forks of the next question copy the fork's session"
     );
+    // The agent resumed no other session: a settling move would type its `/resume` on a thread
+    // of its own, which no flush waits for, but run-ahead takes no forks while one runs, and it
+    // ends only once Herdr reports the agent where the `/resume` put it.
+    assert_eq!(run.resumed(), std::slice::from_ref(&fork));
 }
 
 #[test]
 fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
-    // The switch waits for Herdr a short while, in place of 20 seconds.
+    // The switch waits for Herdr a moment, in place of 20 seconds: Herdr never confirms it.
     let mut run = RunAheadFlow::start_with(claude_fork::ForkWaits {
-        resume: Duration::from_secs(2),
+        resume: Duration::from_millis(200),
         ..test_waits()
     });
     run.flow.turn(None, 1);
@@ -678,7 +683,8 @@ fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_s
             .contains("\"uuid\":\"prompt-2\""),
         "the answer reached the agent's own session"
     );
-    run.flow.fixture.settle();
+    // A settling move that started meanwhile holds the prompt until its `/resume` is read.
+    assert_eq!(run.resumed(), [fork.clone(), "session".to_owned()]);
     assert_eq!(
         run.herdr()
             .prompts()

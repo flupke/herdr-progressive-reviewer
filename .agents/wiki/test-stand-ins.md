@@ -14,7 +14,7 @@ removes the server's private directory.
 
 Subscribe to Herdr's events before the action whose event you wait for: a subscription holds
 once the call returns. Herdr detects an agent within about half a second, but reports a newly
-detected agent's first `idle` status about 3.5 s later: wait for `AgentDetected` when the
+detected agent's first `idle` status about 4.4 s later: wait for `AgentDetected` when the
 detection is what counts.
 
 ## The stand-in event socket
@@ -29,7 +29,8 @@ stand-in's process ended, however it ended, a fork the reviewer stopped included
 or on all of them together with `wait_until`: the prompts the agent read
 (`IsolatedHerdrServer::prompts`, `wait_for_prompts`), the sessions it resumed, the forks that
 started. To wait for what a new agent process reports, a test counts the events received
-before it starts it, and looks only after them.
+before it starts it, and looks only after them. Wait from one thread at a time: a second waiter
+may take the event the first waits for into the history while the first blocks on the socket.
 
 The stand-in agent of a second pane connects as `StandInRole::SecondAgent`
 (`REVIEW_AGENT_E2E_ROLE=second`). The test's switches that must reach the agent before a
@@ -43,9 +44,11 @@ To prove that a prompt did not reach the agent, `IsolatedHerdrServer::mark` send
 through Herdr, the path the reviewer's prompts take: what Herdr wrote in the pane before the
 marker, the agent reported before it. A prompt the reviewer is still to send comes after the
 marker, so the test first lets the reviewer send what it has: `ReviewFlowFixture::settle` and
-`ConversationFixture::settled_prompts` flush the repository worker, whose Explore session
-queues prompts, then the thread worker's prompt sender, whose courier types them, before the
-marker.
+`ConversationFixture::settled_prompts` flush the repository worker, whose Explore work queues
+prompts, then the thread worker's prompt sender, whose courier types them, before the marker.
+The flush does not wait for threads that work spawns: the forks' host types its `/resume`
+on threads of its own, and a thread waits for each Explore prompt's receipt. A test that says
+no other `/resume` came checks it once later work could not have started without it.
 
 ### Turns
 
@@ -55,7 +58,8 @@ returns once the agent says `TurnsHeld`), when the test ends it. An agent whose 
 reported to Herdr ends its turns at once, since Herdr does not read its title, until the test
 releases it (`release_agent`): the test tells the agent (`Release`), which says `Released`.
 Herdr says that it released an agent (`AgentDetected` with `released: true`) only when it did
-not detect the agent by name yet, which a loaded machine makes rare. Herdr 0.9.3 ignores a
+not detect the agent by name yet, which a loaded machine makes rare: a test that needs a Herdr
+event waits for one Herdr always sends, such as a pane's focus. Herdr 0.9.3 ignores a
 reported `working` state of an agent it detects by name, so a reported agent cannot show its
 turns: a prompt to it stalls for Herdr's 5 seconds.
 
@@ -88,13 +92,13 @@ records each fork's process before it takes another input, so once the forks rep
 ## Waits the tests inject
 
 - `ForkWaits` (claude-fork, through `RunAheadSetup.waits`): the run-ahead tests ask Herdr
-  where the agent stands every 10 ms, and the switch that Herdr never confirms waits 2 s for
-  Herdr instead of 20 s.
+  where the agent stands every 10 ms, and the switch that Herdr never confirms waits 200 ms
+  for Herdr instead of 20 s.
 - `HerdrClient::with_prompt_start_timeout`: the kickoff the agent does not start on waits
   200 ms for Herdr instead of Herdr's 5 seconds.
 
 ## What only Herdr's own timing decides
 
-Herdr's first `idle` for a newly detected agent, above, costs each test that starts or restarts
-an agent about 4 s, and Herdr takes 0.3 to 0.6 s to type a long prompt; the tests wait for
+Herdr's first `idle` for a newly detected agent, above, costs about 4.4 s for each agent a
+test starts or restarts: about 10 s in all for a test with a second agent. Herdr takes 0.3 to 0.6 s to type a long prompt; the tests wait for
 these events, which no injected value shortens.

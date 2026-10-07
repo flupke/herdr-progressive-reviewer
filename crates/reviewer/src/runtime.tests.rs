@@ -681,14 +681,35 @@ impl SessionHook {
 fn simultaneous_herdr_event_subscribers_stay_connected() {
     let repository = tempfile::tempdir().unwrap();
     let herdr = IsolatedHerdrServer::start(repository.path());
+    let split = herdr.server.run_cli_json(&[
+        "pane",
+        "split",
+        &herdr.pane_id.0,
+        "--direction",
+        "right",
+        "--no-focus",
+    ]);
+    let other = PaneId(
+        split["result"]["pane"]["pane_id"]
+            .as_str()
+            .unwrap()
+            .to_owned(),
+    );
     let first = herdr.server.events();
     let second = herdr.server.events();
 
-    herdr.release_agent();
+    herdr.run_cli(&[
+        "pane",
+        "focus",
+        "--direction",
+        "right",
+        "--pane",
+        &herdr.pane_id.0,
+    ]);
 
     for subscriber in [&first, &second] {
-        subscriber.wait_for("the agent's release", |event| {
-            matches!(event, HerdrEvent::AgentDetected { released: true, .. })
+        subscriber.wait_for("the focus of the other pane", |event| {
+            *event == HerdrEvent::PaneFocused(other.clone())
         });
     }
 }
