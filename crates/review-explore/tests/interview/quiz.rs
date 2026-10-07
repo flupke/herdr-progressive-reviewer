@@ -95,10 +95,10 @@ fn an_item_needs_two_to_four_distinct_answers() {
 }
 
 #[test]
-fn a_quiz_holds_at_most_three_items() {
-    let quiz = ["one", "two", "three", "four"].map(item).to_vec();
-    assert!(refusal(quiz).contains("at most 3"));
-    assert!(concluded(["one", "two", "three"].map(item).to_vec()).is_ok());
+fn a_quiz_holds_any_number_of_items() {
+    let quiz = ["one", "two", "three", "four", "five"].map(item).to_vec();
+    let (exploration, _) = concluded(quiz.clone()).unwrap();
+    assert_eq!(exploration.conclusion.unwrap().quiz, quiz);
 }
 
 #[test]

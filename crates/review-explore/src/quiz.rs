@@ -1,4 +1,4 @@
-//! The quiz a conclusion carries: a few questions at whiteboard level that check the reviewer
+//! The quiz a conclusion carries: questions at whiteboard level that check the reviewer
 //! can explain how the system works after the change, and what the reviewer answered.
 
 use std::collections::HashSet;
@@ -6,9 +6,6 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{Comparison, Conclusion, EvidenceRef, Exploration};
-
-/// The most items a quiz holds.
-const MOST_ITEMS: usize = 3;
 
 /// One question of a conclusion's quiz, about a scenario in the running system.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
@@ -126,7 +123,7 @@ impl QuizAnswers {
 }
 
 impl Conclusion {
-    /// A quiz of at most three items, each with its correct option and its proof, or an empty
+    /// A quiz of any number of items, each with its correct option and its proof, or an empty
     /// quiz that says why it is empty.
     pub(crate) fn validate_quiz(&self, comparison: &Comparison) -> eyre::Result<()> {
         let reason = self
@@ -144,10 +141,6 @@ impl Conclusion {
         eyre::ensure!(
             !reason,
             "quiz_empty_reason explains an empty quiz; leave it null when the quiz has items"
-        );
-        eyre::ensure!(
-            self.quiz.len() <= MOST_ITEMS,
-            "A quiz has at most {MOST_ITEMS} items"
         );
         self.quiz.iter().enumerate().try_for_each(|(index, item)| {
             item.validate(comparison)

@@ -124,11 +124,12 @@ evidence, most decisive first. Citing lines does not mark them reviewed.
 _Avoid_: source reference, inspection, supporting reference
 
 **Quiz**:
-The few questions at whiteboard level (architecture, algorithms, data storage, the
-data model) that the Explore agent submits with its conclusion, each with its correct
-answer, why, and the lines that prove it. The Explore page asks them one at a time
-before the conclusion and says at once whether each pick is correct; the reviewer may
-skip them. The round saves the picks. A change with nothing at that level gets no quiz.
+The questions at whiteboard level (architecture, algorithms, data storage, the
+data model), one for each key aspect of the change, that the Explore agent submits
+with its conclusion, each with its correct answer, why, and the lines that prove it.
+The Explore page asks them one at a time before the conclusion and says at once
+whether each pick is correct; the reviewer may skip them. The round saves the picks.
+A change with nothing at that level gets no quiz.
 _Avoid_: test, exam, check
 
 **Callout**:

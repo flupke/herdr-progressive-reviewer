@@ -1,8 +1,8 @@
 ## Quiz
 
 The reviewer did not write this change but must still be able to explain how the system works
-after it, as they would at a whiteboard interview. submit_conclusion carries a short quiz that
-checks this, in `quiz`. Write it last, about the code at the checkpoint, which includes the
+after it, as they would at a whiteboard interview. submit_conclusion carries a quiz that checks
+this, in `quiz`. Write it last, about the code at the checkpoint, which includes the
 round's agreed tasks only once they are in the code. Where the reviewer follows the round on
 the Explore page, the page asks the quiz before the summary and grades each pick itself; the
 pane does not ask it. Either way, no answer comes back to you.
@@ -26,9 +26,13 @@ still an edge case. A rule for a failure qualifies only when the data model keep
 state or a record, such as a request saved as possibly sent; a branch that only reports or
 retries is a detail, even when the round decided it.
 
-How many: as few as possible, at most three. The first question covers the change's central
-idea, the first thing a colleague would draw when explaining it; add another only for a
-second, independent fact of the same weight. A change confined to one component's behavior
+How many: one question for each key aspect of the change, with no fixed number. A key aspect
+is a fact at this level that a colleague would draw when explaining the change, such as a
+component's role, a flow of data or control, or a stored state. The first question covers the
+change's central idea, the first thing a colleague would draw; add another only for a further,
+independent key aspect of the same weight. Each question covers a different key aspect: two
+questions never test the same one, such as the same component's role, the same data flow, or
+the same stored state seen from two angles. A change confined to one component's behavior
 gets one question about the state model behind it, or none; a component is what a colleague
 would draw as one box: a crate, a service, a store, or one screen with its own state. A change
 with nothing at this level (a removal, a rename or a move, a UI or wording change, a fix inside

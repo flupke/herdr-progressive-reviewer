@@ -138,7 +138,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Conclude Explore on its own screen. Separate summary, to_be_implemented (only agreed tasks, editable by the human), and future_work (optional or later work). quiz holds at most three whiteboard-level questions for the human, or is empty with quiz_empty_reason saying why. Preserve the final answer's interpretation and mark the lines it settled in reviewed and reopened, and the lines read that hold no decision in not_relevant, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. This records the conclusion; only the human's Implement action authorizes implementation. Repair validation errors in the same request; retry transport failures with identical arguments."
+        description = "Conclude Explore on its own screen. Separate summary, to_be_implemented (only agreed tasks, editable by the human), and future_work (optional or later work). quiz holds one whiteboard-level question for the human per key aspect of the change, or is empty with quiz_empty_reason saying why. Preserve the final answer's interpretation and mark the lines it settled in reviewed and reopened, and the lines read that hold no decision in not_relevant, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. This records the conclusion; only the human's Implement action authorizes implementation. Repair validation errors in the same request; retry transport failures with identical arguments."
     )]
     async fn submit_conclusion(
         &self,

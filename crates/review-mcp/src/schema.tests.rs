@@ -185,6 +185,11 @@ fn the_conclusion_tool_takes_its_sections_and_marks() {
         schema["properties"]["quiz"]["items"]["$ref"],
         "#/$defs/QuizItem"
     );
+    assert!(
+        schema["properties"]["quiz"].get("maxItems").is_none(),
+        "the quiz has no fixed maximum: {}",
+        schema["properties"]["quiz"]
+    );
     let item = &schema["$defs"]["QuizItem"];
     for field in ["question", "answers", "correct", "why", "proof", "level"] {
         assert!(
