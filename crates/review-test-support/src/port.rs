@@ -2,6 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::net::{Ipv4Addr, TcpListener};
+use std::path::Path;
 
 use fs2::FileExt;
 
@@ -32,8 +33,8 @@ impl TestPort {
     /// Lease a derived endpoint without changing the discovery route under test.
     pub fn reserve(port: u16) -> Option<Self> {
         assert_ne!(port, 0, "A port lease needs a fixed port number");
-        let directory = std::env::temp_dir().join("progressive-reviewer-test-ports");
-        std::fs::create_dir_all(&directory).unwrap();
+        let directory = lock_directory();
+        std::fs::create_dir_all(directory).unwrap();
         let lock = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -56,4 +57,11 @@ impl TestPort {
     pub fn number(&self) -> u16 {
         self.port
     }
+}
+
+/// Where every test run on this machine locks its ports. Port numbers are machine-wide, while
+/// `TMPDIR` differs between gates run at once, and `XDG_RUNTIME_DIR` between environments and
+/// sandboxes, so the locks stay out of both.
+fn lock_directory() -> &'static Path {
+    Path::new("/tmp/progressive-reviewer-test-ports")
 }
