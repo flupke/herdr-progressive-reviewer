@@ -32,9 +32,9 @@ main.swiping > .screen { will-change: transform; }
 .swipe-edge.right { right: 0; }
 .swipe-edge.lit { opacity: 1; }
 
-/* The design's bar, pinned to the bottom of the window, would follow the dragged screen to its
-   end: it waits for the swipe to end. */
-main.swiping .design-bar { visibility: hidden; }
+/* The design's bar and the quiz's Previous and Next, pinned to the bottom of the window, would follow the
+   dragged screen to its end: they wait for the swipe to end. */
+main.swiping .design-bar, main.swiping .quiz-moves { visibility: hidden; }
 
 /* The chips of the screens beside the one the page shows, which a swipe turns to, show on the
    rail as the reference capture draws them (12a-phone-swipe.png): "✓ Design ▾ · ✓ Q1 · Q2". */

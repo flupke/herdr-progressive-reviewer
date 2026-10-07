@@ -702,8 +702,17 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'quiz-checked-earlier',
+    about:
+      'During the quiz, the reviewer went back to the first item, checked already: its verdict, marked answers and proof, read only, with Next question back to the second.',
+    async reach(session, page) {
+      await quizRightThenWrong(session, page);
+      await submit(page, 'Previous');
+    },
+  },
+  {
     name: 'conclusion-quiz-results',
-    about: 'The reviewer skipped the last item: the conclusion, with the results of the quiz.',
+    about: 'The reviewer skipped the last item: the conclusion, with the score of the quiz in its panel and the quiz done on the rail.',
     async reach(session, page) {
       await quizRightThenWrong(session, page);
       await submit(page, 'Skip the quiz');
@@ -711,11 +720,22 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'conclusion-quiz-answers',
-    about: 'The results of the quiz opened from the score: each item with its verdict, its marked answers and its proof.',
+    about:
+      'The answered quiz opened from the score: its first item, read only, with the score and the way back to the conclusion; the rail shows the quiz in view.',
     async reach(session, page) {
       await quizRightThenWrong(session, page);
       await submit(page, 'Skip the quiz');
-      await page.getByRole('button', { name: 'The answers, question by question' }).click();
+      await submit(page, 'See the answers');
+    },
+  },
+  {
+    name: 'quiz-answered-skipped',
+    about: 'The answered quiz at the item the reviewer skipped, opened from its dot: Skipped., the correct answer, the proof.',
+    async reach(session, page) {
+      await quizRightThenWrong(session, page);
+      await submit(page, 'Skip the quiz');
+      await submit(page, 'See the answers');
+      await submit(page, 'Question 3, skipped');
     },
   },
   {

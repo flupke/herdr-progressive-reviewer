@@ -175,7 +175,8 @@ A browser page, served by the open review pane, that shows the current state of
 its Explore round: no round, a round starting or failing to start, the agent
 working, the agent's question with its choices, a turn the agent is no longer
 working on, or the conclusion with its quiz; and, on screens of their own, the
-design explanation and each earlier question. It follows the round as it changes.
+design explanation, each earlier question and the answered quiz. It follows the round as
+it changes.
 The reviewer can run the whole round there, as in the pane: start it, answer,
 stop waiting, retry, cancel an answer, implement it and reset it; and write in the
 round conversation. Its address carries a token, and the page refuses requests without it.
@@ -200,7 +201,8 @@ _Avoid_: web session, web round
 The steps of an Explore round as the Explore page lists them: the design
 explanation, each question the agent posted with its clarified versions, the
 quiz and the conclusion, each done, current or later. Each done question opens its
-earlier question. Its question steps are numbered Q1, Q2 and so on, and the agent
+earlier question, and the done quiz the quiz as the reviewer answered it, unless the
+reviewer skipped it without an answer. Its question steps are numbered Q1, Q2 and so on, and the agent
 names each question of the round by that number.
 _Avoid_: stepper, breadcrumb, progress bar (the meter is the lines reviewed)
 

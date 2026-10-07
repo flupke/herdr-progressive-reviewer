@@ -1,27 +1,51 @@
 // The conclusion's quiz (docs/design/explore-page/README.md, "4. Quiz"; design review, finding
-// 18), before the conclusion, one item at a time, on the desk: the item as the headline under
-// "QUIZ · QUESTION 2 OF 3" and a dot for each item; in the panel the answers and Check. After
-// Check, the panel opens with the verdict, each answer carries its mark (a glyph and a word: ✓
-// Correct, ✗ Your pick), the proof joins the reading column, and the panel offers one next step,
-// Next question (Show the conclusion after the last item), with a quiet Skip the quiz. Once every
-// item is answered or skipped, the results fold beside the conclusion (quizResults).
+// 18), one item at a time, on the desk: the item as the headline under "QUIZ · QUESTION 2 OF 3"
+// and a dot for each item; in the panel the answers and Check. After Check, the panel opens with
+// the verdict, each answer carries its mark (a glyph and a word: ✓ Correct, ✗ Your pick), the
+// proof joins the reading column, and the panel offers one next step, Next question (Show the
+// conclusion after the last item), with a quiet Skip the quiz.
 //
-// Which item shows is the page's own state: after a pick, the item just answered shows until the
-// reviewer moves on, and the rail names that item (railShowing).
+// One screen draws the quiz, in two modes. While the quiz asks, it is the round's stage, before
+// the conclusion. Once it is over, the answered quiz opens read only from the rail's quiz step or
+// from the score in the conclusion's panel (`#quiz-N`, route.js): each item with the reviewer's
+// pick, the correct answer, the verdict and the proof, under the score and the way back to the
+// conclusion.
+//
+// Previous, Next question and the dots in the eyebrow move between the items; on a phone the two
+// buttons sit in a bar at the bottom of the window. While the quiz asks, they reach the items
+// already checked, read only, and the next one to check, never one beyond it; once it is over,
+// every item. Which item shows while the quiz asks is the page's own state (page.js), and the
+// rail names that item (railShowing).
 
 /** @import { QuizView, QuizItemView, QuizAnswerView, RailStep } from "./types.ts" */
 /** @import { Turn } from "./turn.js" */
 
 import { choiceCards, plainChoices } from './choices.js';
 import { citation } from './citations.js';
-import { disclosure, openDisclosure } from './disclosure.js';
 import { codeSpans, h, keyOf, Region } from './dom.js';
+import { STAGE } from './route.js';
 import { turnStrip } from './turn.js';
+
+/**
+ * The quiz item the page shows while the quiz asks, from 0, in the conclusion of the request
+ * `conclusion`.
+ * @typedef {{ conclusion: string, item: number }} QuizAt
+ */
+
+/**
+ * Which item the quiz screen shows, in which mode, and where its buttons lead.
+ * @typedef {object} QuizShowing
+ * @property {number} shown the item shown, from 0
+ * @property {boolean} asking whether the quiz asks for answers: the screen is the round's stage;
+ *   else it shows the answered quiz, read only
+ * @property {(item: number) => void} open shows the item `item`, from 0
+ * @property {() => void} done leaves the quiz for the conclusion, once every item is checked
+ */
 
 export class QuizScreen {
   constructor() {
     this.element = h('section', { class: 'quiz desk', id: 'quiz', 'aria-labelledby': 'quiz-label' });
-    // The previous turn, above the quiz it led to.
+    // The previous turn, above the quiz it led to, while the quiz is the round's stage.
     this.turn = new Region(this.element, 'turn');
     this.head = new Region(this.element, 'head');
     this.panel = new Region(this.element, 'panel');
@@ -34,31 +58,59 @@ export class QuizScreen {
   /**
    * @param {QuizView} quiz
    * @param {string} conclusion the request of the turn that posted the conclusion
-   * @param {number} shown the item shown, from 0
    * @param {Turn} turn the turn that led to the conclusion
-   * @param {() => void} next moves on from an answered item
+   * @param {QuizShowing} showing
    */
-  update(quiz, conclusion, shown, turn, next) {
+  update(quiz, conclusion, turn, showing) {
+    const { shown, asking } = showing;
     const item = /** @type {QuizItemView} */ (quiz.items[shown]);
     const checked = item.picked_correct !== null;
-    const asks = quiz.next !== null;
-    this.turn.show(keyOf(turn), () => turnStrip(turn));
+    this.turn.show(asking ? keyOf(turn) : null, () => turnStrip(turn));
+    const reach = quiz.items.map((_, index) => itemOpens(quiz, index, asking));
     const marks = quiz.items.map((each) => each.picked_correct);
-    this.head.show(keyOf([shown, item.question, marks]), () => head(quiz, item));
-    this.panel.show(keyOf([conclusion, item, asks]), () =>
-      checked ? answeredPanel(item, conclusion, asks, next) : pickPanel(item, conclusion, asks),
-    );
-    this.proof.show(keyOf([shown, checked ? item.proof : null]), () => (checked ? proof(item) : null));
-    // The next item starts at its headline, where the reviewer reads it from.
+    this.head.show(keyOf([shown, item.question, marks, reach, asking, quiz.skipped]), () => head(quiz, showing, reach));
+    this.panel.show(keyOf([conclusion, shown, quiz, asking]), () => panel(quiz, item, conclusion, showing, reach));
+    const proven = checked || !asking;
+    this.proof.show(keyOf([shown, proven ? item.proof : null]), () => (proven ? proof(item) : null));
     if (this.shown !== null && this.shown !== shown) {
+      // The next item starts at its headline, where the reviewer reads it from.
+      if (this.element.getBoundingClientRect().top < 0) this.element.scrollIntoView({ block: 'start' });
+      // The control that moved to another item keeps the focus (dom.js) while it can still act;
+      // else the reviewer goes on from the headline.
       const headline = this.element.querySelector('.quiz-item');
-      if (headline instanceof HTMLElement) {
-        if (this.element.getBoundingClientRect().top < 0) this.element.scrollIntoView({ block: 'start' });
+      if (!this.element.contains(document.activeElement) && headline instanceof HTMLElement) {
         headline.focus({ preventScroll: true });
       }
     }
     this.shown = shown;
   }
+}
+
+/**
+ * Whether the item `index` (from 0) opens: any item once the quiz is over; while it asks, an item
+ * already checked, and the next one to check.
+ * @param {QuizView} quiz
+ * @param {number} index
+ * @param {boolean} asking
+ */
+export function itemOpens(quiz, index, asking) {
+  const item = quiz.items[index];
+  if (!item) return false;
+  return !asking || item.picked_correct !== null || index === quiz.next;
+}
+
+/**
+ * Whether the rail's quiz step opens the answered quiz: once the reviewer answered or skipped
+ * every item, unless the reviewer skipped the quiz without answering any.
+ * @param {RailStep} step
+ */
+export function quizOpens(step) {
+  return (
+    step.step.kind === 'quiz' &&
+    step.state.kind === 'done' &&
+    step.step.stage.kind === 'scored' &&
+    step.step.stage.answered > 0
+  );
 }
 
 /**
@@ -87,10 +139,12 @@ export function railShowing(rail, shown, items) {
  * "QUIZ · QUESTION 2 OF 3" with a dot for each item, the item as the headline, and the line that
  * says the quiz marks nothing; before Check, that its proof shows after.
  * @param {QuizView} quiz
- * @param {QuizItemView} item
+ * @param {QuizShowing} showing
+ * @param {boolean[]} reach which items open
  */
-function head(quiz, item) {
-  const checked = item.picked_correct !== null;
+function head(quiz, showing, reach) {
+  const item = /** @type {QuizItemView} */ (quiz.items[showing.shown]);
+  const before = showing.asking && item.picked_correct === null;
   return h(
     'header',
     { class: 'quiz-head' },
@@ -98,14 +152,14 @@ function head(quiz, item) {
       'p',
       { class: 'eyebrow quiz-eyebrow' },
       h('span', { id: 'quiz-label' }, `Quiz · Question ${item.number} of ${quiz.items.length}`),
-      dots(quiz.items),
+      dots(quiz, showing, reach),
     ),
     h('h2', { class: 'quiz-item', tabindex: -1 }, codeSpans(item.question)),
     h(
       'p',
       { class: 'hint' },
       'The quiz checks what you took from the design; nothing here marks lines.',
-      checked ? null : ' Its proof shows once you check your answer.',
+      before ? ' Its proof shows once you check your answer.' : null,
     ),
   );
 }
@@ -128,71 +182,144 @@ function outcomeOf(item) {
 }
 
 /**
- * A dot for each item: green when its pick was correct, red when wrong, an outline when not
- * answered yet. The colours say it at a glance; the dots' name says it in words.
- * @param {QuizItemView[]} items
+ * A dot for each item, which opens it: green when its pick was correct, red when wrong, an
+ * outline when not answered, ringed for the item shown. The colours say it at a glance; each
+ * dot's name says it in words.
+ * @param {QuizView} quiz
+ * @param {QuizShowing} showing
+ * @param {boolean[]} reach which items open
  */
-function dots(items) {
-  const words = items.map((item) => `question ${item.number} ${OUTCOMES[outcomeOf(item)].dotWords}`).join(', ');
-  const name = words.charAt(0).toUpperCase() + words.slice(1);
+function dots(quiz, showing, reach) {
+  const unanswered = !showing.asking && quiz.skipped ? 'skipped' : OUTCOMES.open.dotWords;
   return h(
     'span',
-    { class: 'quiz-dots', role: 'img', 'aria-label': name, title: name },
-    items.map((item) => h('span', { class: `dot ${OUTCOMES[outcomeOf(item)].dot}` })),
+    { class: 'quiz-dots', role: 'group', 'aria-label': 'Quiz questions' },
+    quiz.items.map((item, index) => {
+      const outcome = outcomeOf(item);
+      const name = `Question ${item.number}, ${outcome === 'open' ? unanswered : OUTCOMES[outcome].dotWords}`;
+      return h(
+        'button',
+        {
+          class: `dot ${OUTCOMES[outcome].dot}`,
+          type: 'button',
+          'aria-label': name,
+          title: name,
+          'aria-current': index === showing.shown ? 'step' : null,
+          disabled: !reach[index],
+          'data-focus-key': `quiz-dot-${item.number}`,
+          onclick: () => {
+            if (index !== showing.shown) showing.open(index);
+          },
+        },
+        h('span', { class: 'disc', 'aria-hidden': 'true' }),
+      );
+    }),
   );
 }
 
 /**
- * The panel before Check: the answers as choice cards, Check, which waits for a pick, and Skip
+ * The panel: what the item asks or what became of it, then Previous and the next step, then Skip
  * the quiz while there is a quiz to skip.
+ * @param {QuizView} quiz
  * @param {QuizItemView} item
  * @param {string} conclusion
- * @param {boolean} asks whether the quiz asks for more answers, which Skip the quiz declines
+ * @param {QuizShowing} showing
+ * @param {boolean[]} reach which items open
  */
-function pickPanel(item, conclusion, asks) {
-  const answers = plainChoices(item.answers.map((answer) => ({ id: String(answer.index), text: answer.text })));
-  return panel(
-    item,
-    h(
-      'form',
-      { class: 'quiz-pick', 'data-method': 'quiz', 'data-requires': 'answer' },
-      h('input', { type: 'hidden', name: 'conclusion', value: conclusion }),
-      h('input', { type: 'hidden', name: 'item', value: item.number - 1 }),
-      choiceCards(answers, { name: 'answer', legend: 'Answers' }),
-      h('button', { class: 'button primary block', type: 'submit' }, 'Check'),
-    ),
-    asks ? skipForm(conclusion) : null,
+function panel(quiz, item, conclusion, showing, reach) {
+  const { asking } = showing;
+  const checked = item.picked_correct !== null;
+  return h(
+    'section',
+    { class: 'quiz-panel panel', 'aria-label': `Your answer to quiz question ${item.number}` },
+    asking ? (checked ? checkedItem(item) : pick(item, conclusion)) : answeredItem(quiz, item),
+    moves(quiz, showing, reach),
+    asking && quiz.next !== null ? skipForm(conclusion) : null,
   );
 }
 
 /**
- * The panel after Check: the verdict, which the page brings into view, the answers with their
- * marks, then the next step.
+ * Before Check: the answers as choice cards, and Check, which waits for a pick.
  * @param {QuizItemView} item
  * @param {string} conclusion
- * @param {boolean} asks whether the quiz asks for more answers
- * @param {() => void} next
  */
-function answeredPanel(item, conclusion, asks, next) {
-  return panel(
-    item,
-    verdict(item, { role: 'status', tabindex: -1, 'data-shows': 'quiz' }),
+function pick(item, conclusion) {
+  const answers = plainChoices(item.answers.map((answer) => ({ id: String(answer.index), text: answer.text })));
+  return h(
+    'form',
+    { class: 'quiz-pick', 'data-method': 'quiz', 'data-requires': 'answer' },
+    h('input', { type: 'hidden', name: 'conclusion', value: conclusion }),
+    h('input', { type: 'hidden', name: 'item', value: item.number - 1 }),
+    choiceCards(answers, { name: 'answer', legend: 'Answers' }),
+    h('button', { class: 'button primary block', type: 'submit' }, 'Check'),
+  );
+}
+
+/**
+ * An item checked while the quiz asks: the verdict, which the page brings into view after Check,
+ * then the answers with their marks. Nothing changes the pick any more.
+ * @param {QuizItemView} item
+ */
+function checkedItem(item) {
+  return [verdict(item, { role: 'status', tabindex: -1, 'data-shows': 'quiz' }), answerList(item, 'quiz-answers-title')];
+}
+
+/**
+ * An item of the answered quiz: the score with the way back to the conclusion, the verdict, or
+ * "Skipped." for an item the reviewer skipped, then the answers with their marks.
+ * @param {QuizView} quiz
+ * @param {QuizItemView} item
+ */
+function answeredItem(quiz, item) {
+  return [
+    quizScore(quiz, { href: STAGE, words: 'Back to the conclusion' }),
+    verdict(item, {}, quiz.skipped ? 'Skipped.' : undefined),
     answerList(item, 'quiz-answers-title'),
+  ];
+}
+
+/**
+ * Previous, and the next step: Next question, or Show the conclusion once the reviewer checked
+ * the last item while the quiz asks. Next question is the primary action on an item checked
+ * while the quiz asks. Each is inactive where it leads nowhere.
+ * @param {QuizView} quiz
+ * @param {QuizShowing} showing
+ * @param {boolean[]} reach which items open
+ */
+function moves(quiz, showing, reach) {
+  const { shown, asking } = showing;
+  const item = /** @type {QuizItemView} */ (quiz.items[shown]);
+  const checked = item.picked_correct !== null;
+  const conclude = asking && checked && quiz.next === null && shown === quiz.items.length - 1;
+  const following = reach[shown + 1] === true;
+  return h(
+    'nav',
+    { class: 'quiz-moves', 'aria-label': 'Move between quiz questions' },
     h(
       'button',
-      { class: 'button primary block', type: 'button', onclick: next },
-      asks ? 'Next question' : 'Show the conclusion',
+      {
+        class: 'button secondary',
+        type: 'button',
+        disabled: shown === 0,
+        'data-focus-key': 'quiz-previous',
+        onclick: () => showing.open(shown - 1),
+      },
+      h('span', { class: 'arrow back', 'aria-hidden': 'true' }, '←'),
+      'Previous',
+    ),
+    h(
+      'button',
+      {
+        class: `button ${asking && checked ? 'primary' : 'secondary'}`,
+        type: 'button',
+        disabled: !conclude && !following,
+        'data-focus-key': 'quiz-next',
+        onclick: () => (conclude ? showing.done() : showing.open(shown + 1)),
+      },
+      conclude ? 'Show the conclusion' : 'Next question',
       h('span', { class: 'arrow', 'aria-hidden': 'true' }, '→'),
     ),
-    asks ? skipForm(conclusion) : null,
   );
-}
-
-/** The panel of the item, holding `children`.
- * @param {QuizItemView} item
- * @param {...import('./dom.js').Children} children */
-function panel(item, ...children) {
-  return h('section', { class: 'quiz-panel panel', 'aria-label': `Your answer to quiz question ${item.number}` }, children);
 }
 
 /** Skip the quiz: the conclusion shows, with the items left unanswered as skipped.
@@ -269,42 +396,29 @@ function proof(item) {
 }
 
 /**
- * The results of the quiz, beside the conclusion: the score as its heading, then, behind a fold,
- * each item with its verdict, its answers with their marks, and its proof.
+ * The quiz's score, which matters right at the Implement decision: warn below two-thirds, good
+ * from there, then a link: from the conclusion's panel to the answered quiz, and from the
+ * answered quiz back to the conclusion.
  * @param {QuizView} quiz
+ * @param {{ href: string, words: string }} link
  */
-export function quizResults(quiz) {
-  const unanswered = quiz.items.length - quiz.picked;
-  const missed = unanswered > 0 ? `, ${unanswered} ${quiz.skipped ? 'skipped' : 'not answered'}` : '';
-  const { element } = disclosure(
-    'The answers, question by question',
-    quiz.items.map((item) => {
-      const id = `quiz-result-${item.number}`;
-      return h(
-        'section',
-        { class: 'quiz-result', 'aria-labelledby': id },
-        h('h4', { class: 'eyebrow', id }, `Question ${item.number}`),
-        h('p', { class: 'quiz-result-item' }, codeSpans(item.question)),
-        verdict(item, {}, quiz.skipped ? 'Skipped.' : undefined),
-        answerList(item, `${id}-answers`),
-        item.proof.map((each, index) => citation(each, `${id}-proof-${index + 1}`)),
-      );
-    }),
-  );
+export function quizScore(quiz, link) {
+  const items = quiz.items.length;
+  const missed = quiz.picked - quiz.correct_picks;
+  const unanswered = items - quiz.picked;
+  const questions = (/** @type {number} */ count) => `${count} ${count === 1 ? 'question' : 'questions'}`;
+  const words = [
+    missed > 0 ? `You missed ${questions(missed)}.` : null,
+    unanswered > 0 ? `You ${quiz.skipped ? 'skipped' : 'did not answer'} ${questions(unanswered)}.` : null,
+  ].filter((part) => part !== null);
+  const tone = quiz.correct_picks * 3 >= items * 2 ? 'good' : 'warn';
   return h(
-    'section',
-    { class: 'quiz-results', id: 'quiz-results', 'aria-labelledby': 'quiz-results-title' },
-    h(
-      'h3',
-      { class: 'eyebrow', id: 'quiz-results-title' },
-      `Quiz · ${quiz.correct_picks} of ${quiz.items.length} correct${missed}`,
-    ),
-    element,
+    'p',
+    { class: `quiz-banner ${tone}` },
+    h('strong', {}, `Quiz ${quiz.correct_picks} of ${items}`),
+    ' ',
+    words.length > 0 ? words.join(' ') : 'Every answer was correct.',
+    ' ',
+    h('a', { href: link.href }, link.words),
   );
-}
-
-/** Opens the results of the quiz, from a link to them. */
-export function openQuizResults() {
-  const fold = document.querySelector('#quiz-results > .disclosure');
-  if (fold) openDisclosure(fold);
 }

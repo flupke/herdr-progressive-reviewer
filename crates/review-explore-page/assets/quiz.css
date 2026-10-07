@@ -1,39 +1,61 @@
 /* The quiz (docs/design/explore-page/README.md, "4. Quiz"; design review, finding 18), drawn by
    client/quiz.js on the desk: the item as the headline, the proof in the reading column after
-   Check; in the panel the verdict, the answers with their marks, and the next step. Every mark
-   has a glyph and a word beside its colour: ✓ and Correct, ✗ and Your pick, "Correct." and "Not
-   quite." on the verdict. The choice cards before Check are those of choices.css, the tags those
-   of tags.css, the proof's code frame that of citations.css.
+   Check; in the panel the verdict, the answers with their marks, then Previous and the next step.
+   The answered quiz, read only, opens the panel with the score. Every mark has a glyph and a word
+   beside its colour: ✓ and Correct, ✗ and Your pick, "Correct." and "Not quite." on the verdict.
+   The choice cards before Check are those of choices.css, the tags those of tags.css, the proof's
+   code frame that of citations.css.
 
      <section class="quiz desk" id="quiz" aria-labelledby="quiz-label">
        <header class="quiz-head">
          <p class="eyebrow quiz-eyebrow"><span id="quiz-label">Quiz · Question 2 of 3</span>
-           <span class="quiz-dots" role="img" aria-label="Question 1 correct, …"><span class="dot good"></span>…</span></p>
+           <span class="quiz-dots" role="group" aria-label="Quiz questions">
+             <button class="dot good" type="button" aria-label="Question 1, correct"><span class="disc"></span></button>…</span></p>
          <h2 class="quiz-item" tabindex="-1">…</h2>
          <p class="hint">The quiz checks what you took from the design; nothing here marks lines.</p>
        </header>
        <section class="quiz-panel panel" aria-label="Your answer to quiz question 2">
+         <p class="quiz-banner warn">…</p>  (the answered quiz only)
          <p class="verdict bad" role="status" tabindex="-1" data-shows="quiz"><span><strong>Not quite.</strong> …</span></p>
          <p class="eyebrow" id="quiz-answers-title">Answers</p>
          <ol class="quiz-answers" aria-labelledby="quiz-answers-title">
            <li class="choice quiz-answer wrong"><span class="mark" aria-hidden="true"></span><span class="choice-text">…</span>
              <span class="choice-tags"><span class="tag accent">Your pick</span></span></li>
          </ol>
-         <button class="button primary block" type="button">Next question <span aria-hidden="true">→</span></button>
+         <nav class="quiz-moves" aria-label="Move between quiz questions"><button class="button secondary">← Previous</button>
+           <button class="button primary">Next question →</button></nav>
          <form class="quiz-skip" data-method="quiz-skip">…<button class="button quiet" type="submit">Skip the quiz</button></form>
        </section>
        <section class="proof" aria-labelledby="quiz-2-proof"><h3 class="eyebrow" id="quiz-2-proof">Proof</h3>…</section>
      </section> */
 
 /* The head: "QUIZ · QUESTION 2 OF 3" with a 7-pixel dot for each item (green correct, red wrong,
-   an outline not answered yet), the item as the headline, and a muted line under it. */
+   an outline not answered yet), the item as the headline, and a muted line under it. Each dot is
+   a button that opens its item, with room around the dot for a finger, its item's dot ringed in
+   the accent; a dot whose item does not open yet is fainter. The buttons' room overlaps the line
+   above and below, so the eyebrow keeps its height. */
 .quiz-head { display: grid; gap: 8px; margin: 0 0 24px; }
-.quiz-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
-.quiz-dots { display: flex; gap: 5px; }
-.quiz-dots .dot { box-sizing: border-box; width: 7px; height: 7px; border-radius: 50%; }
-.quiz-dots .dot.good { background: var(--good); }
-.quiz-dots .dot.bad { background: var(--bad); }
-.quiz-dots .dot.pending { border: 1px solid color-mix(in srgb, var(--ink) 40%, transparent); }
+.quiz-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 6px; }
+.quiz-dots { display: flex; flex-wrap: wrap; margin-block: -8px; }
+.quiz-dots .dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.quiz-dots .dot:disabled { cursor: default; opacity: 0.45; }
+.quiz-dots .disc { box-sizing: border-box; width: 7px; height: 7px; border-radius: 50%; }
+.quiz-dots .dot.good .disc { background: var(--good); }
+.quiz-dots .dot.bad .disc { background: var(--bad); }
+.quiz-dots .dot.pending .disc { border: 1px solid color-mix(in srgb, var(--ink) 40%, transparent); }
+.quiz-dots .dot[aria-current] .disc { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--accent); }
+.quiz-dots .dot:hover:not(:disabled):not([aria-current]) { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.quiz-dots .dot:focus-visible { outline-offset: -2px; }
 .quiz-item { margin: 0; max-width: var(--measure); overflow-wrap: anywhere; text-wrap: pretty; }
 .quiz-item:focus { outline: none; }
 .quiz-head .hint { margin: 0; }
@@ -48,10 +70,43 @@
 .quiz .proof .citation .notes { margin-bottom: 8px; }
 .quiz .proof .code-frame { max-width: 960px; }
 
-/* The panel: the answers and Check, or after Check the verdict, the marked answers, and Next
-   question with the quiet Skip the quiz centred under it. */
+/* The panel: the answers and Check, or after Check the verdict and the marked answers; then
+   Previous and Next question side by side, Next taking the room, with the quiet Skip the quiz
+   centred under them. */
 .quiz-pick { display: grid; gap: 14px; }
 .quiz-skip { display: flex; justify-content: center; margin-top: -4px; }
+.quiz-moves { display: flex; gap: 8px; }
+.quiz-moves .button { flex: 1 1 auto; }
+.quiz-moves .button:last-child { flex-grow: 2; }
+.quiz-moves .arrow.back { margin-inline: 0 -3px; }
+
+/* The score of the answered quiz, at the top of its panel and of the conclusion's: warn below
+   two-thirds, good from there. */
+.quiz-banner {
+  --kind: var(--warn);
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--kind) 12%, transparent);
+  font-size: 14px;
+}
+.quiz-banner.good { --kind: var(--good); }
+.quiz-banner strong { margin-right: 4px; font-size: 16px; font-weight: 650; }
+
+/* On a phone, Previous and Next sit in a bar pinned to the bottom of the window, under the thumb,
+   and the quiz leaves room for it under its end. The bar waits for a swipe to end (swipe.css). */
+@media (max-width: 40rem) {
+  .quiz.desk { padding-bottom: 76px; }
+  .quiz-moves {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 3;
+    padding: 10px var(--gutter) 18px;
+    border-top: 1px solid var(--line);
+    background: var(--canvas);
+  }
+  .quiz-moves .button.secondary { background: var(--canvas); }
+}
 
 /* The verdict: a 20-pixel disc with its glyph, then the word in bold and why. */
 .verdict {
@@ -109,14 +164,3 @@
 .quiz-answer.correct .mark::before { content: "✓"; }
 .quiz-answer.wrong .mark { background: var(--bad); }
 .quiz-answer.wrong .mark::before { content: "✗"; }
-
-/* The results beside the conclusion: the score as an eyebrow, then, behind a fold, each item with
-   its verdict, its answers and its proof. Its short lines keep the width of a phrase; the code
-   takes the width it needs. */
-.quiz-results { margin: 28px 0 0; }
-.quiz-results > .eyebrow { margin: 0 0 8px; }
-.quiz-result { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 0 28px; }
-.quiz-result > h4.eyebrow { margin: 8px 0 -4px; }
-.quiz-result-item { margin: 0; max-width: var(--measure); font-weight: 600; overflow-wrap: anywhere; }
-.quiz-result .verdict, .quiz-result .quiz-answers { box-sizing: border-box; max-width: var(--phrase); }
-.quiz-result .citation { margin: 4px 0 0; }

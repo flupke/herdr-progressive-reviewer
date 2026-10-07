@@ -12,9 +12,10 @@
 // The rail and the tab title come from the round's overview, which the tool derives: every
 // question number here is a step of the rail, never a count of the question's versions. While
 // the quiz shows an item, the page hands over a rail whose quiz step names it (railShowing in
-// quiz.js). Each done question step opens its earlier question (route.js); while the page shows
-// the design or an earlier question, the rail shows that step as the one in view and the round's
-// own step as the next one, a link back to it. On a phone a swipe toward a screen fills its chip
+// quiz.js). Each done question step opens its earlier question, and the done quiz step the
+// answered quiz (route.js); while the page shows the design, an earlier question or the answered
+// quiz, the rail shows that step as the one in view and the round's own step as the next one, a
+// link back to it. On a phone a swipe toward a screen fills its chip
 // (swipe.js).
 
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
@@ -23,12 +24,13 @@ import { requestChat } from './chat.js';
 import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { revisionCode, revisionText } from './revision.js';
-import { earlierQuestion, STAGE } from './route.js';
+import { earlierQuestion, quizItem, STAGE } from './route.js';
 
 /** What the masthead has open: the design map, the menu, or nothing. */
 /** @typedef {'map' | 'menu' | null} Open */
-/** The screen the page shows other than the round's stage: the design, or an earlier question.
- * @typedef {{ kind: 'design' } | { kind: 'question', number: number } | null} Viewing */
+/** The screen the page shows other than the round's stage: the design, an earlier question, or
+ * the answered quiz.
+ * @typedef {{ kind: 'design' } | { kind: 'question', number: number } | { kind: 'quiz' } | null} Viewing */
 
 const RESET_HINT =
   'Reset closes this round for good: it is no longer shown, its agent can no longer post to it, and the page offers to start a new round. Its records stay saved.';
@@ -80,16 +82,17 @@ export class Masthead {
    * @param {Viewing} viewing the screen the page shows, other than the stage, which the rail then
    *   shows as the step in view, the round's own step next
    * @param {number} [unread] how many of the agent's replies the tab's title counts as unread
+   * @param {boolean} [quizLink] whether the rail's quiz step opens the answered quiz
    */
-  update(view, viewing, unread = 0) {
+  update(view, viewing, unread = 0, quizLink = false) {
     const cover = view.start !== null;
     this.review.show(keyOf([view.review, cover]), () => reviewLine(view.review, cover));
     const rail = view.rail;
     // A new step on the rail rebuilds it: "Design ▾" keeps the focus it had.
     const focused = document.activeElement === this.toggleOf('map');
-    this.rail.show(keyOf([rail, view.design, viewing]), () =>
+    this.rail.show(keyOf([rail, view.design, viewing, quizLink]), () =>
       rail.length > 0
-        ? railNav(rail, view.design, viewing, () => this.toggle('map'), () => this.close(false))
+        ? railNav(rail, view.design, viewing, quizLink, () => this.toggle('map'), () => this.close(false))
         : null,
     );
     if (focused && document.activeElement !== this.toggleOf('map')) this.toggleOf('map')?.focus();
@@ -292,15 +295,16 @@ function reviewParts(review) {
 
 /**
  * The round rail: done steps with a check, the current step with its state, later steps muted.
- * Each done question opens its earlier question.
+ * Each done question opens its earlier question, and the done quiz the answered quiz.
  * @param {RailStep[]} rail
  * @param {DesignView | null} design
  * @param {Viewing} viewing the screen the page shows other than the stage: its step then shows
  *   as current, and the round's own step as the next one, which leads back to the stage
+ * @param {boolean} quizLink whether the quiz step opens the answered quiz
  * @param {() => void} toggleMap
  * @param {() => void} closeMap
  */
-function railNav(rail, design, viewing, toggleMap, closeMap) {
+function railNav(rail, design, viewing, quizLink, toggleMap, closeMap) {
   return h(
     'nav',
     { class: 'rail', 'aria-label': 'Round' },
@@ -322,7 +326,7 @@ function railNav(rail, design, viewing, toggleMap, closeMap) {
           step.state.kind === 'current' && step.state.working ? ' · working' : null,
         ];
         const current = step.state.kind === 'current' ? 'step' : viewed ? 'page' : null;
-        const link = isDesign && design ? null : stepLink(step, viewing, name);
+        const link = isDesign && design ? null : stepLink(step, viewing, quizLink, name);
         // A step that is a link says it is the current one on its link.
         if (link && current) link.setAttribute('aria-current', current);
         return h(
@@ -330,7 +334,7 @@ function railNav(rail, design, viewing, toggleMap, closeMap) {
           {
             class: `step ${shown}${isDesign ? ' design-step' : ''}`,
             'aria-current': link ? null : current,
-            'data-screen': screenOf(step),
+            'data-screen': screenOf(step, quizLink),
           },
           isDesign && design
             ? [
@@ -356,15 +360,20 @@ function railNav(rail, design, viewing, toggleMap, closeMap) {
 }
 
 /**
- * A link for a step that leads to a screen: a done question to its earlier question, and the
- * round's own step back to the stage while the page shows another screen; `null` for another.
+ * A link for a step that leads to a screen: a done question to its earlier question, the quiz to
+ * the first item of the answered quiz when the page has it (page.js), and the round's own step
+ * back to the stage while the page shows another screen; `null` for another.
  * @param {RailStep} step
  * @param {Viewing} viewing
+ * @param {boolean} quizLink whether the quiz step opens the answered quiz
  * @param {(Node | string | null)[]} name
  */
-function stepLink(step, viewing, name) {
+function stepLink(step, viewing, quizLink, name) {
   if (step.step.kind === 'question' && step.state.kind === 'done' && !isViewed(step.step, viewing)) {
     return h('a', { class: 'step-link', href: earlierQuestion(step.step.number) }, name);
+  }
+  if (step.step.kind === 'quiz' && quizLink && !isViewed(step.step, viewing)) {
+    return h('a', { class: 'step-link', href: quizItem(1) }, name);
   }
   if (step.state.kind === 'current' && viewing) return h('a', { class: 'step-link', href: STAGE }, name);
   return null;
@@ -376,16 +385,20 @@ function stepLink(step, viewing, name) {
 function isViewed(step, viewing) {
   if (!viewing) return false;
   if (viewing.kind === 'design') return step.kind === 'design';
+  if (viewing.kind === 'quiz') return step.kind === 'quiz';
   return step.kind === 'question' && step.number === viewing.number;
 }
 
 /** The screen a step leads to, which a swipe names to fill the step's chip: `design`, an earlier
- * question's `question-N`, `round` for the round's own step, or `null`.
- * @param {RailStep} step */
-function screenOf(step) {
+ * question's `question-N`, `quiz` for the answered quiz, `round` for the round's own step, or
+ * `null`.
+ * @param {RailStep} step
+ * @param {boolean} quizLink whether the quiz step opens the answered quiz */
+function screenOf(step, quizLink) {
   if (step.state.kind === 'current') return 'round';
   if (step.step.kind === 'design') return 'design';
   if (step.step.kind === 'question' && step.state.kind === 'done') return `question-${step.step.number}`;
+  if (step.step.kind === 'quiz' && quizLink) return 'quiz';
   return null;
 }
 

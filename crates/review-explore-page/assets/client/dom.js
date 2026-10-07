@@ -2,7 +2,7 @@
 //
 // 1. One state, one entry point: the latest view from the tool is the only model, and
 //    `render(view)` in page.js draws it. What only the page knows (a notice, the quiz item just
-//    answered) lives beside it and is never overwritten by a push.
+//    answered or moved to) lives beside it and is never overwritten by a push.
 // 2. Stable regions: the page is a fixed list of regions, each marked by an anchor in its parent.
 //    A region is rebuilt only when its key changes; with the same key it stays as it is, so the
 //    nodes the reviewer uses (a text box, a selection, an open fold) survive every push.
@@ -13,7 +13,9 @@
 //    spans as code, still as text nodes.
 // 4. A text box's value is set only when it is built, from the reviewer's draft (drafts.js), and
 //    never on a push. A rebuild that takes the focus from a text box gives it back to the text
-//    box of the same draft in the new nodes, with its selection.
+//    box of the same draft in the new nodes, with its selection; and one that takes it from a
+//    control marked with `data-focus-key` gives it back to the control of the same key, when
+//    that control can still act.
 
 /**
  * @typedef {Record<string, string | number | boolean | null | undefined | EventListener>} Props
@@ -237,11 +239,20 @@ export function keyOf(data) {
 
 /**
  * Runs `change`, which may replace the node that has the focus, and gives the focus back to the
- * text box of the same draft (its `data-draft`), with its selection and scroll.
+ * text box of the same draft (its `data-draft`), with its selection and scroll, or to the control
+ * of the same `data-focus-key` unless it is disabled now.
  * @param {() => void} change
  */
 function keepingFocus(change) {
   const focused = document.activeElement;
+  const key = focused instanceof HTMLElement ? focused.dataset.focusKey : undefined;
+  if (key) {
+    change();
+    if (focused?.isConnected) return;
+    const again = document.querySelector(`[data-focus-key="${CSS.escape(key)}"]`);
+    if (again instanceof HTMLElement && !again.matches(':disabled')) again.focus({ preventScroll: true });
+    return;
+  }
   const draft = focused instanceof HTMLTextAreaElement ? focused.dataset.draft : undefined;
   if (!draft || !(focused instanceof HTMLTextAreaElement)) {
     change();

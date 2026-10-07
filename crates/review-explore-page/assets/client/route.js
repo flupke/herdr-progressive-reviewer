@@ -6,6 +6,9 @@
 //   the masthead has one);
 // - `#question-N` shows question N as the reviewer answered it, read only, while it is an earlier
 //   question of the round: the target of its done step on the rail;
+// - `#quiz-N` shows item N of the conclusion's quiz as the reviewer answered it, read only, once
+//   the quiz is over: the target of its done step on the rail and of the score beside the
+//   conclusion (while the quiz asks, the item it shows is the page's own state, page.js);
 // - any other fragment, or none, shows the round's current stage; `#round` names it, for a link
 //   back from the design.
 //
@@ -21,6 +24,7 @@ export const STAGE = '#round';
 
 const PART = /^#design-part-([1-9][0-9]*)$/;
 const QUESTION = /^#question-([1-9][0-9]*)$/;
+const QUIZ = /^#quiz-([1-9][0-9]*)$/;
 
 /** The address of part `number` of the design screen.
  * @param {number} number */
@@ -34,11 +38,17 @@ export function earlierQuestion(number) {
   return `#question-${number}`;
 }
 
+/** The address of item `number` (from 1) of the answered quiz.
+ * @param {number} number */
+export function quizItem(number) {
+  return `#quiz-${number}`;
+}
+
 /**
  * The screen the address asks for: the design, at one of its parts or at its top, an earlier
- * question, or the stage.
+ * question, an item of the answered quiz, or the stage.
  * @typedef {{ screen: 'design', part: number | null } | { screen: 'question', number: number }
- *   | { screen: 'stage' }} Route
+ *   | { screen: 'quiz', item: number } | { screen: 'stage' }} Route
  * @returns {Route} */
 export function route() {
   const hash = location.hash;
@@ -46,7 +56,9 @@ export function route() {
   const part = PART.exec(hash);
   if (part) return { screen: 'design', part: Number(part[1]) };
   const question = QUESTION.exec(hash);
-  return question ? { screen: 'question', number: Number(question[1]) } : { screen: 'stage' };
+  if (question) return { screen: 'question', number: Number(question[1]) };
+  const quiz = QUIZ.exec(hash);
+  return quiz ? { screen: 'quiz', item: Number(quiz[1]) } : { screen: 'stage' };
 }
 
 const storage = (() => {

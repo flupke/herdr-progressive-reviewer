@@ -7,16 +7,17 @@
 // leaves the rest as it is. "Not ready? Reply to the agent instead" opens the chat (chat.js),
 // where a message about the conclusion does not answer it.
 
-/** @import { ConclusionView, DecisionView, ImplementationView, QuizView } from "./types.ts" */
+/** @import { ConclusionView, DecisionView, ImplementationView } from "./types.ts" */
 /** @import { Turn } from "./turn.js" */
 
 import { decisionTag } from './chips.js';
 import { requestChat } from './chat.js';
 import { codeSpans, h, keyOf, markdown, Region } from './dom.js';
 import { keepDraft } from './drafts.js';
-import { openQuizResults, quizResults } from './quiz.js';
+import { quizScore } from './quiz.js';
 import { disclosure } from './disclosure.js';
 import { resetConfirmation } from './masthead.js';
+import { quizItem } from './route.js';
 import { panelActions, panelCard } from './status.js';
 import { turnStrip } from './turn.js';
 
@@ -36,7 +37,6 @@ export class ConclusionScreen {
     this.decisions = new Region(this.element, 'decisions');
     this.summary = new Region(this.element, 'summary');
     this.future = new Region(this.element, 'future-work');
-    this.results = new Region(this.element, 'quiz-results');
     this.panel = new Region(this.element, 'panel');
   }
 
@@ -63,8 +63,6 @@ export class ConclusionScreen {
             markdown(future),
           ),
     );
-    const quiz = conclusion.quiz;
-    this.results.show(keyOf(quiz), () => (quiz ? quizResults(quiz) : null));
     this.panel.component(conclusion.request, () => new Panel()).update(conclusion, reset);
   }
 }
@@ -130,7 +128,7 @@ class Panel {
    */
   update(conclusion, reset) {
     const quiz = conclusion.quiz;
-    this.banner.show(keyOf(quiz), () => (quiz ? quizBanner(quiz) : null));
+    this.banner.show(keyOf(quiz), () => (quiz ? quizScore(quiz, { href: quizItem(1), words: 'See the answers' }) : null));
     const card = conclusion.implementation_card;
     this.card.show(keyOf(card), () => (card ? panelCard(card) : null));
     const { list: shown, implementation, draft, request, reply_label: reply } = conclusion;
@@ -141,39 +139,6 @@ class Panel {
         : h('button', { class: 'chat-opener', type: 'button', 'aria-controls': 'chat', onclick: () => requestChat() }, reply),
     );
   }
-}
-
-/**
- * The quiz's score at the top of the panel, which matters right at the Implement decision: warn
- * below two-thirds, good from there, with a link to the results.
- * @param {QuizView} quiz
- */
-function quizBanner(quiz) {
-  const items = quiz.items.length;
-  const missed = quiz.picked - quiz.correct_picks;
-  const unanswered = items - quiz.picked;
-  const questions = (/** @type {number} */ count) => `${count} ${count === 1 ? 'question' : 'questions'}`;
-  const words = [
-    missed > 0 ? `You missed ${questions(missed)}.` : null,
-    unanswered > 0 ? `You ${quiz.skipped ? 'skipped' : 'did not answer'} ${questions(unanswered)}.` : null,
-  ].filter((part) => part !== null);
-  const tone = quiz.correct_picks * 3 >= items * 2 ? 'good' : 'warn';
-  return h(
-    'p',
-    { class: `quiz-banner ${tone}` },
-    h('strong', {}, `Quiz ${quiz.correct_picks} of ${items}`),
-    ' ',
-    words.length > 0 ? words.join(' ') : 'Every answer was correct.',
-    ' ',
-    h(
-      'a',
-      {
-        href: '#quiz-results',
-        onclick: openQuizResults,
-      },
-      'See the answers',
-    ),
-  );
 }
 
 /**

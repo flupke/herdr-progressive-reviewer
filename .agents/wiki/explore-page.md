@@ -54,7 +54,7 @@ opens again with it.
 | Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
-| Any | History navigation, the provisional map, marks lists, evidence windows | The design screen (`#design`) and each earlier question, read only (`#question-N`), for history; what an answer marks in its gain line, and the marks of each file in the meter's window; the current stage's citations; no provisional map |
+| Any | History navigation, the provisional map, marks lists, evidence windows | The design screen (`#design`), each earlier question, read only (`#question-N`), and the answered quiz, read only (`#quiz-N`), for history; what an answer marks in its gain line, and the marks of each file in the meter's window; the current stage's citations; no provisional map |
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by

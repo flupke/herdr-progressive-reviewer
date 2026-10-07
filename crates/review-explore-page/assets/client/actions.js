@@ -214,7 +214,7 @@ export class Actions {
     }
     // A pick shows the item's answer until the reviewer moves on; a skip shows the conclusion.
     if (call.method === 'quiz' || call.method === 'quiz-skip') {
-      this.page.answered =
+      this.page.quizAt =
         call.method === 'quiz' ? { conclusion: call.params.conclusion, item: call.params.item } : null;
       if (this.page.view) this.page.render(this.page.view);
     }

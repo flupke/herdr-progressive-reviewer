@@ -41,17 +41,7 @@
   -webkit-box-decoration-break: clone;
 }
 
-/* The panel opens with the quiz's score: warn below two-thirds, good from there. */
-.quiz-banner {
-  --kind: var(--warn);
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--kind) 12%, transparent);
-  font-size: 14px;
-}
-.quiz-banner.good { --kind: var(--good); }
-.quiz-banner strong { margin-right: 4px; font-size: 16px; font-weight: 650; }
+/* The panel opens with the quiz's score (quiz.css). */
 
 /* What became of the latest request: its card, without the actions, which come last in the
    panel at its full width. */
