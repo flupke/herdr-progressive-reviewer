@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use herdr_client::protocol::PaneId;
 
 use crate::directory::HookDirectory;
-use crate::wire::{AgentEvent, Report, SessionSource};
+use crate::wire::{AgentEvent, Answer, Report, SessionSource};
 
 /// How long a reviewer waits for the line of a hook that connected.
 const READ_LIMIT: Duration = Duration::from_secs(1);
@@ -22,8 +22,9 @@ const READ_LIMIT: Duration = Duration::from_secs(1);
 static REVIEWERS: AtomicU64 = AtomicU64::new(0);
 
 /// A reviewer's end of the hooks of the agents of its Herdr server: it listens on a socket of
-/// its own in the server's [`HookDirectory`], one hook after another, and hands each event of a
-/// pane to what the reviewer expects there. Dropping it stops listening and removes its socket.
+/// its own in the server's [`HookDirectory`], one hook after another, hands each event of a pane
+/// to what the reviewer expects there, and blocks the prompts submitted in a pane while it
+/// expects a session there. Dropping it stops listening and removes its socket.
 pub struct AgentHooks {
     socket: PathBuf,
     expected: Arc<Expected>,
@@ -44,17 +45,23 @@ struct Armed {
     id: u64,
     /// The session the agent is expected to resume.
     session: String,
+    /// Why a prompt submitted meanwhile is blocked, as the agent shows it.
+    block: String,
     heard: Option<Heard>,
 }
 
-/// What the agent's hooks said that an [`Expectation`] waited for.
+/// What the agent's hooks said that an [`Expectation`] waited for, first.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Heard {
     /// The agent resumed the session.
     Resumed,
+    /// The text `prompt` was submitted to the agent, and blocked. A command of the agent's own
+    /// is no prompt: text submitted while the reviewer types one is a draft that met it.
+    Blocked { prompt: String },
 }
 
-/// The reviewer expects the agent of a pane to resume a session, until it drops this.
+/// The reviewer expects the agent of a pane to resume a session, and blocks every prompt
+/// submitted in that pane, until it drops this.
 pub struct Expectation {
     expected: Arc<Expected>,
     pane: PaneId,
@@ -93,14 +100,16 @@ impl AgentHooks {
     }
 
     /// Expects the agent of `pane` to resume the session `session`, from now until the
-    /// expectation is dropped: the reviewer arms it before it has the agent resume the session.
-    pub fn expect_resume(&self, pane: &PaneId, session: &str) -> Expectation {
+    /// expectation is dropped, and meanwhile blocks each prompt submitted there, for `block`,
+    /// which the agent shows: the reviewer arms it before it has the agent resume the session.
+    pub fn expect_resume(&self, pane: &PaneId, session: &str, block: &str) -> Expectation {
         let id = self.expected.next.fetch_add(1, Ordering::Relaxed);
         self.expected.lock().insert(
             pane.clone(),
             Armed {
                 id,
                 session: session.to_owned(),
+                block: block.to_owned(),
                 heard: None,
             },
         );
@@ -158,6 +167,22 @@ impl Expected {
                 }
             }
             AgentEvent::SessionStarted { .. } => {}
+            AgentEvent::PromptSubmitted { prompt, .. } => {
+                let mut panes = self.lock();
+                let block = panes.get_mut(&report.pane).map(|armed| {
+                    if armed.heard.is_none() {
+                        armed.heard = Some(Heard::Blocked { prompt });
+                        self.heard.notify_all();
+                    }
+                    armed.block.clone()
+                });
+                drop(panes);
+                let Ok(mut answer) = serde_json::to_vec(&Answer { block }) else {
+                    return;
+                };
+                answer.push(b'\n');
+                let _ = (&mut &*stream).write_all(&answer);
+            }
         }
     }
 }

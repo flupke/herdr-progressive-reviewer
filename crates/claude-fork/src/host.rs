@@ -321,15 +321,6 @@ impl ForkHost for ClaudeForks {
         discards.push(discard);
     }
 
-    fn input_is_empty(&self, pane: &PaneId) -> Result<bool, String> {
-        let pane = AgentPane {
-            herdr: &self.herdr,
-            pane,
-        };
-        pane.input_box_empty()?
-            .ok_or_else(|| "the agent's screen shows no input box".to_owned())
-    }
-
     fn switch(
         &self,
         switch: SwitchTo<'_>,

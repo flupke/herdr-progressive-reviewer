@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.control}",
+            "args": ["agent-hook"],
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

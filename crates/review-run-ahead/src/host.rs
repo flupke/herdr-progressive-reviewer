@@ -118,15 +118,12 @@ pub trait ForkHost: Send + Sync {
     /// thread of its own; `done` runs once both are done.
     fn discard(&self, fork: ForkTrace<'_>, done: Box<dyn FnOnce() + Send>);
 
-    /// Whether the input box of the agent of `pane` holds no text, as the agent's screen
-    /// shows it.
-    fn input_is_empty(&self, pane: &PaneId) -> Result<bool, String>;
-
     /// Switches the agent of `switch.pane` to the session of the fork `switch.fork`, on a
     /// thread of its own. Once the fork's submit has its answer, or its process ended, it stops
-    /// the fork's process and keeps its transcript; then, with the agent idle and its input box
-    /// empty, it has the agent resume the fork's session, and waits until the agent's hook says
-    /// that it did, and Herdr reports the agent on that session and ready for a prompt. `done`
+    /// the fork's process and keeps its transcript; then, with the agent idle, it has the agent
+    /// resume the fork's session, and waits until the agent's hook says that it did, and Herdr
+    /// reports the agent on that session and ready for a prompt. A prompt submitted to the agent
+    /// meanwhile, such as a draft the resume joined, is blocked and fails the switch. `done`
     /// gets the agent as Herdr then reports it, or why the switch failed.
     fn switch(
         &self,
@@ -134,11 +131,11 @@ pub trait ForkHost: Send + Sync {
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     );
 
-    /// Has the agent of `pane`, idle with an empty input box, resume the session `session`, on
-    /// a thread of its own, and waits until the agent's hook says that it did, and Herdr reports
-    /// the agent on that session and ready for a prompt, as [`ForkHost::switch`] does once the
-    /// fork stopped: it puts the agent back on the session its forks were taken from. `done`
-    /// gets the agent as Herdr then reports it, or why it was not put back.
+    /// Has the agent of `pane`, idle, resume the session `session`, on a thread of its own, and
+    /// waits until the agent's hook says that it did, and Herdr reports the agent on that session
+    /// and ready for a prompt, as [`ForkHost::switch`] does once the fork stopped: it puts the
+    /// agent back on the session its forks were taken from. `done` gets the agent as Herdr then
+    /// reports it, or why it was not put back.
     fn resume(
         &self,
         pane: &PaneId,

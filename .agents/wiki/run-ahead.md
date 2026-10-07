@@ -65,6 +65,13 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   `/resume`. `claude_fork::ForkWaits` holds these durations, the 10 s wait for a submit's
   answer and the 1 s before a dropped status watch subscribes again; the reviewer's
   `RunAheadSetup` passes the defaults, and lets a test pass small ones.
+- Text left in Claude Code's input box joins a typed `/resume` into one prompt, `<text>
+  /resume <session>`, which fires `UserPromptSubmit`; a command alone fires none. So while a
+  switch or a settling waits for the session, the reviewer blocks every prompt of that pane,
+  and the switch fails, the answer waiting for Retry. A blocked prompt runs no turn: Claude
+  Code 2.1.292 shows the reason and the original prompt in its transcript, and leaves the
+  input box empty. A hook waits at most 0.5 s for the reviewers' answer, then lets the prompt
+  go on.
 - Settling rests on Claude Code taking what is typed while it loads a session after it, in
   order: once a settling `/resume` is typed and Herdr reports the agent there, an earlier late
   resume cannot move it. This is not checked.

@@ -175,14 +175,6 @@ impl ExploreSession {
         {
             return Err(PlainReason::SessionMoved);
         }
-        if !self
-            .run_ahead
-            .host
-            .input_is_empty(&armed.asked.pane)
-            .map_err(|error| unchecked(&error))?
-        {
-            return Err(PlainReason::InputNotEmpty);
-        }
         Ok(index)
     }
 

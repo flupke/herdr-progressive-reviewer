@@ -2,6 +2,11 @@
 //! its submit has its answer, then the agent resumes the fork's session with Claude Code's own
 //! `/resume`, its hook says that it did, and Herdr reports it on that session. The same
 //! `/resume` puts the agent back on the session its forks were taken from.
+//!
+//! Text left in the agent's input box would join the typed `/resume` into one prompt, which the
+//! agent would take a turn on. A command of Claude Code's own submits no prompt, so while the
+//! agent resumes the session, the reviewer blocks every prompt submitted to it, through the
+//! agent's `UserPromptSubmit` hook: the switch then fails, and the answer waits for Retry.
 
 use std::sync::Arc;
 use std::thread;
@@ -14,7 +19,6 @@ use herdr_client::protocol::{Agent, AgentPort, PaneId};
 use review_run_ahead::SwitchFailure;
 
 use crate::host::ForkWaits;
-use crate::screen::input_box_text;
 use crate::stream::Signal;
 
 /// A fork that runs, and the signal of the answer to its submit.
@@ -69,15 +73,6 @@ pub(crate) struct AgentPane<'a> {
 }
 
 impl AgentPane<'_> {
-    /// Whether the agent's screen shows its input box empty; `None` when it shows no input box.
-    pub(crate) fn input_box_empty(&self) -> Result<Option<bool>, String> {
-        let screen = self
-            .herdr
-            .read_agent_screen_styled(self.pane)
-            .map_err(|error| error.to_string())?;
-        Ok(input_box_text(&screen).map(|text| text.is_empty()))
-    }
-
     /// The agent, as Herdr reports it now.
     fn agent(&self) -> Result<Agent, String> {
         self.herdr
@@ -135,10 +130,11 @@ pub(crate) struct Resume<'a> {
 }
 
 impl Resume<'_> {
-    /// Has the agent, idle with an empty input box, resume the session, then waits until its
-    /// hook says that it resumed it, and Herdr reports it there, idle: the agent as Herdr then
-    /// reports it, or why not. Claude Code takes what is typed in its pane in order, so once the
-    /// command is typed, the agent ends on this session even after an earlier `/resume`.
+    /// Has the agent, idle, resume the session, then waits until its hook says that it resumed
+    /// it, and Herdr reports it there, idle: the agent as Herdr then reports it, or why not. A
+    /// prompt submitted meanwhile is blocked, and fails the move. Claude Code takes what is
+    /// typed in its pane in order, so once the command is typed, the agent ends on this session
+    /// even after an earlier `/resume`.
     pub(crate) fn run(self) -> Result<Agent, SwitchFailure> {
         let failed = |error: String| SwitchFailure {
             error,
@@ -151,14 +147,17 @@ impl Resume<'_> {
         if !agent.agent_status.waits_for_prompt() {
             return Err(failed("the agent in the pane is working".into()));
         }
-        if self.pane.input_box_empty().map_err(failed)? != Some(true) {
-            return Err(failed("text waits in the agent's input box".into()));
-        }
+        let command = format!("/resume {}", self.session);
         let deadline = Instant::now() + self.waits.resume;
-        let expectation = hooks.expect_resume(self.pane.pane, self.session);
+        let block = format!(
+            "The progressive reviewer stopped this prompt: it typed `{command}` while text \
+             waited in the input box, and both would have run as one prompt. Your text is \
+             below; the reviewer's answer waits for Retry."
+        );
+        let expectation = hooks.expect_resume(self.pane.pane, self.session, &block);
         self.pane
             .herdr
-            .submit_agent_command(self.pane.pane, &format!("/resume {}", self.session))
+            .submit_agent_command(self.pane.pane, &command)
             .map_err(|error| failed(error.to_string()))?;
         let late = |what: &str| SwitchFailure {
             error: format!(
@@ -170,6 +169,24 @@ impl Resume<'_> {
         };
         match expectation.wait(deadline.saturating_duration_since(Instant::now())) {
             Some(Heard::Resumed) => {}
+            // The draft and the command ran as one prompt, which never ran: the agent did not
+            // move.
+            Some(Heard::Blocked { prompt }) if prompt.contains(&command) => {
+                return Err(failed(
+                    "text in the agent's input box joined the /resume, so the reviewer stopped \
+                     both; the agent's pane shows the text"
+                        .into(),
+                ));
+            }
+            // A prompt of someone else: the command may still run.
+            Some(Heard::Blocked { .. }) => {
+                return Err(SwitchFailure {
+                    error: "a prompt reached the agent while it resumed the session, and the \
+                            reviewer stopped it"
+                        .into(),
+                    typed: true,
+                });
+            }
             None => return Err(late("the agent's hook did not report")),
         }
         drop(expectation);

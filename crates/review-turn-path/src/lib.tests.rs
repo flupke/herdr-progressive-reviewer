@@ -23,7 +23,6 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
         plain(PlainReason::NoTurn),
         plain(PlainReason::ChatMessage),
         plain(PlainReason::AgentBusy),
-        plain(PlainReason::InputNotEmpty),
         plain(PlainReason::SessionMoved),
         plain(PlainReason::UnreviewedChanged),
         plain(PlainReason::PromptChanged),
@@ -48,4 +47,18 @@ fn a_check_that_could_not_be_made_shows_nothing() {
     };
 
     assert_eq!(plain(reason).line(), None);
+}
+
+#[test]
+fn a_reason_an_earlier_version_recorded_reads_back_and_shows_nothing() {
+    let saved = r#"{"path":"plain","reason":{"reason":"input_not_empty"}}"#;
+
+    let path: TurnPath = serde_json::from_str(saved).unwrap();
+
+    assert_eq!(
+        path,
+        plain(PlainReason::Obsolete),
+        "a record of an earlier version still loads"
+    );
+    assert_eq!(path.line(), None);
 }

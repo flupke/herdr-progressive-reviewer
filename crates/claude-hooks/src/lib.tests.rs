@@ -28,7 +28,7 @@ fn session_start(session: &str, source: &str) -> String {
 fn a_session_claude_code_resumed_reaches_the_reviewer_that_expects_it() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_resume(&pane, "fork");
+    let expectation = hooks.expect_resume(&pane, "fork", "blocked");
 
     hook(
         &pane,
@@ -43,8 +43,8 @@ fn a_session_claude_code_resumed_reaches_the_reviewer_that_expects_it() {
 fn a_subagent_s_session_is_not_the_agent_s() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_resume(&pane, "fork");
-    let marker = hooks.expect_resume(&PaneId("w:p9".into()), "marker");
+    let expectation = hooks.expect_resume(&pane, "fork", "blocked");
+    let marker = hooks.expect_resume(&PaneId("w:p9".into()), "marker", "blocked");
     let mut subagent: Value = serde_json::from_str(&session_start("fork", "resume")).unwrap();
     subagent["agent_id"] = "a1".into();
 
@@ -58,6 +58,57 @@ fn a_subagent_s_session_is_not_the_agent_s() {
 
     assert_eq!(marker.wait(GUARD), Some(Heard::Resumed));
     assert_eq!(expectation.wait(Duration::ZERO), None);
+}
+
+/// Claude Code's `UserPromptSubmit` event, as 2.1.292 writes it, of `prompt`.
+fn prompt_submit(prompt: &str) -> String {
+    serde_json::json!({
+        "session_id": "session",
+        "transcript_path": "/home/u/.claude/projects/-repo/session.jsonl",
+        "cwd": "/repo",
+        "permission_mode": "default",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": prompt,
+    })
+    .to_string()
+}
+
+#[test]
+fn a_prompt_submitted_while_the_reviewer_expects_a_session_is_blocked_with_its_reason() {
+    let (_runtime, directory, hooks) = reviewer();
+    let pane = PaneId("w:p1".into());
+    let expectation = hooks.expect_resume(&pane, "fork", "A draft met the reviewer's /resume.");
+
+    let decision = hook(
+        &pane,
+        &directory,
+        prompt_submit("half a thought /resume fork").as_bytes(),
+    );
+
+    let decision: Value = serde_json::from_str(&decision.unwrap()).unwrap();
+    assert_eq!(
+        decision,
+        serde_json::json!({"decision": "block", "reason": "A draft met the reviewer's /resume."})
+    );
+    assert_eq!(
+        expectation.wait(Duration::ZERO),
+        Some(Heard::Blocked {
+            prompt: "half a thought /resume fork".into()
+        })
+    );
+}
+
+#[test]
+fn a_prompt_the_reviewer_does_not_block_goes_on_without_a_decision() {
+    let (_runtime, directory, _hooks) = reviewer();
+
+    let decision = hook(
+        &PaneId("w:p1".into()),
+        &directory,
+        prompt_submit("Reply with ok").as_bytes(),
+    );
+
+    assert_eq!(decision, None);
 }
 
 /// The JSON file at `path` under this crate.

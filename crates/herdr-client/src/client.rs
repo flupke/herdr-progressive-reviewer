@@ -310,26 +310,18 @@ fn parse_stream_event(event: EventEnvelope) -> Result<Option<HerdrEvent>> {
 }
 
 impl HerdrClient {
-    /// The visible screen of the agent of `pane_id`: plain text, or `styled` with its colours
-    /// and styles as ANSI sequences.
-    fn agent_screen(&self, pane_id: &PaneId, styled: bool) -> Result<String> {
+    fn agent_screen(&self, pane_id: &PaneId) -> Result<String> {
         let result = self.request(
             method::AGENT_READ,
             &json!({
                 "target": pane_id.0,
                 "source": "visible",
-                "format": if styled { "ansi" } else { "text" },
-                "strip_ansi": !styled,
+                "format": "text",
+                "strip_ansi": true,
             }),
         )?;
         let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
         Ok(read.text)
-    }
-
-    /// The visible screen of the agent of `pane_id`, with its colours and styles as ANSI
-    /// sequences: what an agent draws dim, such as a placeholder, tells apart from text.
-    pub fn read_agent_screen_styled(&self, pane_id: &PaneId) -> Result<String> {
-        self.agent_screen(pane_id, true)
     }
 
     /// Submits `text` to the agent of `pane_id` as Herdr submits a prompt, without waiting for
@@ -721,7 +713,7 @@ impl AgentPort for HerdrClient {
 
 impl HerdrReader for HerdrClient {
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
-        self.agent_screen(pane_id, false)
+        self.agent_screen(pane_id)
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {

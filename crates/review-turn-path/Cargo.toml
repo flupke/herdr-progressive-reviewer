@@ -10,5 +10,8 @@ description = "The path an Explore turn took after an answer, with run-ahead, an
 [dependencies]
 serde.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

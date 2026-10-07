@@ -38,8 +38,6 @@ struct FakeHost {
     stopping: Vec<Box<dyn FnOnce() + Send>>,
     reports: Vec<StatusReport>,
     log: Vec<String>,
-    /// Whether the agent's input box holds text.
-    draft: bool,
     /// The switches asked, by the session of their fork, and where each reports its end.
     switches: Vec<(String, SwitchDone)>,
     /// The sessions the agent was asked to resume, and where each reports its end.
@@ -125,11 +123,6 @@ impl FakeForks {
         for done in stopping {
             done();
         }
-    }
-
-    /// The agent's input box holds text, or not.
-    fn type_draft(&self, draft: bool) {
-        self.host().draft = draft;
     }
 
     /// Waits until `moves` of the host holds a move: the session starts each move on a thread
@@ -222,10 +215,6 @@ impl ForkHost for FakeForks {
             drop(host);
             done();
         }
-    }
-
-    fn input_is_empty(&self, _pane: &PaneId) -> Result<bool, String> {
-        Ok(!self.host().draft)
     }
 
     fn switch(&self, switch: SwitchTo<'_>, done: SwitchDone) {
@@ -1117,17 +1106,6 @@ fn an_answer_whose_fork_ended_without_a_turn_goes_to_the_agent() {
             harness.forks.end(&session);
             harness.pump();
             (Some("change"), "")
-        },
-    );
-}
-
-#[test]
-fn an_answer_while_the_agent_s_input_holds_text_goes_to_the_agent() {
-    an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
-        &PlainReason::InputNotEmpty,
-        |harness| {
-            harness.forks.type_draft(true);
-            (Some("keep"), "")
         },
     );
 }

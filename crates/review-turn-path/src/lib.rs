@@ -38,8 +38,6 @@ pub enum PlainReason {
     ChatMessage,
     /// The pane's agent was working.
     AgentBusy,
-    /// The pane agent's input box held text.
-    InputNotEmpty,
     /// The pane agent's session moved after the forks were taken.
     SessionMoved,
     /// The answer leaves other lines unreviewed than the fork was told.
@@ -54,6 +52,10 @@ pub enum PlainReason {
     /// The reviewer stopped waiting, cancelled the answer or reset the round while the pane's
     /// agent switched to the fork's session: the fork's turn was not saved.
     Withdrawn,
+    /// A reason that an earlier version recorded and this one no longer gives, such as
+    /// `input_not_empty`: it says nothing the reviewer can use now.
+    #[serde(other)]
+    Obsolete,
 }
 
 impl TurnPath {
@@ -77,7 +79,6 @@ impl PlainReason {
             Self::NoneOfTheAbove => "Not prepared: you answered None of the above",
             Self::ChatMessage => "Not prepared: you wrote in the chat",
             Self::AgentBusy => "Not prepared: the agent was working",
-            Self::InputNotEmpty => "Not prepared: the agent's input box held text",
             Self::SessionMoved => "Not prepared: the agent's conversation moved on",
             Self::UnreviewedChanged => "Not prepared: the lines left to review changed",
             Self::PromptChanged => "Not prepared: the round changed after it was prepared",
@@ -99,13 +100,14 @@ impl PlainReason {
                 Some("Not prepared: the agent could not switch to the prepared turn")
             }
             Self::Withdrawn => Some("Not prepared: you stopped waiting while it was being used"),
-            // A check that could not be made, then the reasons whose lines are in `line`.
+            // A check that could not be made, an obsolete reason, then the reasons whose lines are
+            // in `line`.
             Self::Unchecked { .. }
+            | Self::Obsolete
             | Self::Comment
             | Self::NoneOfTheAbove
             | Self::ChatMessage
             | Self::AgentBusy
-            | Self::InputNotEmpty
             | Self::SessionMoved
             | Self::UnreviewedChanged
             | Self::PromptChanged => None,

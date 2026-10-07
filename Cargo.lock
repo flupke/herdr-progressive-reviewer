@@ -4454,6 +4454,7 @@ name = "review-turn-path"
 version = "0.2.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

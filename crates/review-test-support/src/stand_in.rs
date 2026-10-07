@@ -58,6 +58,9 @@ pub enum StandInEvent {
     PromptReceived { text: String },
     /// The agent read Claude Code's own `/resume <session>`.
     ResumeReceived { session: String },
+    /// The hook of the reviewer's Claude Code plugin blocked the prompt `text`: the agent did
+    /// not start on it.
+    PromptBlocked { text: String },
     /// The agent reported its state to Herdr: `idle` or `working`.
     StateReported { state: String },
     /// The agent reported its session to Herdr as Claude Code's session hook does, from

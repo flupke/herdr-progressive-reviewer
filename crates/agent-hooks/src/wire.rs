@@ -20,6 +20,17 @@ pub enum AgentEvent {
         session: String,
         source: SessionSource,
     },
+    /// The text `prompt` was submitted to the agent, in the session `session`: the agent takes a
+    /// turn on it unless a reviewer blocks it. A command of Claude Code's own, such as
+    /// `/resume`, is no prompt.
+    PromptSubmitted { session: String, prompt: String },
+}
+
+/// A reviewer's answer to [`AgentEvent::PromptSubmitted`].
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct Answer {
+    /// Why the reviewer blocks the prompt, as the agent shows it; `None` lets it go on.
+    pub block: Option<String>,
 }
 
 /// Why the agent started a session, in Claude Code's words.

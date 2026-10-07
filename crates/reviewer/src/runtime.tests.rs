@@ -558,17 +558,18 @@ fn e2e_agent_process() {
             state: "idle".into(),
         });
     }
-    let hook = SessionHook {
+    let mut hooks = Hooks {
         binary,
         pane: pane_id,
         agent: agent.clone(),
         plugin: std::env::var_os("REVIEW_AGENT_E2E_HOOKS").is_some(),
+        session: String::new(),
         report: Arc::clone(&report),
     };
     if let Ok(session) = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
         && !session.is_empty()
     {
-        hook.report(&session, "startup");
+        hooks.session_started(&session, "startup");
     }
     let display = AgentDisplay {
         pane: pane.clone(),
@@ -580,7 +581,7 @@ fn e2e_agent_process() {
         directory,
         transcript: run_ahead::StandInTranscript::open(),
         turns: turns.clone(),
-        hook,
+        hooks,
         report: Arc::clone(&report),
     };
     let marker = if agent == "claude" { "❯" } else { "›" };
@@ -615,7 +616,7 @@ struct AgentPrompts {
     directory: PathBuf,
     transcript: run_ahead::StandInTranscript,
     turns: AgentTurns,
-    hook: SessionHook,
+    hooks: Hooks,
     report: Arc<StandInConnection>,
 }
 
@@ -635,8 +636,14 @@ impl AgentPrompts {
             // This file keeps Herdr and the reviewer from hearing of the next resume, as when
             // Claude Code's session hooks fail or come too late.
             if fs::remove_file(self.directory.join("unreported-resume")).is_err() {
-                self.hook.report(session, "resume");
+                self.hooks.session_started(session, "resume");
             }
+            return;
+        }
+        if self.hooks.blocks(prompt) {
+            self.report.report(&StandInEvent::PromptBlocked {
+                text: prompt.to_owned(),
+            });
             return;
         }
         self.transcript.turn();
@@ -647,20 +654,42 @@ impl AgentPrompts {
     }
 }
 
-/// Reports the test agent's session to Herdr as Claude Code's session hook does: from
-/// Claude Code's `startup` or `resume`, each report newer than the last. With the reviewer's
-/// `plugin`, its hook tells the reviewer first, through `reviewer-control`, as Claude Code
-/// runs it: Herdr may hear of the session after the reviewer.
-struct SessionHook {
+/// The hooks Claude Code runs for the test agent. Herdr's session hook reports its session to
+/// Herdr: from Claude Code's `startup` or `resume`, each report newer than the last. With the
+/// reviewer's `plugin`, its hooks run first, through `reviewer-control`, as Claude Code runs
+/// them: Herdr may hear of a session after the reviewer.
+struct Hooks {
     binary: std::ffi::OsString,
     pane: String,
     agent: String,
     plugin: bool,
+    /// The session the agent runs.
+    session: String,
     report: Arc<StandInConnection>,
 }
 
-impl SessionHook {
-    fn report(&self, session: &str, start: &str) {
+impl Hooks {
+    /// Whether the plugin's hook blocks the prompt `prompt`, which a command of Claude Code's
+    /// own is not.
+    fn blocks(&self, prompt: &str) -> bool {
+        if !self.plugin {
+            return false;
+        }
+        let decision = run_plugin_hook(&serde_json::json!({
+            "session_id": self.session,
+            "transcript_path": "",
+            "cwd": std::env::current_dir().unwrap(),
+            "permission_mode": "default",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+        }));
+        !decision.is_empty()
+            && serde_json::from_str::<serde_json::Value>(&decision).unwrap()["decision"] == "block"
+    }
+
+    /// The agent started the session `session`, from `start`.
+    fn session_started(&mut self, session: &str, start: &str) {
+        session.clone_into(&mut self.session);
         if self.plugin {
             run_plugin_hook(&serde_json::json!({
                 "session_id": session,

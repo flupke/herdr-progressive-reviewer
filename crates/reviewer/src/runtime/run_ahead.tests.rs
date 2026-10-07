@@ -697,6 +697,71 @@ fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_o
 }
 
 #[test]
+fn a_draft_the_resume_joins_is_blocked_and_the_answer_waits_for_retry() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    let sessions = run.wait_for_forks(2);
+    let fork = sessions[0].clone();
+    run.fork_submits(&fork);
+    let processes = run.processes();
+    let prompts = run.herdr().prompts().len();
+    // The reviewer left half a thought in the agent's input box.
+    run.herdr().run_cli(&[
+        "pane",
+        "send-text",
+        &run.herdr().pane_id.0,
+        "half a thought ",
+    ]);
+
+    let request = run.answer_bare("keep");
+
+    let blocked = run
+        .herdr()
+        .events()
+        .wait_for("the blocked prompt", |reported| {
+            matches!(reported.event, StandInEvent::PromptBlocked { .. })
+        });
+    assert_eq!(
+        blocked.event,
+        StandInEvent::PromptBlocked {
+            text: format!("half a thought /resume {fork}")
+        }
+    );
+    let typed = run.wait_for_saved("the failed switch", |saved| {
+        match &saved.forks[0].continued {
+            Some(Continuation::Failed { typed, .. }) => Some(*typed),
+            _ => None,
+        }
+    });
+    assert!(!typed, "the agent ran neither the draft nor the /resume");
+    run.wait_until_gone(&processes);
+    assert_eq!(run.resumed(), Vec::<String>::new());
+    assert_eq!(
+        run.herdr().prompts().len(),
+        prompts,
+        "the agent took no turn"
+    );
+    assert!(matches!(
+        &run.saved().answers.last().unwrap().path,
+        review_run_ahead::TurnPath::Plain {
+            reason: review_run_ahead::PlainReason::SwitchFailed { .. }
+        }
+    ));
+
+    run.flow
+        .fixture
+        .explore(ExploreCommand::Retry(Box::new(request.clone())));
+
+    let delivered = run
+        .herdr()
+        .wait_for_prompts("the retried answer", |delivered| delivered.len() > prompts);
+    assert!(
+        delivered[prompts].contains(&format!("Explore request: {}", request.request)),
+        "{delivered:?}"
+    );
+}
+
+#[test]
 fn a_reset_stops_every_fork_and_deletes_its_transcript() {
     let mut run = RunAheadFlow::start();
     run.flow.turn(None, 1);
