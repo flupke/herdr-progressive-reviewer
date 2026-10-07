@@ -2,6 +2,7 @@
 //! a workspace of the user's Herdr on a scratch repository.
 
 mod agent;
+mod compact;
 mod frames;
 mod keys;
 mod scratch;

@@ -24,8 +24,10 @@ runs the current code.
 `start` runs the reviewer in a new "reviewer vision" workspace of the user's live Herdr,
 beside a stand-in agent, and the user switches to it to watch. The session has a workspace
 of its own because the reviewer prompts the last focused agent of its workspace: in the
-user's workspace, that could be the user's real agent. The reviewer takes the tab's size;
-no tool resizes it.
+user's workspace, that could be the user's real agent. The reviewer takes the tab's size,
+which follows the user's terminal: Herdr sets split ratios, not a pane's size in cells, so
+the size can differ between runs (199, then 200 columns). Click by text, or read `size`
+first.
 
 `stop`, or a client that leaves or signals the server, closes the workspace only while it
 is still the session's: its label, and no pane the session did not open. A workspace the
@@ -40,9 +42,10 @@ with a terminal title, its frame marker (`crates/vision-signal`): `reviewer visi
 ack=K size=CxR`. Herdr reads the title after the frame in the pane's byte stream, and
 reports it as a pane update event. After its input, an action pastes an acknowledgement
 request that the reviewer never hands to the application; the reviewer names it in the next
-frame's marker. So an action returns the screen of the frame that followed its input, with
-no delay of its own. Asynchronous work (a refresh, a diff loading, Jev, an agent's turn)
-shows later: `wait_for` it, which checks the screen at once, then after each frame.
+frame's marker. So an action returns the rows that changed on the screen of the frame that
+followed its input, with no delay of its own. Asynchronous work (a refresh, a diff loading,
+Jev, an agent's turn) shows later: `wait_for` it, which checks the screen at once, then after
+each frame.
 
 ## Gotchas
 

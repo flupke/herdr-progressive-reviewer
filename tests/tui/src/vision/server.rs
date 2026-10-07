@@ -1,6 +1,6 @@
 //! The vision MCP server: an agent's eyes and hands on the reviewer, running in the user's
-//! Herdr. Every tool that acts returns the screen the reviewer painted in reaction, and every
-//! mistake is an error.
+//! Herdr. Every tool that acts returns the rows that changed on the screen the reviewer painted
+//! in reaction, and every mistake is an error.
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
@@ -22,6 +22,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::compact;
 use super::scratch::Seed;
 use super::screen::{Cell, Screen};
 use super::session::{Input, Session, StartOptions};
@@ -29,7 +30,7 @@ use super::session::{Input, Session, StartOptions};
 /// The longest a `wait_for` or `turn` may wait.
 const MAX_WAIT_MS: u64 = 60_000;
 
-const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent; the user can watch it there. Every action (key, type, click, jev, reply) returns the screen once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Coordinates are zero-based terminal cells. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
+const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent; the user can watch it there. Every action (key, type, click, jev, reply) returns once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Text screens give each row as `row: text`, drop the spaces and box borders that end a row, and fold a run of empty rows, or a QR code, into one line that names its rows. Coordinates are zero-based terminal cells, columns counted from the start of a row's text. screen, start and reopen return the whole screen. Actions and wait_for return only the lines of rows that changed since the last screen returned, with changed_rows, the number of rows whose text changed; when no screen of the same size was returned before (the first action, or after a resize), they return the whole screen, without changed_rows. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
 
 /// The repository a session reviews.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
@@ -223,21 +224,53 @@ impl Setup {
 pub(crate) struct Server {
     setup: Setup,
     session: Arc<Mutex<Option<Session>>>,
+    /// The last screen a tool returned, whose rows an action's changes are counted from.
+    shown: Arc<Mutex<Option<Screen>>>,
 }
 
 /// What a tool returns: a summary, and the screen's text when it has one.
 struct Outcome {
     summary: Value,
     screen: Option<Screen>,
+    show: Show,
     image: Option<String>,
 }
 
+/// How much of its screen's text a tool returns.
+#[derive(Clone, Copy)]
+enum Show {
+    Whole,
+    /// The rows that changed since the last screen returned, or the whole screen when none of
+    /// the same size was.
+    Changes,
+    /// None: the frame and size only.
+    Hidden,
+}
+
 impl Outcome {
+    fn summary(summary: Value) -> Self {
+        Self {
+            summary,
+            screen: None,
+            show: Show::Hidden,
+            image: None,
+        }
+    }
+
+    /// The whole screen.
     fn screen(status: &str, screen: Screen) -> Self {
         Self {
-            summary: json!({"status": status}),
             screen: Some(screen),
-            image: None,
+            show: Show::Whole,
+            ..Self::summary(json!({"status": status}))
+        }
+    }
+
+    /// The rows of `screen` that changed since the last screen returned.
+    fn reaction(status: &str, screen: Screen) -> Self {
+        Self {
+            show: Show::Changes,
+            ..Self::screen(status, screen)
         }
     }
 
@@ -246,19 +279,36 @@ impl Outcome {
         self
     }
 
-    fn into_result(mut self) -> CallToolResult {
-        let mut content = Vec::new();
-        if let Some(screen) = &self.screen {
+    /// The tool's result, given `shown`, the last screen returned, which this one replaces.
+    fn into_result(mut self, shown: &mut Option<Screen>) -> CallToolResult {
+        let mut texts = Vec::new();
+        if let Some(mut screen) = self.screen {
             self.summary["frame"] = json!(screen.frame);
             self.summary["size"] = json!({"columns": screen.columns, "rows": screen.rows});
-        }
-        content.push(ContentBlock::text(self.summary.to_string()));
-        if let Some(screen) = self.screen {
-            content.push(ContentBlock::text(screen.text));
-            if let Some(styled) = screen.styled {
-                content.push(ContentBlock::text(styled));
+            let previous = shown.as_ref().filter(|previous| {
+                (previous.columns, previous.rows) == (screen.columns, screen.rows)
+            });
+            match (self.show, previous) {
+                (Show::Hidden, _) => {}
+                (Show::Changes, Some(previous)) => {
+                    let changes = compact::changes(&previous.text, &screen.text);
+                    self.summary["changed_rows"] = json!(changes.count);
+                    texts.push(changes.text);
+                }
+                (Show::Whole | Show::Changes, _) => texts.push(screen.compact()),
+            }
+            if !matches!(self.show, Show::Hidden) {
+                texts.extend(screen.styled.take());
+                *shown = Some(screen);
             }
         }
+        let mut content = vec![ContentBlock::text(self.summary.to_string())];
+        content.extend(
+            texts
+                .into_iter()
+                .filter(|text| !text.is_empty())
+                .map(ContentBlock::text),
+        );
         if let Some(image) = self.image {
             content.push(ContentBlock::image(image, "image/png"));
         }
@@ -272,6 +322,7 @@ impl Server {
         Self {
             setup,
             session: Arc::default(),
+            shown: Arc::default(),
         }
     }
 
@@ -285,6 +336,7 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         let setup = self.setup.clone();
         let session = Arc::clone(&self.session);
+        let shown = Arc::clone(&self.shown);
         tokio::task::spawn_blocking(move || {
             let mut session = session.lock().unwrap_or_else(PoisonError::into_inner);
             let outcome = action(&setup, &mut session);
@@ -292,7 +344,9 @@ impl Server {
                 record(session, tool, &arguments, &outcome);
             }
             match outcome {
-                Ok(outcome) => outcome.into_result(),
+                Ok(outcome) => {
+                    outcome.into_result(&mut shown.lock().unwrap_or_else(PoisonError::into_inner))
+                }
                 Err(error) => CallToolResult::error(vec![ContentBlock::text(format!("{error:#}"))]),
             }
         })
@@ -350,7 +404,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Read the reviewer's screen as it is now, one line per row: what the user sees in the pane. With styled, also its colors and styles as ANSI SGR sequences."
+        description = "Read the reviewer's whole screen as it is now, one line per row: what the user sees in the pane. With styled, also its colors and styles as ANSI SGR sequences, unfolded."
     )]
     async fn screen(
         &self,
@@ -366,14 +420,14 @@ impl Server {
     }
 
     #[tool(
-        description = "Press keys in the reviewer, in order, and return the screen once the reviewer has read them and painted its reaction."
+        description = "Press keys in the reviewer, in order, and return the rows that changed once the reviewer has read them and painted its reaction."
     )]
     async fn key(
         &self,
         Parameters(input): Parameters<KeyInput>,
     ) -> Result<CallToolResult, ErrorData> {
         self.run("key", json!(input), move |_, session| {
-            Ok(Outcome::screen(
+            Ok(Outcome::reaction(
                 "reacted",
                 running(session)?.act(&Input::Keys(&input.keys))?,
             ))
@@ -383,14 +437,14 @@ impl Server {
 
     #[tool(
         name = "type",
-        description = "Paste text into the reviewer as a terminal pastes it, newlines included: it goes to the focused editor or field. Returns the screen once the reviewer has read it and painted its reaction."
+        description = "Paste text into the reviewer as a terminal pastes it, newlines included: it goes to the focused editor or field. Returns the rows that changed once the reviewer has read it and painted its reaction."
     )]
     async fn type_text(
         &self,
         Parameters(input): Parameters<TypeInput>,
     ) -> Result<CallToolResult, ErrorData> {
         self.run("type", json!(input), move |_, session| {
-            Ok(Outcome::screen(
+            Ok(Outcome::reaction(
                 "reacted",
                 running(session)?.act(&Input::Text(&input.text))?,
             ))
@@ -399,7 +453,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Left-click a cell of the reviewer, given as x and y (zero-based column and row), or as text: the first cell where the screen shows it. Returns the clicked cell and the screen once the reviewer has painted its reaction. Text the screen does not show, or a cell outside it, is an error."
+        description = "Left-click a cell of the reviewer, given as x and y (zero-based column and row), or as text: the first cell where the screen shows it. Returns the clicked cell and the rows that changed once the reviewer has painted its reaction. Text the screen does not show, or a cell outside it, is an error."
     )]
     async fn click(
         &self,
@@ -412,13 +466,13 @@ impl Server {
                 (None, None, Some(text)) => session.screen(false)?.locate(&text)?,
                 _ => bail!("click takes either x and y, or text"),
             };
-            Ok(Outcome::screen("reacted", session.act(&Input::Click(cell))?).with("cell", cell))
+            Ok(Outcome::reaction("reacted", session.act(&Input::Click(cell))?).with("cell", cell))
         })
         .await
     }
 
     #[tool(
-        description = "Wait until the reviewer's screen shows a text, or no longer shows it with absent, and return that screen. The screen is checked at once, then after each frame the reviewer paints: use it for asynchronous work (a refresh, Jev, an agent's turn), with text the screen before did not show."
+        description = "Wait until the reviewer's screen shows a text, or no longer shows it with absent, and return the rows of that screen that changed. The screen is checked at once, then after each frame the reviewer paints: use it for asynchronous work (a refresh, Jev, an agent's turn), with text the screen before did not show."
     )]
     async fn wait_for(
         &self,
@@ -427,7 +481,7 @@ impl Server {
         self.run("wait_for", json!(input), move |_, session| {
             let guard = wait_guard(input.timeout_ms, 5000)?;
             let screen = running(session)?.wait_for(&input.text, input.absent, guard)?;
-            Ok(Outcome::screen(
+            Ok(Outcome::reaction(
                 if input.absent { "gone" } else { "shown" },
                 screen,
             ))
@@ -445,7 +499,11 @@ impl Server {
         self.run("screenshot", json!({}), move |_, session| {
             let (screen, saved) = running(session)?.screenshot()?;
             let png = std::fs::read(&saved.path)?;
-            let mut outcome = Outcome::screen("screenshot", screen).with("path", &saved.path);
+            let mut outcome = Outcome {
+                show: Show::Hidden,
+                ..Outcome::screen("screenshot", screen)
+            }
+            .with("path", &saved.path);
             if !saved.replaced.is_empty() {
                 outcome = outcome.with("drawn_as_question_marks", &saved.replaced);
             }
@@ -456,14 +514,14 @@ impl Server {
     }
 
     #[tool(
-        description = "Stand in for the paid Jev classifier, which vision sessions never reach: classify as insignificant every diff hunk of path that adds one of lines (current numbering) or removes one (base numbering), press rf, and return the screen once Jev has finished, with its result (\"Jev: marked\"), or the screen of rf refusing. Nearby edits share one diff hunk, as they do for Jev. The script is kept as jev-script.json in the session directory: write it yourself before an Explore round to have Jev mark at the round's start."
+        description = "Stand in for the paid Jev classifier, which vision sessions never reach: classify as insignificant every diff hunk of path that adds one of lines (current numbering) or removes one (base numbering), press rf, and return the rows that changed once Jev has finished, with its result (\"Jev: marked\"), or once rf refused. Nearby edits share one diff hunk, as they do for Jev. The script is kept as jev-script.json in the session directory: write it yourself before an Explore round to have Jev mark at the round's start."
     )]
     async fn jev(
         &self,
         Parameters(input): Parameters<JevInput>,
     ) -> Result<CallToolResult, ErrorData> {
         self.run("jev", json!(input), move |_, session| {
-            Ok(Outcome::screen(
+            Ok(Outcome::reaction(
                 "classified",
                 running(session)?.jev(&input.path, &input.lines)?,
             ))
@@ -481,17 +539,13 @@ impl Server {
         self.run("turn", json!(input), move |_, session| {
             let guard = wait_guard(input.timeout_ms, 15_000)?;
             let turn = running(session)?.next_turn(input.after, guard)?;
-            Ok(Outcome {
-                summary: json!({"status": "turn", "turn": turn}),
-                screen: None,
-                image: None,
-            })
+            Ok(Outcome::summary(json!({"status": "turn", "turn": turn})))
         })
         .await
     }
 
     #[tool(
-        description = "Answer the latest turn as the stand-in agent: call one of the reviewer's MCP tools on its real endpoint. Returns the tool's result as `reply`, and the screen once the reviewer has shown it. A turn that is not the latest is an error, so a script never answers a prompt the reviewer replaced; the reviewer's own validation errors come back in `reply`."
+        description = "Answer the latest turn as the stand-in agent: call one of the reviewer's MCP tools on its real endpoint. Returns the tool's result as `reply`, and the rows that changed once the reviewer has shown it. A turn that is not the latest is an error, so a script never answers a prompt the reviewer replaced; the reviewer's own validation errors come back in `reply`."
     )]
     async fn reply(
         &self,
@@ -503,7 +557,7 @@ impl Server {
                 input.tool.name(),
                 Value::Object(input.arguments),
             )?;
-            Ok(Outcome::screen("replied", screen).with("reply", reply))
+            Ok(Outcome::reaction("replied", screen).with("reply", reply))
         })
         .await
     }
@@ -517,11 +571,7 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         self.run("explore_page", json!({}), move |_, session| {
             let page = running(session)?.explore_page()?;
-            Ok(Outcome {
-                summary: json!({"status": "opened", "page": page}),
-                screen: None,
-                image: None,
-            })
+            Ok(Outcome::summary(json!({"status": "opened", "page": page})))
         })
         .await
     }
@@ -535,11 +585,9 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         self.run("note", json!(input), move |_, session| {
             let directory = running(session)?.directory().to_owned();
-            Ok(Outcome {
-                summary: json!({"status": "recorded", "transcript": directory.join("actions.jsonl")}),
-                screen: None,
-                image: None,
-            })
+            Ok(Outcome::summary(
+                json!({"status": "recorded", "transcript": directory.join("actions.jsonl")}),
+            ))
         })
         .await
     }
@@ -568,11 +616,9 @@ impl Server {
             let directory = stopped.directory().to_owned();
             let transcript = directory.join("actions.jsonl");
             let workspace = stopped.stop().describe();
-            let outcome = Outcome {
-                summary: json!({"status": "stopped", "workspace": workspace, "directory": directory}),
-                screen: None,
-                image: None,
-            };
+            let outcome = Outcome::summary(
+                json!({"status": "stopped", "workspace": workspace, "directory": directory}),
+            );
             append(&transcript, "stop", &json!({}), &Ok(&outcome));
             Ok(outcome)
         })
@@ -697,3 +743,7 @@ pub fn serve(setup: Setup) -> Result<()> {
         .take();
     outcome
 }
+
+#[cfg(test)]
+#[path = "server.tests.rs"]
+mod tests;

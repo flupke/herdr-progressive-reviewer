@@ -243,9 +243,9 @@ impl Session {
                         "does not show"
                     },
                     guard.as_millis(),
-                    screen.text
+                    screen.compact()
                 ),
-                Err(stalled) => bail!("{stalled}; the screen shows:\n{}", screen.text),
+                Err(stalled) => bail!("{stalled}; the screen shows:\n{}", screen.compact()),
             };
             screen = self.read(&marker, false)?;
         }

@@ -30,6 +30,12 @@ impl Screen {
         }
     }
 
+    /// The text as the tools return it: numbered rows, trimmed, with its empty rows and QR code
+    /// folded.
+    pub(crate) fn compact(&self) -> String {
+        super::compact::whole(&self.text)
+    }
+
     pub(crate) fn shows(&self, text: &str) -> bool {
         self.text.contains(text)
     }
