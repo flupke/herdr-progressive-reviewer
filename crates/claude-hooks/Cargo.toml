@@ -8,6 +8,7 @@ publish = false
 description = "The reviewer's Claude Code plugin, whose hooks tell the reviewer what the agent in its Herdr pane does."
 
 [dependencies]
+agent-fork = { path = "../agent-fork" }
 agent-hooks = { path = "../agent-hooks" }
 herdr-client = { path = "../herdr-client" }
 serde.workspace = true

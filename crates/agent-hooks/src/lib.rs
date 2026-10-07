@@ -14,6 +14,6 @@ mod directory;
 mod listener;
 mod wire;
 
-pub use directory::HookDirectory;
+pub use directory::{HookDirectory, HookedSession};
 pub use listener::{AgentHooks, Expectation, Heard};
 pub use wire::{AgentEvent, Report, SessionSource};

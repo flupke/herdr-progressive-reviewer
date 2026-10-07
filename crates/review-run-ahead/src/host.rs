@@ -101,6 +101,14 @@ pub trait ForkHost: Send + Sync {
     /// is dropped.
     fn watch(&self, pane: &PaneId, report: StatusReport) -> PaneWatch;
 
+    /// Whether `agent` runs without the hooks that tell run-ahead what it does: it started
+    /// before the reviewer's plugin was installed, or with the plugin disabled. Run-ahead is off
+    /// for it until it restarts. An agent run-ahead cannot fork anyway has none to miss.
+    fn unhooked(&self, agent: &Agent) -> bool;
+
+    /// Whether the host can move `agent` to another session: it hears the agent's hooks.
+    fn can_move(&self, agent: &Agent) -> bool;
+
     /// Where forks of `agent`'s session start from now, or why it cannot be forked.
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String>;
 
@@ -123,8 +131,9 @@ pub trait ForkHost: Send + Sync {
     /// the fork's process and keeps its transcript; then, with the agent idle, it has the agent
     /// resume the fork's session, and waits until the agent's hook says that it did, and Herdr
     /// reports the agent on that session and ready for a prompt. A prompt submitted to the agent
-    /// meanwhile, such as a draft the resume joined, is blocked and fails the switch. `done`
-    /// gets the agent as Herdr then reports it, or why the switch failed.
+    /// meanwhile, such as text left in its input box that the resume joined, is blocked and
+    /// fails the switch. `done` gets the agent as Herdr then reports it, or why the switch
+    /// failed.
     fn switch(
         &self,
         switch: SwitchTo<'_>,

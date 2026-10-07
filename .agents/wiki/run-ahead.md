@@ -20,7 +20,11 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
 - Each fork costs about one agent turn; it reads the agent's prompt cache.
 - It needs Claude Code in the agent's pane, started with options run-ahead knows and
   without a `--settings` of its own, and with the hooks of the reviewer's Claude Code plugin
-  (below): the switch waits for them. Only Linux has the parent-death signal: elsewhere, macOS
+  (below): the switch waits for them. An agent runs with them when the session Herdr reports
+  is the one the plugin's `SessionStart` hook recorded for its pane, from a process still in
+  the pane. Without them (an agent started before the install, or with the plugin disabled),
+  run-ahead takes no fork, and each answer runs the plain chain with a line that says to
+  restart the agent. Only Linux has the parent-death signal: elsewhere, macOS
   included, `fork-exec` refuses and `ClaudeForks` takes no fork, so every answer runs the plain
   chain, with the reason.
 - What the forks do is written to `run-ahead.log` in the plugin's state directory.
@@ -70,29 +74,22 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   switch or a settling waits for the session, the reviewer blocks every prompt of that pane,
   and the switch fails, the answer waiting for Retry. A blocked prompt runs no turn: Claude
   Code 2.1.292 shows the reason and the original prompt in its transcript, and leaves the
-  input box empty. A hook waits at most 0.5 s for the reviewers' answer, then lets the prompt
-  go on.
+  input box empty. A hook that gets no answer in time lets the prompt go on.
 - Settling rests on Claude Code taking what is typed while it loads a session after it, in
   order: once a settling `/resume` is typed and Herdr reports the agent there, an earlier late
   resume cannot move it. This is not checked.
-- The test stand-in for Claude Code runs the plugin's hook as Claude Code does,
-  `reviewer-control agent-hook` with Claude Code's event on its standard input, then reports a
-  resumed session to Herdr as Herdr's own hook does, with a newer `--seq` and
-  `--session-start-source resume`; without them Herdr kept reporting the first session.
+- The test stand-in for Claude Code reports a resumed session to Herdr as Herdr's own hook
+  does, with a newer `--seq` and `--session-start-source resume`; without them Herdr kept
+  reporting the first session.
 
 ## The reviewer's Claude Code plugin
 
 [ADR 0005](../adr/0005-hear-the-agent-through-a-claude-code-plugin.md) says why run-ahead hears
-the agent through it. `make install` runs, against the user's Claude Code configuration:
+the agent through it; the `Makefile`'s `install` and `uninstall` say how it is installed. What
+Claude Code 2.1.292 does with it:
 
-```sh
-claude plugin marketplace add "$PWD/crates/claude-hooks"
-claude plugin install progressive-reviewer@herdr-progressive-reviewer --config control="$PWD/bin/reviewer-control"
-```
-
-Both say so and succeed when they ran before; `make uninstall` runs `claude plugin uninstall`
-and `claude plugin marketplace remove`. What Claude Code 2.1.292 does with it:
-
+- `claude plugin marketplace add` and `claude plugin install` succeed when they ran before.
+  Run from another checkout, they move the marketplace and the `control` option to it.
 - A plugin of a directory marketplace loads in place from the checkout: an edit of its hooks
   takes effect at the next session start, without a reinstall.
 - A hook's command may hold `${user_config.control}` only in exec form (`command` and `args`);

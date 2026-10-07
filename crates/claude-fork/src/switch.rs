@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use agent_fork::{ProcessStamp, RunningFork, stop_recorded};
 use agent_hooks::{AgentHooks, Heard};
@@ -81,6 +81,31 @@ impl AgentPane<'_> {
             .ok_or_else(|| "the agent's pane is gone".to_owned())
     }
 
+    /// Whether `agent`, the agent of this pane, runs the hooks of the reviewer's plugin: its
+    /// process, still in the pane, started the session Herdr reports with them, as `hooks`
+    /// recorded it.
+    pub(crate) fn hooked(&self, hooks: &AgentHooks, agent: &Agent) -> bool {
+        let Some(session) = &agent.agent_session else {
+            return false;
+        };
+        let started: Vec<_> = hooks
+            .hooked_sessions(self.pane)
+            .into_iter()
+            .filter(|started| started.session == session.value && started.process.is_running())
+            .collect();
+        !started.is_empty()
+            && self
+                .herdr
+                .pane_process_info(self.pane)
+                .is_ok_and(|processes| {
+                    processes.foreground_processes.iter().any(|process| {
+                        started
+                            .iter()
+                            .any(|started| started.process.pid == process.pid)
+                    })
+                })
+    }
+
     /// The agent, once Herdr reports it waiting for a prompt on the session `session`.
     fn ready_on(&self, session: &str) -> Option<Agent> {
         self.agent().ok().filter(|agent| {
@@ -113,7 +138,8 @@ impl Switch<'_> {
         Resume {
             pane: self.pane,
             session: self.session,
-            waits: self.waits,
+            limit: self.waits.resume,
+            poll: self.waits.resume_poll,
             hooks: self.hooks,
         }
         .run()
@@ -125,7 +151,11 @@ impl Switch<'_> {
 pub(crate) struct Resume<'a> {
     pub(crate) pane: AgentPane<'a>,
     pub(crate) session: &'a str,
-    pub(crate) waits: ForkWaits,
+    /// How long it waits, once the agent was told to resume the session.
+    pub(crate) limit: Duration,
+    /// How often it asks Herdr where the agent stands, once the agent's hook said that it
+    /// resumed the session.
+    pub(crate) poll: Duration,
     pub(crate) hooks: Option<&'a AgentHooks>,
 }
 
@@ -147,8 +177,13 @@ impl Resume<'_> {
         if !agent.agent_status.waits_for_prompt() {
             return Err(failed("the agent in the pane is working".into()));
         }
+        if !self.pane.hooked(hooks, &agent) {
+            return Err(failed(
+                "the agent in the pane runs without the reviewer's Claude Code plugin".into(),
+            ));
+        }
         let command = format!("/resume {}", self.session);
-        let deadline = Instant::now() + self.waits.resume;
+        let deadline = Instant::now() + self.limit;
         let block = format!(
             "The progressive reviewer stopped this prompt: it typed `{command}` while text \
              waited in the input box, and both would have run as one prompt. Your text is \
@@ -163,13 +198,13 @@ impl Resume<'_> {
             error: format!(
                 "{what} the agent on the session {} within {} s",
                 self.session,
-                self.waits.resume.as_secs_f64()
+                self.limit.as_secs_f64()
             ),
             typed: true,
         };
         match expectation.wait(deadline.saturating_duration_since(Instant::now())) {
             Some(Heard::Resumed) => {}
-            // The draft and the command ran as one prompt, which never ran: the agent did not
+            // The text and the command made one prompt, which never ran: the agent did not
             // move.
             Some(Heard::Blocked { prompt }) if prompt.contains(&command) => {
                 return Err(failed(
@@ -199,7 +234,7 @@ impl Resume<'_> {
             if Instant::now() >= deadline {
                 return Err(late("Herdr did not report"));
             }
-            thread::sleep(self.waits.resume_poll);
+            thread::sleep(self.poll);
         }
     }
 }

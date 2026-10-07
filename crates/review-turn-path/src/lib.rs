@@ -20,6 +20,9 @@ pub enum TurnPath {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum PlainReason {
+    /// The pane's agent runs without the hooks of the reviewer's Claude Code plugin, which
+    /// run-ahead needs: it started before the plugin was installed, or with it disabled.
+    NoHooks,
     /// The answer has a comment.
     Comment,
     /// The answer is None of the above.
@@ -75,6 +78,9 @@ impl PlainReason {
     /// come first; what the forks had not done, and the tool's own faults, after.
     fn line(&self) -> Option<&'static str> {
         Some(match self {
+            Self::NoHooks => {
+                "Not prepared: restart the agent to load the reviewer's Claude Code plugin"
+            }
             Self::Comment => "Not prepared: you added a comment",
             Self::NoneOfTheAbove => "Not prepared: you answered None of the above",
             Self::ChatMessage => "Not prepared: you wrote in the chat",
@@ -104,6 +110,7 @@ impl PlainReason {
             // in `line`.
             Self::Unchecked { .. }
             | Self::Obsolete
+            | Self::NoHooks
             | Self::Comment
             | Self::NoneOfTheAbove
             | Self::ChatMessage

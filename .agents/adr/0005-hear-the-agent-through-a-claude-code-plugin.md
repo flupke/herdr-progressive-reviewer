@@ -1,8 +1,8 @@
 # Hear the agent through the reviewer's Claude Code plugin
 
 Run-ahead read Claude Code's input box off the agent's screen, and asked Herdr where the agent
-stood until it reported the fork's session. A new design of that screen would break it, and a
-draft left in the box could still meet the `/resume` the reviewer types. Claude Code's hooks say
+stood until it reported the fork's session. A new design of that screen would break it, and
+text left in the box could still meet the `/resume` the reviewer types. Claude Code's hooks say
 exactly what the agent does: `SessionStart` names the session it resumed, and a
 `UserPromptSubmit` hook sees the submitted text and can block it.
 
@@ -22,7 +22,8 @@ A hook hands its event, with its pane (`HERDR_PANE_ID`), to every socket there, 
 keeps the events of the panes it expects one from.
 
 Considered:
-- Keeping the screen reads: they break with Claude Code's design, and cannot stop a draft.
+- Keeping the screen reads: they break with Claude Code's design, and cannot stop text left in
+  the box.
 - Writing the hooks into `~/.claude/settings.json`, as Herdr does: they mix with the user's own
   entries, and no single command removes them.
 - The MCP bridge's HTTP port: it is named after a repository, which a hook would have to find

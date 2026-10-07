@@ -23,6 +23,8 @@ pub(super) enum StandIn {
     /// A Claude Code stand-in that run-ahead can fork; it and its forks keep their transcripts
     /// under `claude-config` in the server's directory.
     Forkable,
+    /// The same, started without the reviewer's Claude Code plugin.
+    Unhooked,
     /// The same, whose forks run the real Claude Code named in `real-claude` in the server's
     /// directory, with the owner's own configuration and transcripts.
     ForkedForReal,
@@ -37,13 +39,11 @@ impl StandIn {
         );
         // Claude Code runs the hooks of the reviewer's plugin.
         let plugin = "REVIEW_AGENT_E2E_HOOKS=1".to_owned();
+        let configuration = format!("CLAUDE_CONFIG_DIR={}", root.join("claude-config").display());
         match self {
             Self::Plain => Vec::new(),
-            Self::Forkable => vec![
-                stand_in,
-                plugin,
-                format!("CLAUDE_CONFIG_DIR={}", root.join("claude-config").display()),
-            ],
+            Self::Forkable => vec![stand_in, plugin, configuration],
+            Self::Unhooked => vec![stand_in, configuration],
             Self::ForkedForReal => vec![stand_in, plugin],
         }
     }
@@ -226,18 +226,15 @@ fn test_waits() -> claude_fork::ForkWaits {
 
 impl RunAheadFlow {
     fn start() -> Self {
-        Self::start_with(test_waits())
+        Self::start_with(StandIn::Forkable, test_waits())
     }
 
-    /// The flow, whose forks' host waits as `waits` say.
-    fn start_with(waits: claude_fork::ForkWaits) -> Self {
+    /// The flow with the agent `stand_in`, whose forks' host waits as `waits` say.
+    fn start_with(stand_in: StandIn, waits: claude_fork::ForkWaits) -> Self {
         let repository_files = repository_fixture(RepoType::Git);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
-        let herdr = IsolatedHerdrServer::start_forkable(
-            repository_files.root(),
-            "session",
-            StandIn::Forkable,
-        );
+        let herdr =
+            IsolatedHerdrServer::start_forkable(repository_files.root(), "session", stand_in);
         herdr.hold_turns(true);
         let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup| {
             setup.run_ahead.waits = waits;
@@ -638,12 +635,16 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
 
 #[test]
 fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
-    // The switch waits a second, in place of 20: neither the agent's hook nor Herdr confirms
-    // it. The agent's move back to its own session, which they confirm, gets as long.
-    let mut run = RunAheadFlow::start_with(claude_fork::ForkWaits {
-        resume: Duration::from_secs(1),
-        ..test_waits()
-    });
+    // The switch waits no time, in place of 20 seconds: neither the agent's hook nor Herdr
+    // confirms it. The agent's move back to its own session, which they confirm, waits as long
+    // as in production.
+    let mut run = RunAheadFlow::start_with(
+        StandIn::Forkable,
+        claude_fork::ForkWaits {
+            resume: Duration::ZERO,
+            ..test_waits()
+        },
+    );
     run.flow.turn(None, 1);
     let sessions = run.wait_for_forks(2);
     let fork = sessions[0].clone();
@@ -697,7 +698,7 @@ fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_o
 }
 
 #[test]
-fn a_draft_the_resume_joins_is_blocked_and_the_answer_waits_for_retry() {
+fn text_left_in_the_input_box_is_blocked_with_the_resume_and_the_answer_waits_for_retry() {
     let mut run = RunAheadFlow::start();
     run.flow.turn(None, 1);
     let sessions = run.wait_for_forks(2);
@@ -733,7 +734,7 @@ fn a_draft_the_resume_joins_is_blocked_and_the_answer_waits_for_retry() {
             _ => None,
         }
     });
-    assert!(!typed, "the agent ran neither the draft nor the /resume");
+    assert!(!typed, "the agent ran neither the text nor the /resume");
     run.wait_until_gone(&processes);
     assert_eq!(run.resumed(), Vec::<String>::new());
     assert_eq!(
@@ -758,6 +759,31 @@ fn a_draft_the_resume_joins_is_blocked_and_the_answer_waits_for_retry() {
     assert!(
         delivered[prompts].contains(&format!("Explore request: {}", request.request)),
         "{delivered:?}"
+    );
+}
+
+#[test]
+fn an_agent_started_without_the_plugin_is_not_forked_and_its_answers_say_to_restart_it() {
+    let mut run = RunAheadFlow::start_with(StandIn::Unhooked, test_waits());
+    run.flow.turn(None, 1);
+    let prompts = run.herdr().prompts().len();
+
+    let request = run.answer_bare("keep");
+
+    let delivered = run
+        .herdr()
+        .wait_for_prompts("the answer", |delivered| delivered.len() > prompts);
+    assert!(
+        delivered[prompts].contains(&format!("Explore request: {}", request.request)),
+        "the answer reached the agent: {delivered:?}"
+    );
+    let saved = run.saved();
+    assert_eq!(saved.forks, Vec::new(), "{}", run.log());
+    assert_eq!(
+        saved.answers.last().unwrap().path,
+        review_run_ahead::TurnPath::Plain {
+            reason: review_run_ahead::PlainReason::NoHooks
+        }
     );
 }
 

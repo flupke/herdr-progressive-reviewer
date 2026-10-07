@@ -175,9 +175,13 @@ impl ExploreSession {
             let Some((round, fork)) = self.unsettled() else {
                 return false;
             };
-            let Some(pane) = self.round_agent().map(|agent| agent.pane_id) else {
+            let Some(agent) = self.round_agent() else {
                 return false;
             };
+            if !self.can_settle(&round, &fork, &agent) {
+                return false;
+            }
+            let pane = agent.pane_id;
             let reason = format!(
                 "a prompt waits while the agent may run the session of the fork {}",
                 fork.session
@@ -193,6 +197,56 @@ impl ExploreSession {
         self.state.prompt = None;
         self.run_ahead.held = Some(turn.clone());
         true
+    }
+
+    /// Whether the agent `agent`, which may run the session of the fork `fork` of `round`, can
+    /// be put on the session the round needs. One without the reviewer's hooks, which a move
+    /// needs, restarted since it was told to resume the fork's session: it runs the session it
+    /// started with, which the fork's record then says, so that no later move takes it off
+    /// that session. One the host cannot move at all stays where it is.
+    pub(super) fn can_settle(
+        &mut self,
+        round: &RoundKey,
+        fork: &ForkRecord,
+        agent: &Agent,
+    ) -> bool {
+        if self.run_ahead.host.can_move(agent) {
+            return true;
+        }
+        if self.run_ahead.host.unhooked(agent) {
+            self.agent_restarted(round, fork);
+        } else {
+            self.run_ahead.host.log(&format!(
+                "the agent may run the session of the fork {}, and cannot be moved: it stays \
+                 where it is",
+                fork.session
+            ));
+        }
+        false
+    }
+
+    /// The agent restarted since it was told to resume the session of the fork `fork` of
+    /// `round`: the fork is no longer the agent's, and goes.
+    fn agent_restarted(&mut self, round: &RoundKey, fork: &ForkRecord) {
+        let now = review_explore::now_ms();
+        let saved = self.update_forks(round, |forks| {
+            if let Some(record) = forks.fork_mut(&fork.session) {
+                record.continued = Some(Continuation::Restarted { at_ms: now });
+                record.discard(DiscardReason::Answered, now);
+            }
+        });
+        if let Err(error) = saved {
+            self.run_ahead
+                .host
+                .log(&format!("the agent's restart was not recorded: {error}"));
+            self.run_ahead.left_unrecorded.insert(fork.session.clone());
+        }
+        self.discard_in_background(round, fork.trace());
+        self.run_ahead.host.log(&format!(
+            "the agent restarted without the reviewer's Claude Code plugin since it was told to \
+             resume the session of the fork {}, which is discarded",
+            fork.session
+        ));
     }
 
     /// The settling of the agent, which may have run the session of the fork `fork` of

@@ -12,6 +12,7 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
         TurnPath::Prepared {
             session: "fork".into(),
         },
+        plain(PlainReason::NoHooks),
         plain(PlainReason::Comment),
         plain(PlainReason::NoneOfTheAbove),
         plain(PlainReason::NoForks { why: None }),

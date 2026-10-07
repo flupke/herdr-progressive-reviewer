@@ -166,7 +166,7 @@ impl ForkRecord {
         match self.continued {
             Some(Continuation::Switching { .. } | Continuation::Switched { .. }) => true,
             Some(Continuation::Failed { typed, .. }) => typed,
-            Some(Continuation::Undone { .. }) | None => false,
+            Some(Continuation::Undone { .. } | Continuation::Restarted { .. }) | None => false,
         }
     }
 
@@ -241,6 +241,9 @@ pub enum Continuation {
     /// The switch did not hold: the round did not take the fork's turn, for `reason`, and at
     /// `at_ms` Herdr reported the pane's agent back on the session the fork was taken from.
     Undone { at_ms: u64, reason: String },
+    /// At `at_ms`, the pane's agent ran without the hooks a move needs: it restarted since it
+    /// was told to resume the fork's session, and runs the session it started with.
+    Restarted { at_ms: u64 },
 }
 
 /// Why and when a fork was discarded.

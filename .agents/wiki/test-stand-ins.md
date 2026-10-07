@@ -43,7 +43,7 @@ reviewer's Claude Code plugin as Claude Code does, through the `reviewer-control
 built beside the test binary, and does not start on a prompt they block (`PromptBlocked`); a
 marker is no prompt to them. The tests take the hooks' real path to the reviewer, whose
 `RunAheadSetup.hooks` names the directory of the test's Herdr server. `herdr pane send-text`
-leaves a draft in the stand-in's input box, which the next prompt typed there joins.
+leaves text in the stand-in's input box, which the next prompt typed there joins.
 
 ### Proving that nothing happened
 
@@ -99,8 +99,9 @@ records each fork's process before it takes another input, so once the forks rep
 ## Waits the tests inject
 
 - `ForkWaits` (claude-fork, through `RunAheadSetup.waits`): the run-ahead tests ask Herdr
-  where the agent stands every 10 ms, and the switch that the agent never confirms waits 1 s
-  instead of 20 s.
+  where the agent stands every 10 ms, and the switch that the agent never confirms waits no
+  time instead of 20 s (`ForkWaits::resume`), while the move back to the agent's own session
+  keeps its 20 s (`ForkWaits::settle`).
 - `talk_quiet` (the session's `Collaborators`, through `RunAheadSetup.talk_quiet`): the quiet
   minute after a talk in the round conversation before run-ahead forks again is zero in the
   reviewer's tests. The session's tests keep the minute and end it by hand (`end_quiet_wait`),

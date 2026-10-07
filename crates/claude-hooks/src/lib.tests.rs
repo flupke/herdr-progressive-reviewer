@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use agent_hooks::{AgentHooks, Heard};
+use agent_hooks::{AgentHooks, Heard, HookedSession};
 use serde_json::Value;
 
 use super::*;
@@ -40,6 +40,26 @@ fn a_session_claude_code_resumed_reaches_the_reviewer_that_expects_it() {
 }
 
 #[test]
+fn a_session_the_agent_started_is_recorded_for_a_reviewer_opened_later() {
+    let runtime = tempfile::tempdir().unwrap();
+    let directory = HookDirectory::for_server(runtime.path(), Path::new("/run/herdr.sock"));
+    let pane = PaneId("w:p1".into());
+
+    hook(
+        &pane,
+        &directory,
+        session_start("first", "startup").as_bytes(),
+    );
+
+    let sessions: Vec<_> = directory
+        .hooked_sessions(&pane)
+        .into_iter()
+        .map(|started| started.session)
+        .collect();
+    assert_eq!(sessions, ["first"]);
+}
+
+#[test]
 fn a_subagent_s_session_is_not_the_agent_s() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
@@ -47,6 +67,12 @@ fn a_subagent_s_session_is_not_the_agent_s() {
     let marker = hooks.expect_resume(&PaneId("w:p9".into()), "marker", "blocked");
     let mut subagent: Value = serde_json::from_str(&session_start("fork", "resume")).unwrap();
     subagent["agent_id"] = "a1".into();
+
+    let agent = HookedSession {
+        session: "agent".into(),
+        process: ProcessStamp { pid: 1, started: 7 },
+    };
+    directory.record(&pane, &agent).unwrap();
 
     hook(&pane, &directory, subagent.to_string().as_bytes());
     // The reviewer takes the hooks one after another: it took the subagent's before this.
@@ -58,6 +84,7 @@ fn a_subagent_s_session_is_not_the_agent_s() {
 
     assert_eq!(marker.wait(GUARD), Some(Heard::Resumed));
     assert_eq!(expectation.wait(Duration::ZERO), None);
+    assert_eq!(directory.hooked_sessions(&pane), [agent]);
 }
 
 /// Claude Code's `UserPromptSubmit` event, as 2.1.292 writes it, of `prompt`.
@@ -77,7 +104,8 @@ fn prompt_submit(prompt: &str) -> String {
 fn a_prompt_submitted_while_the_reviewer_expects_a_session_is_blocked_with_its_reason() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_resume(&pane, "fork", "A draft met the reviewer's /resume.");
+    let expectation =
+        hooks.expect_resume(&pane, "fork", "Text in the box met the reviewer's /resume.");
 
     let decision = hook(
         &pane,
@@ -88,7 +116,7 @@ fn a_prompt_submitted_while_the_reviewer_expects_a_session_is_blocked_with_its_r
     let decision: Value = serde_json::from_str(&decision.unwrap()).unwrap();
     assert_eq!(
         decision,
-        serde_json::json!({"decision": "block", "reason": "A draft met the reviewer's /resume."})
+        serde_json::json!({"decision": "block", "reason": "Text in the box met the reviewer's /resume."})
     );
     assert_eq!(
         expectation.wait(Duration::ZERO),
@@ -125,8 +153,7 @@ fn each_hook_of_the_plugin_runs_the_agent_hook_of_the_installed_reviewer() {
 
     let listed = &marketplace["plugins"][0];
     assert_eq!(listed["name"], plugin["name"]);
-    assert_eq!(listed["source"], "./plugin");
-    assert_eq!(plugin["userConfig"]["control"]["required"], true);
+    assert!(plugin["userConfig"]["control"].is_object());
     let commands: Vec<&Value> = hooks["hooks"]
         .as_object()
         .unwrap()

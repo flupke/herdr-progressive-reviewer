@@ -23,7 +23,6 @@ fn submitted(pane: &str, prompt: &str) -> Report {
     Report {
         pane: self::pane(pane),
         event: AgentEvent::PromptSubmitted {
-            session: "session".into(),
             prompt: prompt.into(),
         },
     }
@@ -55,7 +54,7 @@ fn another_pane_session_or_start_is_not_what_an_expectation_waits_for() {
 
     directory.tell(&started("w:p2", "fork", SessionSource::Resume));
     directory.tell(&started("w:p1", "other", SessionSource::Resume));
-    directory.tell(&started("w:p1", "fork", SessionSource::Startup));
+    directory.tell(&started("w:p1", "fork", SessionSource::Other));
     // The reviewer takes the hooks one after another: it took the events above before this.
     directory.tell(&started("w:p9", "marker", SessionSource::Resume));
 
@@ -100,11 +99,11 @@ fn a_new_reviewer_removes_the_sockets_of_stopped_ones_and_a_stopped_one_its_own(
 #[test]
 fn a_prompt_submitted_while_a_session_is_expected_is_blocked_with_its_reason() {
     let (_runtime, directory, hooks) = reviewer();
-    let expectation = hooks.expect_resume(&pane("w:p1"), "fork", "a draft met the /resume");
+    let expectation = hooks.expect_resume(&pane("w:p1"), "fork", "text in the box met the /resume");
 
     let block = directory.ask(&submitted("w:p1", "half a thought /resume fork"), GUARD);
 
-    assert_eq!(block.as_deref(), Some("a draft met the /resume"));
+    assert_eq!(block.as_deref(), Some("text in the box met the /resume"));
     assert_eq!(
         expectation.wait(Duration::ZERO),
         Some(Heard::Blocked {
@@ -135,4 +134,44 @@ fn a_prompt_goes_on_when_no_reviewer_answers() {
     let block = directory.ask(&submitted("w:p1", "hello"), Duration::from_millis(1));
 
     assert_eq!(block, None);
+}
+
+#[test]
+fn each_process_of_a_pane_keeps_the_last_session_it_started_and_one_that_ended_goes() {
+    let runtime = tempfile::tempdir().unwrap();
+    let directory = HookDirectory::for_server(runtime.path(), Path::new("/run/herdr.sock"));
+    let this = agent_fork::ProcessStamp::read(std::process::id());
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    ended.wait().unwrap();
+    let ended = agent_fork::ProcessStamp {
+        pid: ended.id(),
+        started: 7,
+    };
+    let started = |session: &str, process| HookedSession {
+        session: session.into(),
+        process,
+    };
+
+    directory
+        .record(&pane("w:p1"), &started("gone", ended))
+        .unwrap();
+    directory
+        .record(&pane("w/p2"), &started("other", this))
+        .unwrap();
+    directory
+        .record(&pane("w:p1"), &started("first", this))
+        .unwrap();
+    directory
+        .record(&pane("w:p1"), &started("resumed", this))
+        .unwrap();
+
+    assert_eq!(
+        directory.hooked_sessions(&pane("w:p1")),
+        [started("resumed", this)]
+    );
+    assert_eq!(
+        directory.hooked_sessions(&pane("w/p2")),
+        [started("other", this)]
+    );
+    assert_eq!(directory.hooked_sessions(&pane("w:p3")), []);
 }

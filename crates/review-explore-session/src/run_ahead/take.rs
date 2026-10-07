@@ -93,10 +93,20 @@ impl ExploreSession {
                 "the agent may run the session of the fork {}, whose turn the round did not take",
                 fork.session
             );
-            if !self.run_ahead.settle_failed.contains(&fork.session) {
+            if !self.run_ahead.settle_failed.contains(&fork.session)
+                && self.can_settle(&round, &fork, &agent)
+            {
                 self.settle(&round, fork, &pane, reason.clone(), Trigger::RunAhead);
             }
-            return Err(reason);
+            if self.unsettled().is_some() {
+                return Err(reason);
+            }
+        }
+        // Run-ahead hears what the agent does through those hooks alone.
+        if self.run_ahead.host.unhooked(&agent) {
+            return Err(
+                "the agent runs without the reviewer's Claude Code plugin: restart it".into(),
+            );
         }
         let point = self.run_ahead.host.point(&agent)?;
         let choices = self.choices_to_prepare(&question)?;

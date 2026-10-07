@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use herdr_client::protocol::PaneId;
 
-use crate::directory::HookDirectory;
+use crate::directory::{HookDirectory, HookedSession};
 use crate::wire::{AgentEvent, Answer, Report, SessionSource};
 
 /// How long a reviewer waits for the line of a hook that connected.
@@ -26,22 +26,23 @@ static REVIEWERS: AtomicU64 = AtomicU64::new(0);
 /// to what the reviewer expects there, and blocks the prompts submitted in a pane while it
 /// expects a session there. Dropping it stops listening and removes its socket.
 pub struct AgentHooks {
+    directory: HookDirectory,
     socket: PathBuf,
-    expected: Arc<Expected>,
+    expected: Arc<Expectations>,
     stopped: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
 /// What the reviewer expects from the agent of each pane.
 #[derive(Default)]
-struct Expected {
-    panes: Mutex<HashMap<PaneId, Armed>>,
+struct Expectations {
+    panes: Mutex<HashMap<PaneId, Awaited>>,
     heard: Condvar,
     next: AtomicU64,
 }
 
 /// An expectation of the agent of a pane, and what its hooks said of it.
-struct Armed {
+struct Awaited {
     id: u64,
     /// The session the agent is expected to resume.
     session: String,
@@ -56,14 +57,15 @@ pub enum Heard {
     /// The agent resumed the session.
     Resumed,
     /// The text `prompt` was submitted to the agent, and blocked. A command of the agent's own
-    /// is no prompt: text submitted while the reviewer types one is a draft that met it.
+    /// is no prompt: text submitted while the reviewer types one is text left in the agent's
+    /// input box, which the command joined.
     Blocked { prompt: String },
 }
 
 /// The reviewer expects the agent of a pane to resume a session, and blocks every prompt
 /// submitted in that pane, until it drops this.
 pub struct Expectation {
-    expected: Arc<Expected>,
+    expected: Arc<Expectations>,
     pane: PaneId,
     id: u64,
 }
@@ -76,7 +78,7 @@ impl AgentHooks {
         let number = REVIEWERS.fetch_add(1, Ordering::Relaxed);
         let socket = directory.socket(std::process::id(), number);
         let listener = crate::address::bind(&socket)?;
-        let expected = Arc::new(Expected::default());
+        let expected = Arc::new(Expectations::default());
         let stopped = Arc::new(AtomicBool::new(false));
         let thread = {
             let (expected, stopped) = (Arc::clone(&expected), Arc::clone(&stopped));
@@ -92,11 +94,17 @@ impl AgentHooks {
             })
         };
         Ok(Self {
+            directory: directory.clone(),
             socket,
             expected,
             stopped,
             thread: Some(thread),
         })
+    }
+
+    /// The session each process of `pane` last started with the hooks, as its hook recorded it.
+    pub fn hooked_sessions(&self, pane: &PaneId) -> Vec<HookedSession> {
+        self.directory.hooked_sessions(pane)
     }
 
     /// Expects the agent of `pane` to resume the session `session`, from now until the
@@ -106,7 +114,7 @@ impl AgentHooks {
         let id = self.expected.next.fetch_add(1, Ordering::Relaxed);
         self.expected.lock().insert(
             pane.clone(),
-            Armed {
+            Awaited {
                 id,
                 session: session.to_owned(),
                 block: block.to_owned(),
@@ -136,8 +144,8 @@ impl Drop for AgentHooks {
     }
 }
 
-impl Expected {
-    fn lock(&self) -> MutexGuard<'_, HashMap<PaneId, Armed>> {
+impl Expectations {
+    fn lock(&self) -> MutexGuard<'_, HashMap<PaneId, Awaited>> {
         self.panes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -167,7 +175,7 @@ impl Expected {
                 }
             }
             AgentEvent::SessionStarted { .. } => {}
-            AgentEvent::PromptSubmitted { prompt, .. } => {
+            AgentEvent::PromptSubmitted { prompt } => {
                 let mut panes = self.lock();
                 let block = panes.get_mut(&report.pane).map(|armed| {
                     if armed.heard.is_none() {

@@ -38,6 +38,10 @@ struct FakeHost {
     stopping: Vec<Box<dyn FnOnce() + Send>>,
     reports: Vec<StatusReport>,
     log: Vec<String>,
+    /// Whether the agent runs without the reviewer's hooks.
+    unhooked: bool,
+    /// Whether the host hears no agent's hooks, and so moves no agent.
+    deaf: bool,
     /// The switches asked, by the session of their fork, and where each reports its end.
     switches: Vec<(String, SwitchDone)>,
     /// The sessions the agent was asked to resume, and where each reports its end.
@@ -106,6 +110,16 @@ impl FakeForks {
         self.host().log.clone()
     }
 
+    /// The agent runs without the reviewer's hooks from now on.
+    fn unhook(&self) {
+        self.host().unhooked = true;
+    }
+
+    /// The host hears no agent's hooks from now on.
+    fn deafen(&self) {
+        self.host().deaf = true;
+    }
+
     /// Whether the forks discarded from now on keep running until the test lets them stop.
     fn hold_stops(&self, hold: bool) {
         self.host().hold_stops = hold;
@@ -170,6 +184,16 @@ impl ForkHost for FakeForks {
     fn watch(&self, _pane: &PaneId, report: StatusReport) -> PaneWatch {
         self.host().reports.push(report);
         PaneWatch::new(())
+    }
+
+    fn unhooked(&self, _agent: &Agent) -> bool {
+        let host = self.host();
+        host.unhooked && !host.deaf
+    }
+
+    fn can_move(&self, _agent: &Agent) -> bool {
+        let host = self.host();
+        !host.unhooked && !host.deaf
     }
 
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
@@ -1074,6 +1098,40 @@ fn an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_r
 }
 
 #[test]
+fn an_answer_to_an_agent_without_the_hooks_says_to_restart_it_whatever_the_answer() {
+    an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
+        &PlainReason::NoHooks,
+        |harness| {
+            harness.forks.unhook();
+            (Some("keep"), "Keep it, with a test.")
+        },
+    );
+}
+
+#[test]
+fn no_fork_is_taken_of_an_agent_without_the_hooks() {
+    let mut harness = Harness::start();
+    harness.forks.unhook();
+
+    harness.ask(RunAhead::Every);
+    let request = harness.post_answer(Some("keep"), "");
+
+    assert_eq!(harness.forks.started(), Vec::new());
+    assert_eq!(
+        harness.latest_path(),
+        TurnPath::Plain {
+            reason: PlainReason::NoHooks
+        }
+    );
+    assert_eq!(
+        harness.agent_takes(&request),
+        Some(TurnPath::Plain {
+            reason: PlainReason::NoHooks
+        })
+    );
+}
+
+#[test]
 fn an_answer_with_a_comment_goes_to_the_agent() {
     an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
         &PlainReason::Comment,
@@ -1701,6 +1759,50 @@ fn an_agent_that_could_not_be_put_back_gets_no_prompt_and_retry_tries_again() {
     harness.pump();
 
     assert!(Harness::is_prompt_of(&harness.delivered_prompt(), &request));
+}
+
+#[test]
+fn an_agent_restarted_without_the_hooks_gets_the_retried_prompt_without_being_put_back() {
+    let mut harness = Harness::start();
+    let (fork, request) = harness.answer_while_prepared("keep");
+    harness.forks.finish_switch(Err(unconfirmed()));
+    harness.pump();
+    harness.forks.finish_resume(Err(unconfirmed()));
+    harness.pump();
+    let _ = harness.next::<ui_events::ExploreFinished>();
+    harness.forks.unhook();
+
+    harness.retry(&request);
+
+    // A move back would hold the prompt until it ended.
+    assert!(Harness::is_prompt_of(&harness.delivered_prompt(), &request));
+    let record = harness.fork_record(&fork);
+    assert!(
+        matches!(record.continued, Some(Continuation::Restarted { .. })),
+        "a later move, once the agent has the hooks again, leaves it where it is: {:?}",
+        record.continued
+    );
+    assert!(harness.forks.discarded().contains(&fork));
+}
+
+#[test]
+fn a_prompt_goes_out_without_a_move_the_host_cannot_make() {
+    let mut harness = Harness::start();
+    let (fork, request) = harness.answer_while_prepared("keep");
+    harness.forks.finish_switch(Err(unconfirmed()));
+    harness.pump();
+    harness.forks.finish_resume(Err(unconfirmed()));
+    harness.pump();
+    let _ = harness.next::<ui_events::ExploreFinished>();
+    harness.forks.deafen();
+
+    harness.retry(&request);
+
+    assert!(Harness::is_prompt_of(&harness.delivered_prompt(), &request));
+    assert!(
+        harness.fork_record(&fork).is_unsettled(),
+        "the agent may still run the fork's session"
+    );
 }
 
 #[test]

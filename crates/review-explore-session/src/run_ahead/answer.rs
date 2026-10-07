@@ -116,6 +116,16 @@ impl ExploreSession {
     /// goes to the pane's agent.
     fn fork_for(&self, armed: &Armed, request: &TurnRequest) -> Result<usize, PlainReason> {
         let answer = request.answer.as_ref().expect("an answer");
+        // First, whatever the answer: run-ahead stays off for that agent until it restarts.
+        if self
+            .agents
+            .get_agent(&armed.asked.pane)
+            .ok()
+            .flatten()
+            .is_some_and(|agent| self.run_ahead.host.unhooked(&agent))
+        {
+            return Err(PlainReason::NoHooks);
+        }
         let choice = answer
             .option
             .as_ref()

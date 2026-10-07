@@ -10,7 +10,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
 /// The size of a socket address's path, its closing zero included.
-const ADDRESS: usize = 108;
+const ADDRESS_PATH: usize = 108;
 
 /// Listens at `path`.
 pub(crate) fn bind(path: &Path) -> io::Result<UnixListener> {
@@ -28,7 +28,7 @@ fn through_directory<T>(path: &Path, open: impl FnOnce(PathBuf) -> io::Result<T>
     let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
         return open(path.to_owned());
     };
-    if path.as_os_str().len() < ADDRESS {
+    if path.as_os_str().len() < ADDRESS_PATH {
         return open(path.to_owned());
     }
     let directory = File::open(directory)?;

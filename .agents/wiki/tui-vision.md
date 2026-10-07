@@ -60,6 +60,12 @@ each frame.
   in the pane.
 - The stand-in agent reports its state to Herdr itself, as Claude's hooks do: the user's
   Herdr may not read its working state from its titles.
+- The stand-in agent reports no session and runs no hook of the reviewer's Claude Code plugin,
+  so run-ahead takes no fork of it. Reporting a session for its pane once it took the kickoff,
+  with `herdr pane report-agent-session <pane> --source herdr:claude --agent claude --seq
+  <nanoseconds> --agent-session-id <id> --session-start-source startup`, shows run-ahead's
+  reason for an agent without the plugin; Herdr then ignores the stand-in's own state reports,
+  and a report before the kickoff keeps it from starting on it.
 
 A whole Explore round in the pane, with the arguments of
 [`tests/tui/examples`](../../tests/tui/examples) (the reviewer's tools reject unknown and

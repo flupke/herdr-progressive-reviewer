@@ -8,6 +8,9 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use agent_fork::ProcessStamp;
+use herdr_client::protocol::PaneId;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::wire::{Answer, Report};
@@ -20,6 +23,18 @@ pub struct HookDirectory(PathBuf);
 
 /// The extension of a reviewer's socket.
 const SOCKET: &str = "sock";
+
+/// The extension of the record of a process's hooked session.
+const RECORD: &str = "pane";
+
+/// The session a process of a pane last started while it ran the reviewer's hooks, and the
+/// process. A hook records it, for a reviewer opened later too: an agent whose process or
+/// session no record names runs without the hooks.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct HookedSession {
+    pub session: String,
+    pub process: ProcessStamp,
+}
 
 /// How long a hook gives a reviewer to take an event.
 const TELL_LIMIT: Duration = Duration::from_millis(200);
@@ -57,13 +72,63 @@ impl HookDirectory {
     pub fn ask(&self, report: &Report, limit: Duration) -> Option<String> {
         let line = line(report)?;
         let deadline = Instant::now() + limit;
-        self.sockets().iter().find_map(|socket| {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return None;
+        self.sockets()
+            .iter()
+            .find_map(|socket| ask(socket, &line, deadline).ok().flatten())
+    }
+
+    /// Records that the agent of `pane` started `started` with the hooks, and forgets the
+    /// processes of that pane that no longer run. Each process of a pane has a record of its
+    /// own: a `claude` the agent runs from its shell inherits its pane, and runs the hooks too.
+    pub fn record(&self, pane: &PaneId, started: &HookedSession) -> io::Result<()> {
+        self.create()?;
+        for (path, earlier) in self.records(pane) {
+            if !earlier.process.is_running() {
+                let _ = fs::remove_file(path);
             }
-            ask(socket, &line, left).ok().flatten()
-        })
+        }
+        let path = self.0.join(format!(
+            "{}{}.{RECORD}",
+            record_prefix(pane),
+            started.process.pid
+        ));
+        // Renamed into place, so that a reviewer never reads half a record.
+        let written = path.with_extension(format!("{}.new", std::process::id()));
+        fs::write(&written, serde_json::to_vec(started)?)?;
+        fs::rename(&written, &path)
+    }
+
+    /// The session each process of `pane` last started with the hooks, as recorded, those of
+    /// processes that ended since included.
+    pub fn hooked_sessions(&self, pane: &PaneId) -> Vec<HookedSession> {
+        self.records(pane)
+            .into_iter()
+            .map(|(_, started)| started)
+            .collect()
+    }
+
+    /// The records of `pane`, by path.
+    fn records(&self, pane: &PaneId) -> Vec<(PathBuf, HookedSession)> {
+        let prefix = record_prefix(pane);
+        let Ok(entries) = fs::read_dir(&self.0) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == RECORD)
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .filter_map(|path| {
+                let started = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+                Some((path, started))
+            })
+            .collect()
     }
 
     /// Creates the directory, readable by the user alone.
@@ -114,6 +179,12 @@ impl HookDirectory {
     }
 }
 
+/// How the names of the records of `pane` start: its ID in hexadecimal, since a pane ID holds
+/// any character, then a dash, before the process ID.
+fn record_prefix(pane: &PaneId) -> String {
+    format!("{}-", hex(pane.0.as_bytes()))
+}
+
 /// `bytes` in hexadecimal.
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut text, byte| {
@@ -138,11 +209,16 @@ fn send(socket: &Path, line: &[u8], limit: Duration) -> io::Result<std::os::unix
     Ok(stream)
 }
 
-/// Writes `line` to the reviewer that listens on `socket`, and reads its answer, within
-/// `limit`: why it blocks the prompt, if it does.
-fn ask(socket: &Path, line: &[u8], limit: Duration) -> io::Result<Option<String>> {
-    let stream = send(socket, line, limit)?;
-    stream.set_read_timeout(Some(limit))?;
+/// Writes `line` to the reviewer that listens on `socket`, and reads its answer, before
+/// `deadline`: why it blocks the prompt, if it does.
+fn ask(socket: &Path, line: &[u8], deadline: Instant) -> io::Result<Option<String>> {
+    let left = || {
+        Some(deadline.saturating_duration_since(Instant::now()))
+            .filter(|left| !left.is_zero())
+            .ok_or(io::ErrorKind::TimedOut)
+    };
+    let stream = send(socket, line, left()?)?;
+    stream.set_read_timeout(Some(left()?))?;
     let mut answer = String::new();
     BufReader::new(stream).read_line(&mut answer)?;
     Ok(serde_json::from_str::<Answer>(&answer)?.block)

@@ -10,7 +10,8 @@
 use std::io::{Read, Write};
 use std::time::Duration;
 
-use agent_hooks::{AgentEvent, HookDirectory, Report, SessionSource};
+use agent_fork::ProcessStamp;
+use agent_hooks::{AgentEvent, HookDirectory, HookedSession, Report, SessionSource};
 use herdr_client::protocol::PaneId;
 use serde::Deserialize;
 
@@ -40,53 +41,62 @@ pub fn run_hook() {
     }
 }
 
-/// The fields of Claude Code's hook events that the reviewer reads.
+/// The events of Claude Code's hooks that the reviewer reads, with the fields it reads.
 #[derive(Deserialize)]
-struct Payload {
-    hook_event_name: String,
-    session_id: String,
-    /// Why the session started, for `SessionStart`.
-    #[serde(default)]
-    source: Option<SessionSource>,
-    /// The submitted text, for `UserPromptSubmit`.
-    #[serde(default)]
-    prompt: Option<String>,
-    /// The subagent the event belongs to, if it belongs to one.
-    #[serde(default)]
-    agent_id: Option<String>,
+#[serde(tag = "hook_event_name")]
+enum Payload {
+    SessionStart {
+        session_id: String,
+        #[serde(default)]
+        source: SessionSource,
+        /// The subagent the session belongs to, if it belongs to one.
+        #[serde(default)]
+        agent_id: Option<String>,
+    },
+    UserPromptSubmit {
+        prompt: String,
+    },
+    /// An event the plugin does not register.
+    #[serde(other)]
+    Other,
 }
 
 /// Hands the event `payload` of the agent of `pane` to the reviewers of `directory`; returns
 /// the decision Claude Code reads, when a reviewer blocks a prompt.
 fn hook(pane: &PaneId, directory: &HookDirectory, payload: &[u8]) -> Option<String> {
-    let payload = serde_json::from_slice::<Payload>(payload).ok()?;
-    // A subagent's events are not the agent's.
-    if payload.agent_id.is_some() {
-        return None;
-    }
-    match payload.hook_event_name.as_str() {
-        "SessionStart" => {
+    match serde_json::from_slice::<Payload>(payload).ok()? {
+        // A subagent's session is not the agent's.
+        Payload::SessionStart {
+            agent_id: Some(_), ..
+        }
+        | Payload::Other => None,
+        Payload::SessionStart {
+            session_id, source, ..
+        } => {
+            // Claude Code runs the hook itself, without a shell: its parent is the agent.
+            let process = ProcessStamp::read(std::os::unix::process::parent_id());
+            let started = HookedSession {
+                session: session_id.clone(),
+                process,
+            };
+            let _ = directory.record(pane, &started);
             directory.tell(&Report {
                 pane: pane.clone(),
                 event: AgentEvent::SessionStarted {
-                    session: payload.session_id,
-                    source: payload.source.unwrap_or(SessionSource::Other),
+                    session: session_id,
+                    source,
                 },
             });
             None
         }
-        "UserPromptSubmit" => {
+        Payload::UserPromptSubmit { prompt } => {
             let report = Report {
                 pane: pane.clone(),
-                event: AgentEvent::PromptSubmitted {
-                    session: payload.session_id,
-                    prompt: payload.prompt.unwrap_or_default(),
-                },
+                event: AgentEvent::PromptSubmitted { prompt },
             };
             let reason = directory.ask(&report, ASK_LIMIT)?;
             Some(serde_json::json!({"decision": "block", "reason": reason}).to_string())
         }
-        _ => None,
     }
 }
 

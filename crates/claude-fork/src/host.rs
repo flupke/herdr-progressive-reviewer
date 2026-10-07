@@ -34,6 +34,9 @@ pub struct ForkWaits {
     /// How long a switch waits, once the agent was told to resume the fork's session, for the
     /// agent's hook to say that it did, and for Herdr to report it there, ready for a prompt.
     pub resume: Duration,
+    /// How long the agent's move back to the session its forks were taken from waits, as
+    /// [`Self::resume`] does.
+    pub settle: Duration,
     /// How often a switch asks Herdr where the agent stands, once the agent's hook said that it
     /// resumed the session: Herdr sends no event when an agent's session changes.
     pub resume_poll: Duration,
@@ -46,6 +49,7 @@ impl Default for ForkWaits {
         Self {
             answer: Duration::from_secs(10),
             resume: Duration::from_secs(20),
+            settle: Duration::from_secs(20),
             resume_poll: Duration::from_millis(100),
             resubscribe: Duration::from_secs(1),
         }
@@ -129,7 +133,8 @@ impl ClaudeForks {
             Some(Ok(hooks)) => forks.hooks = Some(Arc::new(hooks)),
             Some(Err(error)) => forks.log(&format!("cannot listen to the agents' hooks: {error}")),
             None => forks.log(
-                "cannot listen to the agents' hooks: XDG_RUNTIME_DIR or HERDR_SOCKET_PATH is not set",
+                "cannot listen to the agents' hooks: XDG_RUNTIME_DIR or HERDR_SOCKET_PATH is not \
+                 set",
             ),
         }
         forks
@@ -137,6 +142,44 @@ impl ClaudeForks {
 
     fn live(&self) -> std::sync::MutexGuard<'_, HashMap<String, LiveFork>> {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl ClaudeForks {
+    /// The hooks the reviewer hears `agent` through, and its session, when run-ahead can fork
+    /// the agent if it runs them; otherwise why not.
+    fn forkable<'a>(&'a self, agent: &'a Agent) -> Result<(&'a AgentHooks, &'a str), String> {
+        if !cfg!(target_os = "linux") {
+            // Only Linux has the parent-death signal that keeps a fork from outliving the
+            // reviewer when the reviewer runs outside a terminal.
+            return Err("run-ahead forks only on Linux".into());
+        }
+        if !runs_claude(agent) {
+            return Err(format!(
+                "run-ahead forks Claude Code, and the agent's pane runs {}",
+                agent
+                    .agent
+                    .as_deref()
+                    .unwrap_or("an agent Herdr does not name")
+            ));
+        }
+        let hooks = self
+            .hooks
+            .as_deref()
+            .ok_or("the reviewer hears no agent's hooks: its log says why")?;
+        let session = agent
+            .agent_session
+            .as_ref()
+            .ok_or("Herdr reports no session for the agent")?;
+        Ok((hooks, &session.value))
+    }
+
+    /// The pane of `agent`.
+    fn pane_of<'a>(&'a self, agent: &'a Agent) -> AgentPane<'a> {
+        AgentPane {
+            herdr: &self.herdr,
+            pane: &agent.pane_id,
+        }
     }
 }
 
@@ -149,6 +192,11 @@ impl Drop for ClaudeForks {
             let _ = discard.join();
         }
     }
+}
+
+/// Whether Herdr reports `agent` as Claude Code.
+fn runs_claude(agent: &Agent) -> bool {
+    agent.agent.as_deref() == Some("claude")
 }
 
 /// Whether a process of the pane is Claude Code.
@@ -203,26 +251,20 @@ impl ForkHost for ClaudeForks {
         PaneWatch::new(CancelOnDrop(canceller))
     }
 
+    fn unhooked(&self, agent: &Agent) -> bool {
+        // An agent run-ahead cannot fork for another reason has that reason, which `point`
+        // gives.
+        self.forkable(agent)
+            .is_ok_and(|(hooks, _)| !self.pane_of(agent).hooked(hooks, agent))
+    }
+
+    fn can_move(&self, agent: &Agent) -> bool {
+        self.forkable(agent)
+            .is_ok_and(|(hooks, _)| self.pane_of(agent).hooked(hooks, agent))
+    }
+
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
-        if !cfg!(target_os = "linux") {
-            // Only Linux has the parent-death signal that keeps a fork from outliving the
-            // reviewer when the reviewer runs outside a terminal.
-            return Err("run-ahead forks only on Linux".into());
-        }
-        if agent.agent.as_deref() != Some("claude") {
-            return Err(format!(
-                "run-ahead forks Claude Code, and the agent's pane runs {}",
-                agent
-                    .agent
-                    .as_deref()
-                    .unwrap_or("an agent Herdr does not name")
-            ));
-        }
-        let session = agent
-            .agent_session
-            .as_ref()
-            .map(|session| session.value.clone())
-            .ok_or("Herdr reports no session for the agent")?;
+        let session = self.forkable(agent)?.1.to_owned();
         let processes = self
             .herdr
             .pane_process_info(&agent.pane_id)
@@ -363,7 +405,8 @@ impl ForkHost for ClaudeForks {
                     pane: &pane,
                 },
                 session: &session,
-                waits,
+                limit: waits.settle,
+                poll: waits.resume_poll,
                 hooks: hooks.as_deref(),
             };
             done(resume.run());
