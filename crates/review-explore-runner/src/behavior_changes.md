@@ -13,7 +13,8 @@ reviewer meets the reason before the mechanism and never has to ask for it:
 3. How, only then: the mechanism, the code path, the checks you made and the tables of detail.
 
 In a design part, the drawing or table that opens the body may show the what; the why follows
-in the first prose, then the how. In a question, the rationale follows this order: a short
+in the first prose, then the how. In a question, the rationale opens with its scenario (see
+Questions), which the why refers to when it is the same scenario, then follows this order: a short
 before-and-after table may give the what, and a visual, which the page shows after the
 rationale, belongs to the how. The why says why the change exists; what can go wrong with the
 change itself stays in Door and Blast radius. The why replaces weaker background: it is not one

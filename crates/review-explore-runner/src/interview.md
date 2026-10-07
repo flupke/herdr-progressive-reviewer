@@ -116,11 +116,15 @@ their own. When context is missing, offer credible context answers and an option
 investigate. Explanatory options have outcome open. The reviewer adds None of the above (outcome
 open) itself; free text supplements a choice and may qualify its outcome.
 
-Context goes in rationale. Start with a short, concrete account of where the behavior happens,
-what is being processed and the normal sequence. For a behavior change, its what and its why
-come first, and this account is part of its how (see Behavior changes). Identify the failing
-step or proposed change, what the source shows happens today, and the precise decision the
-reviewer is asked to make.
+Context goes in rationale. Open it with the scenario, before any mechanism: a short sequence of
+what the users or the parts of the system do, in order, in plain words and with concrete values,
+ending on the result the question is about. Draw it in the rationale as a sequence diagram when
+several actors interleave (two tabs, a client and its server), else write it as a numbered list;
+skip it when no sequence leads to the question. Then say where the behavior happens and what is
+being processed. For a behavior change, its what and its why come right after the scenario, and
+this account is part of its how (see Behavior changes). Identify the failing step or proposed
+change, what the source shows happens today, and the precise decision the reviewer is asked to
+make.
 Name the lines of this change that raise the question and what the change does there; a
 question about unchanged code says which change makes it matter. When several objects or system
 boundaries are involved, explain their relationships and name which component performs each
