@@ -6,6 +6,13 @@
 
 use std::io::Read;
 
+use commands::Refusal;
+use shell::ShellError;
+
+mod commands;
+mod sed;
+mod shell;
+
 /// The tools a fork may use, besides the shell (checked command by command) and the two
 /// submits: those that read, search, plan or start a subagent, whose calls this hook checks too.
 const READERS: &[&str] = &[
@@ -27,74 +34,6 @@ pub const SUBMITS: &[&str] = &[
     "mcp__herdr_reviewer__submit_question",
     "mcp__herdr_reviewer__submit_conclusion",
 ];
-/// Commands a fork may run, by name, each with the subcommands it may run when it has some.
-const COMMANDS: &[(&str, &[&str])] = &[
-    (
-        "jj",
-        &[
-            "log",
-            "diff",
-            "show",
-            "st",
-            "status",
-            "evolog",
-            "interdiff",
-            "root",
-        ],
-    ),
-    (
-        "git",
-        &[
-            "log",
-            "diff",
-            "show",
-            "status",
-            "blame",
-            "ls-files",
-            "cat-file",
-            "rev-parse",
-            "grep",
-            "merge-base",
-        ],
-    ),
-    ("rg", &[]),
-    ("grep", &[]),
-    ("ls", &[]),
-    ("cat", &[]),
-    ("head", &[]),
-    ("tail", &[]),
-    ("wc", &[]),
-    ("find", &[]),
-    ("pwd", &[]),
-    ("nl", &[]),
-    ("cut", &[]),
-    ("diff", &[]),
-];
-/// What a shell command may not hold: redirections, command lists, substitutions.
-const SHELL_FORMS: &[&str] = &[">", ";", "&", "`", "$", "<(", "\n", "\r"];
-/// Options of the listed commands that write a file, run another program, or change the
-/// configuration that could run one.
-const WRITING_OPTIONS: &[&str] = &[
-    "--config",
-    "--config-file",
-    "--config-toml",
-    "--tool",
-    "--pre",
-    "--output",
-    "-O",
-    "--open-files-in-pager",
-    "--ext-diff",
-    "--textconv",
-    "-exec",
-    "-execdir",
-    "-delete",
-    "-ok",
-    "-okdir",
-    "-fprint",
-    "-fprint0",
-    "-fprintf",
-    "-fls",
-];
 
 /// Why the tool call `input`, the hook's JSON, is refused; `None` when it may run.
 fn refusal(input: &serde_json::Value) -> Option<String> {
@@ -114,44 +53,48 @@ fn refusal(input: &serde_json::Value) -> Option<String> {
             .pointer("/tool_input/command")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        return (!reads_only(command)).then(|| {
-            format!(
-                "`{command}` is not allowed: this session only reads code (jj and git log, \
-                 diff, show; rg; cat; ls and the like), one command or a pipe, no redirection."
-            )
-        });
+        return command_refusal(command);
     }
     None
 }
 
-/// Whether the shell command `command` only reads: commands of the list, piped, with nothing
-/// that redirects, chains or substitutes.
-fn reads_only(command: &str) -> bool {
-    if SHELL_FORMS.iter().any(|form| command.contains(form)) {
-        return false;
-    }
-    command.split('|').all(|part| {
-        let mut words = part.split_whitespace();
-        let Some(name) = words.next() else {
-            return false;
-        };
-        let Some((_, subcommands)) = COMMANDS.iter().find(|(listed, _)| *listed == name) else {
-            return false;
-        };
-        let writes = part.split_whitespace().any(|word| {
-            WRITING_OPTIONS
-                .iter()
-                .any(|option| word == *option || word.starts_with(&format!("{option}=")))
-                || (word.starts_with("-O") || word.starts_with("--pre")) && word.len() > 2
-        });
-        if writes {
-            return false;
-        }
-        subcommands.is_empty()
-            || words
-                .find(|word| !word.starts_with('-'))
-                .is_some_and(|subcommand| subcommands.contains(&subcommand))
+/// Why the shell command `command` is refused; `None` when it only reads: commands of the
+/// list, alone or piped, with no shell form outside quotes.
+fn command_refusal(command: &str) -> Option<String> {
+    let refusal = match shell::split_pipe(command) {
+        Ok(pipe) => pipe.iter().find_map(|words| commands::refusal(words))?,
+        Err(error) => return Some(shell_refusal(command, &error)),
+    };
+    Some(match refusal {
+        Refusal::NotReading => format!(
+            "`{command}` is not allowed: this session only reads code (jj and git log, diff, \
+             show; jj file show and list; rg; cat; sed -n with p; ls and the like), one \
+             command or a pipe."
+        ),
+        Refusal::Snapshot => format!(
+            "`{command}` is not allowed: run jj with --ignore-working-copy, as in \
+             `jj --ignore-working-copy log`, so that it records no operation."
+        ),
     })
+}
+
+fn shell_refusal(command: &str, error: &ShellError) -> String {
+    let reason = match error {
+        ShellError::Form('`') => "a backtick outside single quotes".to_owned(),
+        ShellError::Form('$') => "`$` outside single quotes".to_owned(),
+        ShellError::Form(form) => format!("`{form}` outside quotes"),
+        ShellError::LeadingGlob(glob) => {
+            format!("`{glob}` outside quotes at the start of a word or in an option")
+        }
+        ShellError::Control => "a newline or another control character".to_owned(),
+        ShellError::Unclosed => "an unclosed quote".to_owned(),
+        ShellError::Empty => "an empty command".to_owned(),
+    };
+    format!(
+        "`{command}` is not allowed: it holds {reason}. This session runs one reading command \
+         or a pipe, with no list, substitution or redirection but 2>/dev/null and 2>&1; quote \
+         a pattern that holds one of these characters."
+    )
 }
 
 /// The hook's entry point: reads the tool call on standard input, then exits 2 with the reason

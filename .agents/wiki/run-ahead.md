@@ -32,6 +32,11 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   `PromptSender::hold`, which keeps the thread service's courier, and so the round
   conversation's wakeups and the prompts to every other agent, from sending until the switch
   or the settling ends.
+- A fork's guard (`claude-fork`'s `PreToolUse` hook) refuses every jj command without
+  `--ignore-working-copy`, so the jj commands the Explore prompt names
+  (`crates/review-explore-runner/src/interview.md`) must keep that option.
+- Claude Code runs a fork's shell commands in the user's shell, Bash or Zsh, with the user's
+  options: the guard must read a command as both would.
 - Cancel answer after a prepared turn: the agent knows that answer by the ID its fork was
   told, so the next prompts name it so in their `Cancelled answer:` lines
   (`RoundForks::answer_as_told`).
