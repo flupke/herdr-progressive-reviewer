@@ -265,12 +265,7 @@ impl ExploreComponent {
                 if self.durable.enabled {
                     self.durable.posting = Some(request.clone());
                 }
-                self.status = if self.durable.enabled {
-                    "Saving answer and preparing the agent turn…"
-                } else {
-                    "Waiting for the implementation agent…"
-                }
-                .into();
+                self.status = requested_status(self.durable.enabled, contributed).into();
                 self.progress = Progress::Waiting;
                 self.editing = false;
                 vec![Action::Explore(Command::Turn(Box::new(request)))]
@@ -632,5 +627,14 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_stopped);
         subscriptions.subscribe(Self::page_reset);
         Self::register_input(subscriptions);
+    }
+}
+
+/// The status shown while a turn is requested: only an answer is saved, a round's kickoff has none.
+fn requested_status(durable: bool, contributed: bool) -> &'static str {
+    match (durable, contributed) {
+        (true, true) => "Saving answer and preparing the agent turn…",
+        (true, false) => "Preparing the agent turn…",
+        (false, _) => "Waiting for the implementation agent…",
     }
 }
