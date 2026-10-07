@@ -54,7 +54,10 @@ fn a_reaction_after_a_resize_returns_the_whole_screen() {
         let result =
             Outcome::reaction("reacted", screen(2, 20, "Files\nb.rs")).into_result(&mut shown);
         let (summary, texts) = read(&result);
-        assert!(summary.get("changed_rows").is_none(), "{columns}x{rows}: {summary}");
+        assert!(
+            summary.get("changed_rows").is_none(),
+            "{columns}x{rows}: {summary}"
+        );
         assert_eq!(texts, ["0: Files\n1: b.rs"], "{columns}x{rows}");
     }
 }
