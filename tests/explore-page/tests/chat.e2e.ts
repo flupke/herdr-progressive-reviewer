@@ -3,11 +3,21 @@
 // reply lands in the chat, and the question stays open. `explore.messages()` lists what the
 // review threads saved of the reviewer's messages, `explore.agentReplies()` plays the agent's
 // reply.
-import { expect } from 'e2e';
+import { expect, type Locator } from 'e2e';
 import { CHAT_REPLY, test } from './session.ts';
 
 /** The chat, by the name of its region. */
 const CHAT = 'Conversation with the agent';
+
+/** The chat's width as its edge says it: fitted to the messages, or set by the reviewer. */
+const FITTED = /^\d+ pixels, fitted to the messages$/;
+const SET = /^\d+ pixels$/;
+
+/** Checks that the chat is wider than it can be at its narrowest, as its edge says. */
+async function expectWiderThanNarrowest(edge: Locator): Promise<void> {
+  await expect(edge).toHaveAttribute('aria-valuenow', /\d/);
+  expect(Number(await edge.getAttribute('aria-valuenow'))).toBeGreaterThan(Number(await edge.getAttribute('aria-valuemin')));
+}
 
 test('the reviewer asks from a question, sees the unread reply on the bubble, reads it, and the question stays open', async ({
   explore,
@@ -119,4 +129,37 @@ test('a reply to the conclusion keeps its text and its focus while the implement
   const [sent] = await explore.messages();
   expect(sent.text).toBe('Keep the old name for one release.');
   expect(sent.asked_under).toEqual({ stage: 'conclusion', conclusion: 'conclusion' });
+});
+
+test('a wide reply widens the chat beside the page; the width the reviewer sets stays across a reload until the fitted one comes back', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  // Wide enough for the chat to stand beside the page and widen.
+  await browser.setViewport({ width: 1920, height: 1000 });
+  await explore.open();
+  await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
+  await screen.getByRole('button', 'Talk to the agent').tap();
+  const chat = screen.getByRole('complementary', CHAT);
+  await chat.getByRole('textbox', 'Message to the agent').fill('Who calls flush?');
+  await chat.getByRole('button', 'Send').tap();
+  await explore.agentRepliesWide();
+  await expect(chat.getByRole('table')).toBeVisible();
+
+  const edge = chat.getByRole('separator', 'Width of the chat');
+  await edge.focus();
+  await expect(edge).toHaveAttribute('aria-valuetext', FITTED);
+  await expectWiderThanNarrowest(edge);
+  await edge.press('Home');
+  await expect(edge).toHaveAttribute('aria-valuetext', SET);
+
+  await browser.reload();
+  await screen.getByRole('button', 'Talk to the agent').tap();
+  await edge.focus();
+  await expect(edge).toHaveAttribute('aria-valuetext', SET);
+  await edge.press('Enter');
+  await expect(edge).toHaveAttribute('aria-valuetext', FITTED);
+  await expectWiderThanNarrowest(edge);
 });

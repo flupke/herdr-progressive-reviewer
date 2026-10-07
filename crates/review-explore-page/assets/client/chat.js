@@ -5,8 +5,9 @@
 // the agent instead" on the conclusion, and from "Add to chat" on a passage the reviewer selected
 // (chat-quote.js), which it quotes. On a desktop it stands at the window's left, under its bubble
 // at the left of the masthead: beside the reading column when the window has room for three
-// columns, over the left of the page when it has not, and never over the panel (chat.css,
-// layout.css); below the desk's two columns it is a bottom sheet over the dimmed page.
+// columns, as wide as its widest message or as the reviewer set it (chat-width.js), over the
+// left of the page when it has not, and never over the panel (chat.css, layout.css); below the
+// desk's two columns it is a bottom sheet over the dimmed page.
 //
 // The drawer, its composer and its draft stay while the page shows the same round; the messages
 // are rebuilt when they change. A reply the reviewer has not seen shows on the bubble and in the
@@ -14,6 +15,7 @@
 
 /** @import { AskedUnder, ChatMessageView, ConversationView, PageView, Call, Reply } from "./types.ts" */
 
+import { ChatWidth } from './chat-width.js';
 import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
@@ -92,6 +94,7 @@ export class Chat {
     );
     this.log = h('div', { class: 'chat-log', role: 'log', 'aria-label': 'Messages' });
     this.element.append(this.log);
+    this.width = new ChatWidth(this.element, this.log);
     this.messages = new Region(this.log, 'messages');
     this.pending = new Region(this.log, 'pending');
     this.card = new Region(this.log, 'card');
@@ -163,7 +166,10 @@ export class Chat {
     this.card.show(keyOf(conversation.card), () => (conversation.card ? statusCard(conversation.card) : null));
     this.form = this.composer.component(`${conversation.round}:${conversation.writable}`, () => new Composer(conversation));
     this.form.place(place);
-    if (rebuilt && this.open) this.scrollToEnd();
+    if (rebuilt && this.open) {
+      this.width.fit();
+      this.scrollToEnd();
+    }
     this.markRead();
     this.showUnread();
   }
@@ -187,6 +193,7 @@ export class Chat {
     this.open = true;
     this.element.hidden = false;
     if (!RISES) this.rise();
+    if (opened) this.width.fit();
     this.scrim.hidden = false;
     this.bubble.setAttribute('aria-expanded', 'true');
     // The next frame, so that the drawer slides in from where it was drawn closed.

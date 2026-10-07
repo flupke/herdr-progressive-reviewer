@@ -568,6 +568,19 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'question-2-chat-wide-table',
+    about:
+      "The agent's reply holds a table of five columns and a block of long lines: beside the page (here 1440 and 2000) the chat widens to fit it, up to what leaves the reading column its narrowest width beside the panel, and what still does not fit scrolls in its own frame; at 1280, a drawer, and on a phone, a sheet, it keeps its width.",
+    extraWidths: [1440, 2000],
+    async reach(session, page) {
+      await question(session, page, 2);
+      await chatTo(page, 'Who else calls `flush`?');
+      await session.agentRepliesWide();
+      await page.getByRole('article', { name: 'Reply from the agent' }).waitFor();
+      await chatSettled(page);
+    },
+  },
+  {
     name: 'question-2-chat-select',
     about: 'A passage of the question selected: the one option above it, Add to chat.',
     extraWidths: [1440, 2000],

@@ -1,8 +1,9 @@
 /* The chat: the round's conversation with the agent (docs/design/explore-page/README.md, "Agent
    chat"), drawn by client/chat.js, with "Add to chat" from client/chat-quote.js. On a desktop it
    stands at the window's left, under the masthead: a column beside the reading column from 89rem,
-   a drawer over the left of the page below that; it never covers the panel. Below the desk's two
-   columns it is a bottom sheet over the dimmed page. */
+   a drawer over the left of the page below that; it never covers the panel. Beside the page it
+   widens to fit its widest message, and the reviewer can drag its right edge (layout.css,
+   `--chat-width`). Below the desk's two columns it is a bottom sheet over the dimmed page. */
 
 /* The bubble in the masthead (at its left on a desktop, beside the ⋯ menu below the desk's two
    columns): a speech bubble drawn with a border, with the unread count. */
@@ -76,8 +77,12 @@
 .chat.open {
   opacity: 1;
   transform: none;
-  transition: opacity var(--drawer-in) var(--ease-settle), transform var(--drawer-in) var(--ease-settle);
+  transition: opacity var(--drawer-in) var(--ease-settle), transform var(--drawer-in) var(--ease-settle),
+    width var(--drawer-in) var(--ease-settle);
 }
+/* While the reviewer drags its edge, the chat and the page follow the pointer at once. */
+.chat.resizing { transition: none; }
+body:has(> .chat.open.resizing) main, body:has(> .chat.open.resizing) .masthead { transition: none; }
 
 /* A desktop: the chat is a column at the window's left gutter, as the panel is on the right,
    with the panel's surface, radius and cards: under the masthead, then held at the top of the
@@ -116,6 +121,35 @@
 @media (min-width: 89rem) {
   .chat { border: 0; box-shadow: none; }
 }
+
+/* The chat's right edge, beside the page: a drag sets its width, the arrow keys move it, and a
+   double click or Enter brings back the width that fits the messages (client/chat-width.js). A line
+   in the accent shows it under the pointer and the focus. */
+.chat-edge { display: none; }
+@media (min-width: 89rem) {
+  .chat-edge {
+    position: absolute;
+    z-index: 1;
+    inset-block: 0;
+    right: 0;
+    display: block;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .chat-edge::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    width: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .chat-edge:hover::after, .chat-edge:focus-visible::after, .chat.resizing .chat-edge::after { opacity: 1; }
+  .chat-edge:focus-visible { outline: none; }
+}
 @media (min-width: 70rem) and (prefers-reduced-motion: reduce) {
   .chat, .chat.open { transform: none; transition: none; }
 }
@@ -149,17 +183,24 @@
 }
 .chat-close:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); color: var(--ink); }
 
-/* The messages: the reviewer's as a label and bold text, the agent's on the panel's surface. */
+/* The messages: the reviewer's as a label and bold text, the agent's on the panel's surface.
+   The list never scrolls sideways: prose wraps, and a table or a block of code wider than the
+   chat scrolls in its own frame (markdown.css). */
 .chat-log {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-content: start;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden auto;
   font-size: 15px;
 }
 .chat-empty { margin: 0; }
-.chat-message { display: grid; gap: 6px; min-width: 0; }
+.chat-message { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+/* While client/chat-width.js measures the width the messages need, their tables and blocks of code
+   take the width of their content. */
+.chat.measuring .chat-message :is(.table-frame, pre) { width: max-content; max-width: none; }
+.chat.measuring .chat-message table { width: max-content; }
 .chat-message .markdown > :first-child { margin-top: 0; }
 .chat-message .markdown > :last-child { margin-bottom: 0; }
 .chat-message.mine .chat-text-shown { font-weight: 600; }

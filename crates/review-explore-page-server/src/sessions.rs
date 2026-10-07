@@ -654,6 +654,25 @@ const HAND_MARKED_LINES: u64 = 3;
 /// Why the standalone server cannot save the reviewer's rounds.
 const STORAGE_FAILURE: &str = "No space left on device (os error 28)";
 
+/// A reply of the agent wider than the chat at its narrowest: a table of five columns and a
+/// block of code with long lines, between paragraphs of prose that wrap.
+const WIDE_CHAT_REPLY: &str = "Each caller of `flush`, with what it sends and when the reviewer \
+sees the notification:
+
+| Caller | Reason | What it sends | When it runs | What the notification says |
+| --- | --- | --- | --- | --- |
+| `push` | `FlushReason::Full` | the whole queue, twenty replies | at the twentieth reply | twenty replies from the threads that have them |
+| `tick` | `FlushReason::Idle` | whatever waits, one reply or more | two seconds after the last reply | the replies, with how long they waited |
+| `close_threads` | `FlushReason::Closing` | whatever waits, even one reply | when the pane closes | the replies, before the pane goes away |
+
+The tick is the only caller that reads the clock:
+
+```rust
+if self.policy.is_idle(now.duration_since(last)) && !self.waiting.is_empty() { self.flush(FlushReason::Idle); }
+```
+
+A reply is saved to its thread before any of them runs, so a crash loses the notification only.";
+
 impl Session {
     /// Takes one of the page's actions that recover or close the round, as the review tool
     /// would. The page already refused one its round no longer offers.
@@ -1111,12 +1130,22 @@ impl Sessions {
     /// round of the session behind `token`. Returns false when no session has that token, or
     /// when that conversation has no message.
     pub(crate) fn agent_replies(&self, token: &str) -> bool {
+        self.reply_with(token, |session| session.data.chat_reply())
+    }
+
+    /// The agent replies, as `agent_replies` does, with `WIDE_CHAT_REPLY`.
+    pub(crate) fn agent_replies_wide(&self, token: &str) -> bool {
+        self.reply_with(token, |_| WIDE_CHAT_REPLY)
+    }
+
+    /// The agent replies with the text `reply` gives for the session behind `token`.
+    fn reply_with(&self, token: &str, reply: impl FnOnce(&Session) -> &'static str) -> bool {
         let mut sessions = self.lock();
         let Some(session) = find(&mut sessions, token) else {
             return false;
         };
         let round = session.round_id();
-        let text = session.data.chat_reply();
+        let text = reply(session);
         session.threads.agent_replies(&round, text)
     }
 

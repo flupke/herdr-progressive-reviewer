@@ -37,10 +37,32 @@
      it: percentages of the window's width, for an element as wide as the window. */
   --page-margin: max(0px, (100% - var(--page)) / 2);
   --column-start: calc(var(--page-margin) + var(--gutter));
-  /* The chat beside the page on a desktop (chat.css): as wide as the panel, at the window's
-     left gutter; and the room it takes, from the window's left edge to the reading column. */
-  --chat-width: var(--panel-width);
+  /* The narrowest reading column beside the open chat (below). */
+  --reading-min: 448px;
+  /* The chat on a desktop (chat.css), at the window's left gutter: as wide as the panel, the
+     narrowest it gets; and the room it takes, from the window's left edge to the reading
+     column. */
+  --chat-min: var(--panel-width);
+  --chat-width: var(--chat-min);
   --chat-room: calc(var(--gutter) + var(--chat-width) + var(--column-gap));
+  /* The panel of the screen in view, which the chat beside the page leaves its width. */
+  --shown-panel: var(--panel-width);
+}
+:root:has(.screen:not([hidden]) > .desk.wide) { --shown-panel: var(--panel-width-wide); }
+/* Beside the page, the chat takes the width the reviewer set, or else the width its widest
+   message needs (`--chat-want`, which client/chat-width.js sets), from the panel's width up
+   to a figure of the reading column with the room a message keeps around it, and never so
+   wide that the reading column gets narrower than `--reading-min` beside it and the panel.
+   The page then makes room for it (below); as a drawer, below 89rem, it keeps the panel's
+   width. */
+@media (min-width: 89rem) {
+  :root {
+    --chat-max: min(
+      var(--figure) + 64px,
+      100% - var(--page-margin) - 2 * var(--gutter) - 2 * var(--column-gap) - var(--shown-panel) - var(--reading-min)
+    );
+    --chat-width: clamp(var(--chat-min), var(--chat-want, var(--chat-min)), var(--chat-max));
+  }
 }
 @media (min-width: 56rem) {
   :root { --gutter: 32px; }
