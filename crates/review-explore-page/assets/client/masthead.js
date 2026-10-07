@@ -19,6 +19,7 @@
 // (swipe.js).
 
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
+/** @import { Notifier, NotifyState } from "./notify.js" */
 
 import { requestChat } from './chat.js';
 import { DESK } from './desk.js';
@@ -40,10 +41,12 @@ export class Masthead {
    * @param {HTMLElement} header the page's `header.masthead`
    * @param {() => void} redraw draws the page again from its latest view, after the masthead's
    *   own state changed
+   * @param {Notifier} notifier the notifications the menu turns on and off
    */
-  constructor(header, redraw) {
+  constructor(header, redraw, notifier) {
     this.header = header;
     this.redraw = redraw;
+    this.notifier = notifier;
     // The product's name and the review's title, in the row's free space.
     const identity = h('div', { class: 'identity' }, h('p', { class: 'product' }, 'Explore'));
     header.replaceChildren(identity);
@@ -111,7 +114,8 @@ export class Masthead {
   drawMenu(view) {
     const round = view.reset;
     const chat = view.conversation !== null;
-    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat]), () =>
+    const notify = this.notifier.state();
+    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat, notify]), () =>
       h(
         'div',
         { class: 'menu' },
@@ -149,6 +153,7 @@ export class Masthead {
                       "Open the agent's conversation",
                     )
                   : null,
+                notifyItem(notify, () => this.toggleNotify()),
                 round !== null
                   ? [
                       h('hr', {}),
@@ -216,6 +221,14 @@ export class Masthead {
     if (focused instanceof HTMLElement && this.chatPlace.contains(focused)) focused.focus();
   }
 
+  /** Turns the agent's notifications on or off. The menu is drawn again for its new state, hidden
+   * until it opens again, so the entry gets its focus back once it shows. */
+  async toggleNotify() {
+    await this.notifier.toggle();
+    const entry = this.header.querySelector('#round-menu [data-focus-key="notify"]');
+    if (entry instanceof HTMLElement) entry.focus({ preventScroll: true });
+  }
+
   /** Replaces the menu's entries with Reset's hint and its Confirm reset. */
   confirmReset() {
     this.confirming = true;
@@ -231,7 +244,9 @@ export class Masthead {
       return;
     }
     this.open = what;
-    this.showOpen();
+    // The menu opens drawn afresh: the browser's notification permission may have changed since.
+    if (what === 'menu') this.redraw();
+    else this.showOpen();
   }
 
   /** @param {boolean} refocus whether to give the focus back to the button that opened it */
@@ -453,6 +468,38 @@ function designMap(design, close) {
     h('a', { class: 'map-open', href: '#design', onclick: follow }, 'Open the design →'),
   );
 }
+
+/**
+ * The menu entry that turns the agent's notifications on and off, or says why this browser
+ * cannot show them.
+ * @param {NotifyState} state
+ * @param {() => void} toggle
+ */
+function notifyItem(state, toggle) {
+  // An entry the browser does not allow stays in the tab order, so that its note is heard.
+  const unavailable = state === 'unavailable' || state === 'blocked';
+  return h(
+    'button',
+    {
+      class: 'menu-item',
+      type: 'button',
+      'aria-pressed': state === 'on' ? 'true' : 'false',
+      'aria-disabled': unavailable ? 'true' : false,
+      'data-focus-key': 'notify',
+      onclick: toggle,
+    },
+    'Notify me when the agent finishes',
+    h('span', { class: 'menu-note' }, NOTIFY_NOTES[state]),
+  );
+}
+
+/** What the notifications' entry says of their state. @type {Record<NotifyState, string>} */
+const NOTIFY_NOTES = {
+  on: 'on',
+  off: 'off',
+  blocked: "blocked in the browser's settings",
+  unavailable: 'needs localhost or the tunnel',
+};
 
 /**
  * The menu entry that copies the page's address, which opens the round in another browser.

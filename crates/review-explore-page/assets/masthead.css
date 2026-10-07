@@ -238,6 +238,9 @@
   cursor: pointer;
 }
 .menu-item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+/* An entry the browser does not allow: it stays in the tab order for its note. */
+.menu-item[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.menu-item[aria-disabled="true"]:hover { background: none; }
 .menu-note { color: var(--muted); font-size: 13px; }
 .menu-link {
   box-sizing: border-box;

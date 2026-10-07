@@ -74,6 +74,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/favicon-ticker.js", "text/javascript"),
     asset!("client/masthead.js", "text/javascript"),
     asset!("client/meter.js", "text/javascript"),
+    asset!("client/notify.js", "text/javascript"),
     asset!("client/page.js", "text/javascript"),
     asset!("client/question.js", "text/javascript"),
     asset!("client/quiz.js", "text/javascript"),

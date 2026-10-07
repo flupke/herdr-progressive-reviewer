@@ -18,6 +18,7 @@ import { Favicon } from './favicon.js';
 import { h, keyOf, Region } from './dom.js';
 import { Masthead } from './masthead.js';
 import { Meter } from './meter.js';
+import { Notifier } from './notify.js';
 import { QuestionScreen } from './question.js';
 import { itemOpens, quizOpens, QuizScreen, railShowing } from './quiz.js';
 import { DESIGN, earlierQuestion, openRound, quizItem, route, STAGE } from './route.js';
@@ -35,10 +36,13 @@ export class Page {
    */
   constructor(main, header, call) {
     this.main = main;
-    // What only the masthead knows (what it has open) changes the page through `render` too.
-    this.masthead = new Masthead(header, () => {
+    const redraw = () => {
       if (this.view) this.render(this.view);
-    });
+    };
+    // The notifications the reviewer turns on in the masthead's menu.
+    this.notifier = new Notifier(redraw);
+    // What only the masthead knows (what it has open) changes the page through `render` too.
+    this.masthead = new Masthead(header, redraw, this.notifier);
     this.meter = new Meter(/** @type {HTMLElement} */ (header.querySelector('#masthead-line')));
     // The tab's icon, which shows the meter's share, or the agent at work, in small.
     this.favicon = new Favicon();
@@ -134,6 +138,7 @@ export class Page {
     this.masthead.neighbours([screens[shown - 1]?.step, screens[shown + 1]?.step]);
     this.meter.update(view);
     this.favicon.update(view);
+    this.notifier.update(view);
     drawDiagrams(this.main);
   }
 
