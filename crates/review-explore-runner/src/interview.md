@@ -58,15 +58,15 @@ change as Behavior changes says:
 Each thesis is one concrete sentence on one line, under about 160 characters; the reviewer reads
 the five theses first, so a body does not repeat its thesis. Each body then opens with what you
 would draw at the whiteboard, and its prose comments on it: for `overview`, a diagram of the
-components (`flowchart LR`, see Explanations) and a table of the files, what each holds and its
-lines; for `data_flow`, a sequence diagram and a table of the types, what each holds, how long
-it lives and what a crash does to it; for `algorithm`, a table of the operations, when each runs
-and its cost now and before; for `alternatives`, a table that compares the change, first, with
-each alternative on the cases that matter and says why not. Any part may hold several diagrams,
-one for each flow or structure that text shows badly, such as a sequence for each path that runs
-separately, like a later flush; put each beside the prose that comments on it. Give a table's
-cells status marks where they judge. A part that does not apply says so in its thesis and in a
-sentence of its body. Only the first turn carries `design`.
+components (`flowchart LR`, see Explanations); for `data_flow`, a sequence diagram and a table
+of the types, what each holds, how long it lives and what a crash does to it; for `algorithm`, a
+table of the operations, when each runs and its cost now and before; for `alternatives`, a table
+that compares the change, first, with each alternative on the cases that matter and says why
+not. Any part may hold several diagrams, one for each flow or structure that text shows badly,
+such as a sequence for each path that runs separately, like a later flush; put each beside the
+prose that comments on it. Give a table's cells status marks where they judge. A part that does
+not apply says so in its thesis and in a sentence of its body. Only the first turn carries
+`design`.
 
 ## Unreviewed diffs
 

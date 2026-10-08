@@ -1,8 +1,8 @@
 //! The design of the rich data set's change, in four full parts, each led by a diagram or a table
-//! as the kickoff asks: a diagram of the components with new and changed nodes and a table of the
-//! files; a sequence diagram, a table of the types and a state diagram, so that one part holds
-//! several diagrams; a table of the costs with callouts; and a table of the rejected
-//! alternatives, as long as an agent's explanation of a real change.
+//! as the kickoff asks: a diagram of the components with new and changed nodes; a sequence diagram,
+//! a table of the types and a state diagram, so that one part holds several diagrams; a table of
+//! the costs with callouts; and a table of the rejected alternatives, as long as an agent's
+//! explanation of a real change.
 
 use review_explore::{Design, DesignPart};
 
@@ -21,12 +21,6 @@ flowchart LR
   queue --> link(\"Agent link\"):::changed
   link --> agent(\"Agent\")
 ```
-
-| File | What it holds | Lines |
-| --- | --- | --- |
-| `src/notify/flush.rs` | The rule, `FlushPolicy`, and why a batch goes out, `FlushReason` | changed +20 −4 |
-| `src/notify/queue.rs` | `ReplyQueue`: the waiting replies, and the flush | changed +33 −7 |
-| `src/threads/reply.rs` | Saves a reply, then queues it; flushes on close | changed +6 −3 |
 
 The change stops telling the agent about each reply the moment the reviewer writes it. Replies \
 now wait in a queue and reach the agent together, in one notification, once the reviewer \
