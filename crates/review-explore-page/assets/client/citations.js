@@ -49,18 +49,28 @@ function row(row) {
   );
 }
 
-/** A row's tokens: a span for each coloured one, and one text for each run of plain ones, as
- * the browser would parse them from markup.
+/** A row's tokens: its indentation in a span of its own, which a long row never wraps after
+ * (citations.css), then a span for each coloured token, and one text for each run of plain
+ * ones, as the browser would parse them from markup.
  * @param {RowView} row */
 function tokens(row) {
   /** @type {(HTMLElement | string)[]} */
   const nodes = [];
+  let indent = '';
   for (const token of row.tokens) {
+    let text = token.text;
+    if (nodes.length === 0) {
+      const code = text.trimStart();
+      indent += text.slice(0, text.length - code.length);
+      text = code;
+      if (!text) continue;
+    }
     const last = nodes.length - 1;
-    if (token.role) nodes.push(h('span', { class: `c-${token.role}` }, token.text));
-    else if (typeof nodes[last] === 'string') nodes[last] += token.text;
-    else nodes.push(token.text);
+    if (token.role) nodes.push(h('span', { class: `c-${token.role}` }, text));
+    else if (typeof nodes[last] === 'string') nodes[last] += text;
+    else nodes.push(text);
   }
+  if (indent) nodes.unshift(h('span', { class: 'indent' }, indent));
   return nodes;
 }
 

@@ -6,7 +6,7 @@
 // where it can. Released past the threshold, or flicked faster than 0.5 pixels a millisecond,
 // the page turns to the neighbour in 280 milliseconds; released before, it springs back. At either
 // end, the screen follows the finger at 0.35 of its pace. A frame that scrolls sideways (a
-// table, code, a diagram) keeps the gesture for its own scroll.
+// table, a diagram) keeps the gesture for its own scroll.
 //
 // The turn changes the address (route.js), so the browser's Back returns to the screen before.
 
@@ -280,7 +280,7 @@ function edge(side) {
 
 /**
  * Whether a gesture that starts on `target` belongs to it rather than to the swipe: a text box,
- * or a frame that scrolls sideways (a table, code, a diagram).
+ * or a frame that scrolls sideways (a table, a diagram).
  * @param {Element} target
  * @param {Element} main
  */

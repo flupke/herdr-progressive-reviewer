@@ -3,7 +3,9 @@
    the file and the lines. Rows are 14px mono; two muted number columns (one on a phone); an
    added row is tinted green with a green bar in the gutter, a removed row red with a red bar.
    When every row is added, the tint says nothing: the gutter alone marks them. A long row
-   scrolls sideways at its natural size; nothing shrinks the code to fit a phone. */
+   wraps in its frame at its natural size, between words where it can, so the whole line reads
+   without scrolling sideways; it never wraps right after its indentation, which would leave an
+   empty row. Nothing shrinks the code to fit a phone. */
 .citations { margin-top: 32px; }
 .citations > h3 { margin: 0 0 8px; }
 .citations > .disclosure { margin-top: 12px; }
@@ -22,34 +24,23 @@
 }
 .code-head code { margin-right: 6px; color: var(--ink); font: 600 13px/1.5 var(--mono); }
 .citation .limitation { margin: 0; padding: 10px 12px; color: var(--muted); font-size: 14px; }
-/* Lines longer than the frame scroll sideways, with a shadow at the edge that hides more
-   (design review, finding 15), as a wide table's frame has. */
-.code {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  background:
-    linear-gradient(to right, var(--panel) 30%, transparent) left center / 32px 100% no-repeat local,
-    linear-gradient(to left, var(--panel) 30%, transparent) right center / 32px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.22), transparent) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.22), transparent) right center / 12px 100% no-repeat scroll;
-}
 .code table { border-collapse: collapse; min-width: 100%; font: 14px/1.6 var(--mono); }
 .code td { padding: 0 6px; white-space: pre; vertical-align: top; }
 .code td.number { text-align: right; color: var(--muted); user-select: none; min-width: 2ch; }
 .code td.number.old { padding-left: 12px; }
 .code td.sign { user-select: none; padding: 0 4px; border-left: 3px solid transparent; }
-.code td.line { padding-right: 12px; width: 100%; }
+.code td.line { padding-right: 12px; width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code td.line .indent { white-space: pre; }
 .code tr.added { background: color-mix(in srgb, var(--good) 9%, transparent); }
 .code tr.removed { background: color-mix(in srgb, var(--bad) 9%, transparent); }
 .code tr.added td.sign { border-left-color: var(--good); color: var(--good); }
 .code tr.removed td.sign { border-left-color: var(--bad); color: var(--bad); }
 .code table.all-added tr.added { background: none; }
 
-/* Phone: one number column, the new line's number, or the old one on a removed row; the
-   numbers stay in view while the code scrolls sideways. */
+/* Phone: one number column, the new line's number, or the old one on a removed row. */
 @media (max-width: 40rem) {
   .code tr:not(.removed) td.number.old, .code tr.removed td.number.new { display: none; }
-  .code td.number { position: sticky; left: 0; padding-left: 12px; background: var(--panel); }
+  .code td.number { padding-left: 12px; }
 }
 
 /* Syntax colors: the server names each token's color by its role in the Catppuccin palette
