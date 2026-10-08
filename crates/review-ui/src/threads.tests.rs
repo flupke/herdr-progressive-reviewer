@@ -418,6 +418,26 @@ fn mouse_tabs_and_conversation_actions_work_after_resizing() {
 }
 
 #[test]
+fn a_shown_thread_wraps_its_messages_again_when_the_pane_narrows() {
+    let answer = "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike";
+    let mut ui = ThreadUi::new(110);
+    ui.answer(0, "00000000-0000-4000-8000-000000000021", answer);
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    for width in [110, 48] {
+        ui.width = width;
+        ui.app.update(UserInput::Resize {
+            width,
+            height: ui.height,
+        });
+        let text = ui.text();
+        for word in answer.split(' ') {
+            assert!(text.contains(word), "{word} at width {width}: {text}");
+        }
+    }
+}
+
+#[test]
 fn threads_resolution_stays_at_bottom_right_without_a_peek_button() {
     for width in [110, 48] {
         let mut ui = ThreadUi::new(width);

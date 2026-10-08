@@ -1,3 +1,5 @@
+use std::cell::Ref;
+
 use diff_rendering::{DiffFrame, FrameOverlay, FrameOverlayRow, FrameRule};
 use ratatui::{
     buffer::Buffer,
@@ -6,7 +8,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::Widget,
 };
-use review_threads::ReviewThread;
+use review_threads::{ReviewThread, ThreadId};
 use ui_controls::NavigationLink;
 use ui_frame::Frame;
 use ui_theme::Palette;
@@ -15,7 +17,7 @@ use super::{ConversationAction, ConversationAnchor};
 use crate::{
     DiffComponent,
     comment_layout::CommentRow,
-    comments::{CommentTarget, ConversationButton},
+    comments::{CommentTarget, Comments, ConversationButton},
 };
 
 struct ConversationRows {
@@ -24,41 +26,64 @@ struct ConversationRows {
     rows: Vec<CommentRow>,
 }
 
-struct ConversationViewport {
-    content: Vec<CommentRow>,
-    editor: Vec<CommentRow>,
+/// A thread laid out for a width, which a frame and a scroll step reuse until the width, the
+/// thread or its original code changes. The palette stays the same for the session.
+pub(super) struct LaidOutThread {
+    width: u16,
+    thread: Option<ReviewThread>,
+    /// The thread whose original code the rows show.
+    original: Option<ThreadId>,
+    rows: Vec<CommentRow>,
+}
+
+/// The rows of the shown thread: its code and messages, laid out once, then the reply under them,
+/// laid out at each frame as the reviewer edits it.
+struct ConversationViewport<'a> {
+    thread: Ref<'a, [CommentRow]>,
+    reply: Vec<CommentRow>,
+    /// Where the editor starts in `reply`: the view keeps it at its bottom.
+    editor_start: usize,
     content_height: usize,
     height: usize,
 }
 
-impl ConversationViewport {
-    fn new(mut content: Vec<CommentRow>, height: usize) -> Self {
-        let editor_start = content
+impl<'a> ConversationViewport<'a> {
+    fn new(thread: Ref<'a, [CommentRow]>, reply: Vec<CommentRow>, height: usize) -> Self {
+        let editor_start = reply
             .iter()
             .position(|row| row.editor)
-            .unwrap_or(content.len());
-        let editor = content.split_off(editor_start);
+            .unwrap_or(reply.len());
+        let content = thread.len().saturating_add(editor_start);
+        let editor = reply.len().saturating_sub(editor_start);
         Self {
-            content_height: content.len().min(height.saturating_sub(editor.len())),
-            content,
-            editor,
+            content_height: content.min(height.saturating_sub(editor)),
+            thread,
+            reply,
+            editor_start,
             height,
         }
     }
 
-    fn scroll_limit(&self) -> usize {
-        self.content.len().saturating_sub(self.content_height)
+    fn content(&self) -> impl Iterator<Item = &CommentRow> {
+        self.thread
+            .iter()
+            .chain(self.reply.iter().take(self.editor_start))
     }
 
-    fn visible(self, scroll: usize) -> Vec<CommentRow> {
+    fn scroll_limit(&self) -> usize {
+        self.thread
+            .len()
+            .saturating_add(self.editor_start)
+            .saturating_sub(self.content_height)
+    }
+
+    fn visible(&self, scroll: usize) -> impl Iterator<Item = &CommentRow> {
         let scroll = scroll.min(self.scroll_limit());
-        self.content
-            .into_iter()
+        self.content()
             .skip(scroll)
             .take(self.content_height)
-            .chain(self.editor)
+            .chain(self.reply.iter().skip(self.editor_start))
             .take(self.height)
-            .collect()
     }
 }
 
@@ -117,6 +142,16 @@ impl ConversationRows {
     fn text(&mut self, text: impl Into<String>, style: Style) {
         self.line(&Line::raw(text.into()).style(style), None);
     }
+
+    /// The rows, each in the frame's borders.
+    fn enclosed(mut self) -> Vec<CommentRow> {
+        for row in &mut self.rows {
+            if row.rendered.border_cells.is_empty() {
+                row.rendered.border_cells = self.frame.enclose_line(&mut row.rendered.line);
+            }
+        }
+        self.rows
+    }
 }
 
 impl DiffComponent {
@@ -128,46 +163,81 @@ impl DiffComponent {
         focused: bool,
     ) {
         let block = Frame::Pane { focused }.block(palette, "Review thread");
-        let inner = block.inner(area);
+        let body = block.inner(area);
         block.render(area, buffer);
-        let rows = self.conversation_rows(inner.width, palette);
-        let scroll = self.conversation_scroll(&rows);
-        let mut targets = Vec::new();
-        let body = inner;
-        let mut overlay = Vec::new();
-        let viewport = ConversationViewport::new(rows, usize::from(body.height));
-        let scroll = scroll.min(viewport.scroll_limit());
+        let viewport = self.conversation_viewport(body.width, body.height, palette);
+        let scroll = self
+            .conversation_scroll(&viewport.thread)
+            .min(viewport.scroll_limit());
         self.files.reply_visibility.borrow_mut().observe(
             viewport
-                .content
-                .iter()
+                .content()
                 .map(|row| (row.reply.as_ref(), &row.rendered.line)),
             scroll..scroll.saturating_add(viewport.content_height),
             body,
         );
-        for (row, content) in viewport.visible(scroll).into_iter().enumerate() {
-            targets.push(content.target);
+        let mut targets = Vec::new();
+        let mut overlay = Vec::new();
+        for (row, content) in viewport.visible(scroll).enumerate() {
+            targets.push(content.target.clone());
             overlay.push(FrameOverlayRow {
                 row: u16::try_from(row).unwrap_or(u16::MAX),
-                line: Some(content.rendered.line),
-                border_cells: content.rendered.border_cells,
+                line: Some(content.rendered.line.clone()),
+                border_cells: content.rendered.border_cells.clone(),
             });
         }
         FrameOverlay::new(body, overlay).render(buffer);
         self.conversation.targets.replace(targets);
     }
 
-    pub(in crate::conversation) fn conversation_rows(
+    fn conversation_viewport(
         &self,
         width: u16,
+        height: u16,
         palette: Palette,
-    ) -> Vec<CommentRow> {
+    ) -> ConversationViewport<'_> {
+        let thread = self.conversation_thread();
+        let original = self.conversation.original.as_ref().map(|code| &code.thread);
+        let fresh = self
+            .conversation
+            .laid_out
+            .borrow()
+            .as_ref()
+            .is_some_and(|laid_out| {
+                laid_out.width == width
+                    && laid_out.thread.as_ref() == thread
+                    && laid_out.original.as_ref() == original
+            });
+        if !fresh {
+            let rows = self.lay_out_thread(width, palette);
+            self.conversation.laid_out.replace(Some(LaidOutThread {
+                width,
+                thread: thread.cloned(),
+                original: original.cloned(),
+                rows,
+            }));
+        }
+        let rows = Ref::map(self.conversation.laid_out.borrow(), |laid_out| {
+            laid_out
+                .as_ref()
+                .map_or(&[][..], |laid_out| laid_out.rows.as_slice())
+        });
+        let reply = self.conversation_reply(width, palette);
+        ConversationViewport::new(rows, reply, usize::from(height))
+    }
+
+    fn new_conversation_rows(&self, width: u16, palette: Palette) -> ConversationRows {
         let number_width = self
             .conversation
             .original
             .as_ref()
             .map_or(0, |code| code.number_width);
-        let mut output = ConversationRows::new(width, number_width, palette);
+        ConversationRows::new(width, number_width, palette)
+    }
+
+    /// The shown thread's code, its unread notice and its messages.
+    fn lay_out_thread(&self, width: u16, palette: Palette) -> Vec<CommentRow> {
+        let mut output = self.new_conversation_rows(width, palette);
         let Some(thread) = self.conversation_thread() else {
             output.text(
                 "Select a thread to read its conversation.",
@@ -190,18 +260,25 @@ impl DiffComponent {
             );
         }
         output.rule(FrameRule::Middle);
-        output.rows.extend(
-            self.files
-                .comments
-                .conversation_rows(thread, output.frame, palette),
-        );
+        output.rows.extend(Comments::conversation_messages(
+            thread,
+            output.frame,
+            palette,
+        ));
+        output.enclosed()
+    }
+
+    fn conversation_reply(&self, width: u16, palette: Palette) -> Vec<CommentRow> {
+        let Some(thread) = self.conversation_thread() else {
+            return Vec::new();
+        };
+        let mut output = self.new_conversation_rows(width, palette);
+        output.rows = self
+            .files
+            .comments
+            .conversation_reply(thread, output.frame, palette);
         output.rule(FrameRule::Bottom);
-        for row in &mut output.rows {
-            if row.rendered.border_cells.is_empty() {
-                row.rendered.border_cells = output.frame.enclose_line(&mut row.rendered.line);
-            }
-        }
-        output.rows
+        output.enclosed()
     }
 
     /// Where the view scrolls to: what it keeps in sight as the thread opens, else where the
@@ -225,17 +302,26 @@ impl DiffComponent {
         if self.conversation.anchor.is_none() {
             return;
         }
-        let rows = self.conversation_rows(self.files.viewport_width, self.services.palette);
         // The view shows the reply clamped to the end: the scroll starts from what it shows.
-        self.conversation.scroll = self
-            .conversation_scroll(&rows)
-            .min(self.conversation_scroll_limit());
+        let scroll = {
+            let viewport = self.pane_conversation_viewport();
+            self.conversation_scroll(&viewport.thread)
+                .min(viewport.scroll_limit())
+        };
+        self.conversation.scroll = scroll;
         self.conversation.anchor = None;
     }
 
     pub(in crate::conversation) fn conversation_scroll_limit(&self) -> usize {
-        let rows = self.conversation_rows(self.files.viewport_width, self.services.palette);
-        ConversationViewport::new(rows, usize::from(self.files.viewport_height)).scroll_limit()
+        self.pane_conversation_viewport().scroll_limit()
+    }
+
+    fn pane_conversation_viewport(&self) -> ConversationViewport<'_> {
+        self.conversation_viewport(
+            self.files.viewport_width,
+            self.files.viewport_height,
+            self.services.palette,
+        )
     }
 
     fn context_rows(&self, thread: &ReviewThread, palette: Palette, output: &mut ConversationRows) {

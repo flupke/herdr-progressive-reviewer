@@ -40,13 +40,18 @@ impl Comments {
         thread: &ReviewThread,
         layout: ThreadLayout,
     ) -> Vec<CommentRow> {
+        let mut rows = layout.message_rows(thread);
+        rows.extend(self.reply_rows(thread, layout));
+        rows
+    }
+
+    /// The reply under a thread's messages: its editor, its draft, or the field that starts it.
+    pub(super) fn reply_rows(
+        &self,
+        thread: &ReviewThread,
+        layout: ThreadLayout,
+    ) -> Vec<CommentRow> {
         let mut rows = Vec::new();
-        for (index, comment) in thread.messages.iter().enumerate() {
-            if index > 0 {
-                layout.separator(&mut rows, Some(&comment.id));
-            }
-            layout.comment_rows(&mut rows, thread, comment, index == 0 && layout.outdated);
-        }
         let drafts = self.drafts();
         let replying = self
             .focused_id()
@@ -141,6 +146,17 @@ impl Comments {
 }
 
 impl ThreadLayout {
+    pub(super) fn message_rows(self, thread: &ReviewThread) -> Vec<CommentRow> {
+        let mut rows = Vec::new();
+        for (index, comment) in thread.messages.iter().enumerate() {
+            if index > 0 {
+                self.separator(&mut rows, Some(&comment.id));
+            }
+            self.comment_rows(&mut rows, thread, comment, index == 0 && self.outdated);
+        }
+        rows
+    }
+
     fn comment_rows(
         self,
         rows: &mut Vec<CommentRow>,

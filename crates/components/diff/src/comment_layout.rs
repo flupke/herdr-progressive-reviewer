@@ -166,19 +166,23 @@ impl CommentLayout {
 }
 
 impl Comments {
-    pub(super) fn conversation_rows(
+    /// The messages of a thread the conversation shows.
+    pub(super) fn conversation_messages(
+        thread: &ReviewThread,
+        frame: DiffFrame,
+        palette: Palette,
+    ) -> Vec<CommentRow> {
+        ThreadLayout::new(frame, 0, palette).message_rows(thread)
+    }
+
+    /// The reply under the messages of a thread the conversation shows.
+    pub(super) fn conversation_reply(
         &self,
         thread: &ReviewThread,
         frame: DiffFrame,
         palette: Palette,
     ) -> Vec<CommentRow> {
-        let layout = ThreadLayout {
-            frame,
-            source_row: 0,
-            palette,
-            outdated: false,
-        };
-        self.thread_rows(thread, layout)
+        self.reply_rows(thread, ThreadLayout::new(frame, 0, palette))
     }
 
     fn thread_range(

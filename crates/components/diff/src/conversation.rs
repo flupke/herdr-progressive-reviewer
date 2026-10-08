@@ -32,6 +32,8 @@ pub(super) struct ConversationView {
     /// Whether the reviewer scrolled the thread since it was selected: coming back to the
     /// Threads tab then keeps where they were.
     scrolled: bool,
+    /// The shown thread laid out for the pane's width: a frame and a scroll step reuse it.
+    laid_out: RefCell<Option<render::LaidOutThread>>,
     pub(super) peek: Option<SourcePeek>,
     next_peek: u64,
     targets: RefCell<Vec<Option<CommentTarget>>>,
