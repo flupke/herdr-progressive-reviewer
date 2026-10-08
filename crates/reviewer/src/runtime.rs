@@ -580,10 +580,10 @@ fn in_vision_session() -> bool {
 /// scripted agent reads the sent Explore prompts from. Without
 /// `HERDR_REVIEWER_VISION` the directory is ignored, because the turn files
 /// hold access values.
-fn vision_turns_from_env() -> Option<explore_session::TurnLog> {
+fn vision_turns_from_env() -> Option<vision_turns::TurnLog> {
     env::var_os("HERDR_REVIEWER_VISION")?;
     let directory = env::var_os("HERDR_REVIEWER_VISION_TURNS")?;
-    explore_session::TurnLog::open(directory.into()).ok()
+    vision_turns::TurnLog::open(directory.into()).ok()
 }
 
 /// Hand the terminal to the user's editor, then take it back.

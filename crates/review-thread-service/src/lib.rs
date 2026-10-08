@@ -49,6 +49,8 @@ enum Input {
         through: u64,
         result: Result<(), PromptError>,
     },
+    /// Record each comments wakeup from now on in a vision session's turn log.
+    LogTurns(vision_turns::TurnLog),
     Stop,
 }
 
@@ -149,6 +151,11 @@ impl Worker {
 
     pub fn send(&self, command: Command) {
         let _ = self.sender.send(Input::Ui(command));
+    }
+
+    /// Records each comments wakeup in `turns`, a vision session's turn log, from the next one.
+    pub fn log_turns(&self, turns: vision_turns::TurnLog) {
+        let _ = self.sender.send(Input::LogTurns(turns));
     }
 
     /// Where another thread sends thread commands, as the pane's actions do: the Explore page

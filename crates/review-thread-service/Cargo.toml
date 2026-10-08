@@ -10,6 +10,8 @@ license.workspace = true
 flush = []
 
 [dependencies]
+serde.workspace = true
+vision-turns = { path = "../vision-turns" }
 herdr-client = { path = "../herdr-client" }
 review-mcp = { path = "../review-mcp" }
 review-store = { path = "../review-store" }

@@ -13,6 +13,7 @@ use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 use tempfile::TempDir;
+use vision_turns::TurnLog;
 
 use super::*;
 
@@ -713,10 +714,7 @@ fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
     std::fs::remove_file(directory.path().join("turn-000001.json")).unwrap();
     std::fs::write(directory.path().join("turn-000009.partial"), b"{").unwrap();
     let reopened = TurnLog::open(directory.path().to_owned()).unwrap();
-    reopened.record(
-        &turn_log::SentTurn::implement("Do the tasks".into()),
-        &Ok(()),
-    );
+    reopened.record(&turn_log::SentTurn::implement("Do the tasks".into()), None);
     assert_eq!(turn(3)["kind"], "implement");
     assert!(turn(3).get("access").is_none());
 }

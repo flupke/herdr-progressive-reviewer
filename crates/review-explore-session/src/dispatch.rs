@@ -1,5 +1,7 @@
 use crate::records::SavedRounds;
-use crate::turn_log::{SentTurn, TurnLog};
+use vision_turns::TurnLog;
+
+use crate::turn_log::SentTurn;
 use component_core::ApplicationEventSender;
 use review_explore::{DispatchId, DispatchResult, DispatchState};
 use review_thread_service::{DispatchObserver, PromptError};
@@ -43,10 +45,11 @@ impl DispatchObserver for DurableDispatch {
         );
         // Recorded after the save, so a reply never outruns the saved dispatch.
         if let Some((turns, sent)) = &self.turn {
-            match &saved {
-                Ok(_) => turns.record(sent, result),
-                Err(error) => turns.record(sent, &Err(PromptError::Unknown(error.to_string()))),
-            }
+            let error = match &saved {
+                Ok(_) => result.as_ref().err().map(ToString::to_string),
+                Err(error) => Some(PromptError::Unknown(error.to_string()).to_string()),
+            };
+            turns.record(sent, error);
         }
         match saved {
             Ok(round) => {

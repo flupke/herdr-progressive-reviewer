@@ -698,3 +698,31 @@ fn each_new_message_in_a_round_s_conversation_is_published_once_with_its_round()
     assert_eq!(round_messages(&service, "round-7"), [first, second]);
     assert_eq!(service.round_messages.lock().unwrap().len(), 2);
 }
+
+#[test]
+fn a_vision_turn_log_records_each_comments_wakeup_with_its_access_value() {
+    let mut service = Service::start();
+    let turns = tempfile::tempdir().unwrap();
+    let _ = service.state.input(Input::LogTurns(
+        vision_turns::TurnLog::open(turns.path().to_owned()).unwrap(),
+    ));
+    service.start_thread("Rename this");
+
+    let (_, access) = only_wakeup(&service.poll());
+
+    let turn: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(turns.path().join("turn-000001.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(turn["kind"], "comments");
+    assert_eq!(turn["access"], access.as_str());
+    assert_eq!(turn["delivered"], true);
+    // The text is the wakeup the agent got.
+    assert!(
+        turn["text"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("`{access}`")),
+        "{turn}"
+    );
+}

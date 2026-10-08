@@ -221,3 +221,49 @@ fn a_running_reviewer_process_is_asked_to_stop() {
     // SIGTERM is 15 on Linux and macOS.
     assert_eq!(running.wait().unwrap().signal(), Some(15));
 }
+
+/// The JSON a reviewer MCP tool returned, from the text of its result.
+fn tool_json(result: &Value) -> Value {
+    serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+#[test]
+fn the_stand_in_agent_answers_a_review_comment_in_the_threads_tab() {
+    let (mut fixture, _) = Fixture::start();
+    let session = &mut fixture.session;
+    session.wait_for("math.rs", false, GUARD).unwrap();
+    for key in ["tab", "j", "j", "a"] {
+        session.act(&Input::Keys(&[key.to_owned()])).unwrap();
+    }
+    session.act(&Input::Text("Why this line?")).unwrap();
+    session
+        .act(&Input::Keys(&["ctrl+enter".to_owned()]))
+        .unwrap();
+
+    let wakeup = session.next_turn(None, GUARD).unwrap();
+    assert_eq!(wakeup["kind"], "comments", "{wakeup}");
+    let turn = wakeup["turn"].as_u64().unwrap();
+    let (fetched, _) = session
+        .reply(turn, "get_new_messages", serde_json::json!({}))
+        .unwrap();
+    let thread = &tool_json(&fetched)["threads"][0];
+    let (replied, _) = session
+        .reply(
+            turn,
+            "reply",
+            serde_json::json!({
+                "thread_id": thread["thread_id"],
+                "in_reply_to": thread["in_reply_to"],
+                "message_id": "6f1c2a9e-3b7d-4e5a-9c8f-1d2e3f4a5b6c",
+                "text": "Because the fixture needs a third line.",
+            }),
+        )
+        .unwrap();
+    assert_eq!(replied["isError"], false, "{replied}");
+
+    session.act(&Input::Keys(&["t".to_owned()])).unwrap();
+    let screen = session
+        .wait_for("Because the fixture needs a third line.", false, GUARD)
+        .unwrap();
+    assert!(screen.shows("Why this line?"), "{}", screen.text);
+}

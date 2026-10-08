@@ -355,7 +355,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a script named claude that Explore prompts). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
+        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a script named claude that Explore and review comments prompt). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
     )]
     async fn start(
         &self,
@@ -530,7 +530,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Wait for the next Explore prompt the reviewer sent to its agent, and return it as a turn: its number, kind (kickoff, wakeup, implement), text, and the access value and identity a reply needs. Each call returns the turn after the last one returned, or after `after`. The reviewer records turns only in a vision session."
+        description = "Wait for the next prompt the reviewer sent to its agent, and return it as a turn: its number, kind (kickoff, wakeup, implement for Explore; comments for a review thread's wakeup), text, and the access value and identity a reply needs. Each call returns the turn after the last one returned, or after `after`. The reviewer records turns only in a vision session."
     )]
     async fn turn(
         &self,
@@ -545,7 +545,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Answer the latest turn as the stand-in agent: call one of the reviewer's MCP tools on its real endpoint. Returns the tool's result as `reply`, and the rows that changed once the reviewer has shown it. A turn that is not the latest is an error, so a script never answers a prompt the reviewer replaced; the reviewer's own validation errors come back in `reply`."
+        description = "Answer the latest turn as the stand-in agent: call one of the reviewer's MCP tools on its real endpoint (submit_question or submit_conclusion for Explore; get_new_messages, then reply, for a comments turn). Returns the tool's result as `reply`, and the rows that changed once the reviewer has shown it. A turn that is not the latest is an error, so a script never answers a prompt the reviewer replaced; the reviewer's own validation errors come back in `reply`."
     )]
     async fn reply(
         &self,

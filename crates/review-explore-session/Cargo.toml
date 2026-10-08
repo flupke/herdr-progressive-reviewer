@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+vision-turns = { path = "../vision-turns" }
 component-core = { path = "../component-core" }
 eyre.workspace = true
 herdr-client = { path = "../herdr-client" }

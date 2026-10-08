@@ -48,7 +48,7 @@ pub(super) struct Setup {
     pub(super) theme: Theme,
     pub(super) jev: JevClassifier,
     /// Where a vision session reads the Explore prompts sent.
-    pub(super) turns: Option<explore_session::TurnLog>,
+    pub(super) turns: Option<vision_turns::TurnLog>,
     pub(super) source_watches: Option<SourceWatchRequests>,
     /// Where the Explore session publishes its round for the Explore page.
     pub(super) page: RoundPublisher,
@@ -150,17 +150,8 @@ impl Effects {
         let messages = ApplicationEventSender::new(outputs.background.clone());
         let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
         let (commands, command_receiver) = mpsc::channel();
-        let (documents, document_receiver) = mpsc::channel();
-        let mut document_worker = document::DocumentWorker {
-            repository: repository.clone(),
-            tracker: Arc::clone(&tracker),
-            snapshot: None,
-        };
-        let document_messages = messages.clone();
-        let document_thread = thread::spawn(move || {
-            document_worker.run(&document_receiver, &document_messages);
-            let _ = document_messages.send(WorkerStopped);
-        });
+        let (documents, document_thread) =
+            start_documents(repository.clone(), Arc::clone(&tracker), messages.clone());
         let comments = start_comments(
             &store,
             agents.clone(),
@@ -170,6 +161,9 @@ impl Effects {
             messages.clone(),
             Arc::clone(&page_threads),
         );
+        if let Some(turns) = &turns {
+            comments.log_turns(turns.clone());
+        }
         let talk_quiet = run_ahead.talk_quiet;
         let forks = run_ahead.forks(&agents);
         let explore = ExploreSession::new(explore_session::Collaborators {
@@ -413,6 +407,25 @@ fn inbox_for(commands: Sender<WorkerCommand>) -> explore_session::Inbox {
     explore_session::Inbox::new(move |input| {
         let _ = commands.send(WorkerCommand::Explore(input));
     })
+}
+
+/// Documents load on a worker of their own, beside the repository's.
+fn start_documents(
+    repository: Repository,
+    tracker: Arc<ReviewTracker>,
+    messages: ApplicationEventSender,
+) -> (Sender<document::Command>, JoinHandle<()>) {
+    let (documents, receiver) = mpsc::channel();
+    let mut worker = document::DocumentWorker {
+        repository,
+        tracker,
+        snapshot: None,
+    };
+    let thread = thread::spawn(move || {
+        worker.run(&receiver, &messages);
+        let _ = messages.send(WorkerStopped);
+    });
+    (documents, thread)
 }
 
 /// Conversation traffic bypasses slow repository operations.

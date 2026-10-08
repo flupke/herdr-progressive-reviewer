@@ -2,6 +2,7 @@
 exclude = ["vendor/ratatui-markdown", "tests/tui"]
 members = [
     "crates/check-changed",
+    "crates/vision-turns",
     "crates/agent-fork",
     "crates/agent-hooks",
     "crates/quick-tunnel",

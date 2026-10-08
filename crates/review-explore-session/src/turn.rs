@@ -7,7 +7,9 @@ use review_explore::{Comparison, ConversationBinding, Exploration, ExploreRound,
 use review_explore_runner::{EarlierDecisions, Unreviewed};
 use review_thread_service::PinnedAgent;
 
-use crate::turn_log::{SentTurn, TurnLog};
+use vision_turns::TurnLog;
+
+use crate::turn_log::SentTurn;
 use crate::{ExploreSession, Input, dispatch::DurableDispatch};
 
 /// A turn saved in the round, and the attempt that delivers it to the agent.

@@ -1,6 +1,6 @@
-//! A scripted implementation agent for Explore. The reviewer records every
-//! prompt it sent as a numbered turn; `turn` reads the next one and `reply`
-//! answers it through the reviewer's real MCP endpoint.
+//! A scripted implementation agent for Explore and review threads. The reviewer
+//! records every prompt it sent as a numbered turn; `turn` reads the next one and
+//! `reply` answers it through the reviewer's real MCP endpoint.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -205,14 +205,15 @@ impl Identity {
         object
             .entry("review")
             .or_insert_with(|| self.access.clone());
-        let fields = if tool == "submit_question" {
-            object
+        // The thread tools take the access value alone.
+        let fields = match tool {
+            "submit_question" => object
                 .entry("update")
                 .or_insert_with(|| json!({}))
                 .as_object_mut()
-                .context("submit_question needs an update object")?
-        } else {
-            object
+                .context("submit_question needs an update object")?,
+            "submit_conclusion" => object,
+            _ => return Ok(()),
         };
         self.fill_turn(fields);
         Ok(())

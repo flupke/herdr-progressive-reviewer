@@ -26,9 +26,9 @@ mod unreviewed;
 mod unreviewed_diffs;
 
 pub use run_ahead::{RunAheadInput, TALK_QUIET};
-pub use turn_log::TurnLog;
 
 use std::sync::Arc;
+use vision_turns::TurnLog;
 
 use component_core::ApplicationEventSender;
 use herdr_client::protocol::{AgentPort, AgentTarget};

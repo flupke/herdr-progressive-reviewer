@@ -74,6 +74,14 @@ missing fields, so start from these files): `click` "Explore", then "Start in th
 `ctrl+enter`, sends the answer; `turn` returns the wakeup; `reply` with `conclusion.json`
 shows "To be implemented".
 
+A review comment answered by the agent: `key` `tab`, then `j` to a changed line, then `a`;
+`type` the comment, then `ctrl+enter` posts it; `turn` returns its `comments` wakeup;
+`reply` with `get_new_messages` and `{}` returns the threads, then `reply` with `reply` and
+the fetched `thread_id` and `in_reply_to`, a new `message_id` and the `text`; `key` `t`
+shows the answer in the Threads tab. The thread tools take only the access value, which
+`reply` fills in from the latest turn: when that is an Explore turn, pass the `comments`
+turn's `access` as `review`.
+
 ## Regression tests from explorations
 
 Populate [`tests/tui/tests`](../../tests/tui/tests/README.md) with deterministic E2E

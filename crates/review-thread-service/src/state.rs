@@ -9,6 +9,8 @@ use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand, WakeupFailure};
 use review_types::ReviewUnit;
+use serde::Serialize;
+use vision_turns::TurnLog;
 
 use crate::delivery::{Courier, PromptError, PromptGate, PromptQueue};
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
@@ -32,6 +34,16 @@ pub(super) struct State {
     /// Where the outcomes of comment notifications come back, behind the other inputs.
     inputs: Sender<Input>,
     publish: Box<dyn Fn(Event) + Send>,
+    /// A vision session's record of the wakeups sent, for its scripted agent.
+    turns: Option<TurnLog>,
+}
+
+/// A comments wakeup as a vision session's turn log records it.
+#[derive(Serialize)]
+struct CommentsTurn<'a> {
+    kind: &'static str,
+    access: &'a str,
+    text: &'a str,
 }
 
 impl State {
@@ -57,6 +69,7 @@ impl State {
             wakeups: HashMap::new(),
             prompts: PromptQueue::default(),
             publish,
+            turns: None,
         }
     }
 
@@ -98,6 +111,7 @@ impl State {
                 through,
                 result,
             } => self.notified(&token, through, result),
+            Input::LogTurns(turns) => self.turns = Some(turns),
             Input::Stop => return ControlFlow::Break(()),
         }
         ControlFlow::Continue(())
@@ -597,7 +611,17 @@ impl State {
             self.report_wakeup(Some(&unit), None);
             let inputs = self.inputs.clone();
             let token = token.to_owned();
+            let turns = self.turns.clone();
+            let sent = prompt.clone();
             self.courier.send(current, prompt, None, move |result| {
+                if let Some(turns) = &turns {
+                    let turn = CommentsTurn {
+                        kind: "comments",
+                        access: &token,
+                        text: &sent,
+                    };
+                    turns.record(&turn, result.as_ref().err().map(ToString::to_string));
+                }
                 let _ = inputs.send(Input::Notified {
                     token,
                     through,
