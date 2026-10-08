@@ -11,8 +11,8 @@ use super::watch::{MetadataScope, resolve_directory_or_link_file};
 use super::{
     BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, Cancellation, ChangeId,
     ChangedFile, Interdiff, RepoPath, RepoType, Repository, RepositoryBackend, RepositoryProcess,
-    RevisionCandidate, RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotIdentity,
-    WatchPlan, path_from_output,
+    RevisionCandidate, RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotId,
+    SnapshotIdentity, WatchPlan, path_from_output,
 };
 use crate::{Error, Result};
 
@@ -46,7 +46,7 @@ const REVISION_HISTORY_REVSET: &str = "(descendants(heads(ancestors(@) & immutab
     | heads(ancestors(@) & immutable())
     | (children(heads(ancestors(@) & immutable())) & immutable())";
 const REVISION_HISTORY_TEMPLATE: &str = concat!(
-    r#""\x1e" ++ change_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "\x1d" ++ "#,
+    r#""\x1e" ++ change_id ++ ":" ++ commit_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "\x1d" ++ "#,
     r#"change_id.shortest(8) ++ " " ++ description.first_line() ++ "\n""#,
 );
 
@@ -130,14 +130,38 @@ impl RepositoryBackend for JjBackend {
         )
     }
 
+    fn identity_of(
+        &self,
+        repository: &Repository,
+        change_id: &ChangeId,
+    ) -> Result<Option<SnapshotIdentity>> {
+        SnapshotIdentity::parse_jj(
+            &repository
+                .run_jj([
+                    "--ignore-working-copy",
+                    "--color=always",
+                    "log",
+                    "--no-graph",
+                    "-r",
+                    change_id.as_str(),
+                    "-T",
+                    IDENTITY_TEMPLATE,
+                ])?
+                .stdout,
+        )
+        .map(Some)
+    }
+
     fn read_files(
         &self,
         repository: &Repository,
         identity: &SnapshotIdentity,
     ) -> Result<Vec<ChangedFile>> {
+        // The identity names its commit: the files are read from it, not from the working copy.
         ChangedFile::parse_jj(
             &repository
                 .run_jj([
+                    OsString::from("--ignore-working-copy"),
                     OsString::from("diff"),
                     OsString::from("-r"),
                     OsString::from(identity.snapshot_id()),
@@ -430,21 +454,30 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
             .position(|byte| *byte == 0x1d)
             .map(|offset| end + offset + 2)
     });
-    let (text, short_change_id, change_id, is_current, is_immutable) =
+    let graph_end = record_start;
+    let (text, short_change_id, change_id, commit_id, is_current, is_immutable) =
         match (record_start, record_end, display_start) {
             (Some(start), Some(end), Some(display_start)) => {
                 let metadata = strip_ansi_escapes::strip(&line[start + 1..end]);
-                let mut fields = metadata.rsplitn(4, |byte| *byte == b':');
+                let mut fields = metadata.rsplitn(5, |byte| *byte == b':');
                 let immutable_marker = fields.next();
                 let current_marker = fields.next();
                 let short_change_id = fields.next();
+                let commit_id = fields.next();
                 let change_id = fields.next();
                 let (
                     Some(immutable_marker),
                     Some(current_marker),
                     Some(short_change_id),
+                    Some(commit_id),
                     Some(change_id),
-                ) = (immutable_marker, current_marker, short_change_id, change_id)
+                ) = (
+                    immutable_marker,
+                    current_marker,
+                    short_change_id,
+                    commit_id,
+                    change_id,
+                )
                 else {
                     return Err(Error::Protocol {
                         operation: "read jj revision history".to_owned(),
@@ -454,6 +487,10 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
                 let change_id = std::str::from_utf8(change_id).map_err(|_| Error::Protocol {
                     operation: "read jj revision history".to_owned(),
                     detail: "jj returned a non-UTF-8 revision identifier",
+                })?;
+                let commit_id = std::str::from_utf8(commit_id).map_err(|_| Error::Protocol {
+                    operation: "read jj revision history".to_owned(),
+                    detail: "jj returned a non-UTF-8 commit identifier",
                 })?;
                 let short_change_id =
                     std::str::from_utf8(short_change_id).map_err(|_| Error::Protocol {
@@ -474,11 +511,12 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
                     text,
                     Some(short_change_id.to_owned()),
                     Some(ChangeId::from(change_id.to_owned())),
+                    Some(SnapshotId::from(commit_id.to_owned())),
                     is_current,
                     is_immutable,
                 )
             }
-            (None, None, None) => (line.to_vec(), None, None, false, false),
+            (None, None, None) => (line.to_vec(), None, None, None, false, false),
             _ => {
                 return Err(Error::Protocol {
                     operation: "read jj revision history".to_owned(),
@@ -496,8 +534,10 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
             operation: "read jj revision history".to_owned(),
             detail: "jj returned non-UTF-8 plain revision history text",
         })?,
+        graph_end: change_id.as_ref().and(graph_end),
         short_change_id,
         change_id,
+        commit_id,
         is_current,
         is_immutable,
     })

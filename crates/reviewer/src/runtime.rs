@@ -11,6 +11,7 @@ mod jev;
 mod page_sharing;
 mod page_threads;
 mod review_marks;
+mod revision_progress;
 mod route;
 mod terminal;
 mod timing;

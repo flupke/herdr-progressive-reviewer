@@ -31,17 +31,25 @@ fn revision_candidate_records_require_complete_utf8_groups() {
 #[test]
 fn revision_history_records_keep_graph_text_and_extract_change_ids() {
     let history = parse_revision_history(
-        b"\x1b[32m@\x1b[0m  \x1e\x1b[35mfull-id\x1b[39m:short:1:0\x1f\x1d\x1b[35mshort\x1b[39m message\n\xe2\x94\x82\n",
+        b"\x1b[32m@\x1b[0m  \x1e\x1b[35mfull-id\x1b[39m:commit-id:short:1:0\x1f\x1d\x1b[35mshort\x1b[39m message\n\xe2\x94\x82\n",
     )
     .unwrap();
 
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].change_id.as_ref().unwrap().as_str(), "full-id");
     assert_eq!(history[0].short_change_id.as_deref(), Some("short"));
+    assert_eq!(
+        history[0].commit_id.as_ref().map(SnapshotId::as_str),
+        Some("commit-id")
+    );
     assert_eq!(history[0].plain_text, "@  short message");
     assert!(history[0].is_current);
     assert!(!history[0].is_immutable);
     assert!(history[0].text.contains("\x1b[32m@"));
+    let graph_end = history[0].graph_end.unwrap();
+    assert_eq!(&history[0].text[..graph_end], "\x1b[32m@\x1b[0m  ");
+    assert!(history[0].text[graph_end..].contains("short\x1b[39m message"));
+    assert_eq!(history[1].graph_end, None);
     assert_eq!(history[1].change_id, None);
     assert_eq!(history[1].short_change_id, None);
     assert_eq!(history[1].plain_text, "│");
@@ -263,4 +271,37 @@ fn watch_plan_falls_back_to_git_metadata_without_operation_heads() {
         ]
     );
     assert_eq!(plan.git_excludes, None);
+}
+
+#[test]
+fn a_snapshot_of_another_revision_reads_its_own_files_and_leaves_the_working_copy() {
+    let fixture = JjFixture::new(JjLayout::NonColocated);
+    let repository = Repository::discover(fixture.root()).unwrap();
+    fixture.new_change("first");
+    fixture.write("first.txt", b"one\ntwo\n");
+    let first = fixture.change_id();
+    fixture.new_change("second");
+    fixture.write("second.txt", b"three\n");
+    let second = fixture.change_id();
+
+    let snapshot = repository
+        .snapshot_of(&ChangeId::from(first.clone()))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(snapshot.identity.review_unit().as_str(), first);
+    let paths = snapshot
+        .files
+        .iter()
+        .map(|file| file.display_path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["first.txt"]);
+    assert_eq!(snapshot.files[0].statistics.lines_added, 2);
+    // The working copy stays on its own change.
+    assert_eq!(fixture.change_id(), second);
+    let second_snapshot = repository
+        .snapshot_of(&ChangeId::from(second))
+        .unwrap()
+        .unwrap();
+    assert_eq!(second_snapshot.files.len(), 1);
 }

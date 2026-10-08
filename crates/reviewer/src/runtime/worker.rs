@@ -17,9 +17,11 @@ use review_types::MarkAuthor;
 use review_ui::RepositoryAction;
 use ui_events::{
     FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
-    ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoaded,
+    ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId,
+    RevisionHistoryLoaded, RevisionProgressLoaded,
 };
 
+use super::revision_progress::HistoryProgress;
 use super::{auto_review, document};
 
 #[derive(Debug)]
@@ -35,6 +37,8 @@ pub(super) struct Worker {
     /// An Explore kickoff waiting for Jev to mark what it dismisses first.
     pub(super) held_kickoff: Option<review_explore::TurnRequest>,
     pub(super) documents: Sender<document::Command>,
+    /// The revisions of the latest history whose reviewed share is still to compute.
+    pub(super) revision_progress: HistoryProgress,
 }
 
 #[derive(Debug)]
@@ -43,6 +47,8 @@ pub(super) enum WorkerCommand {
     Repository(RepositoryAction),
     Poll,
     AutoReviewFinished(Box<auto_review::AutoReview>),
+    /// Compute the reviewed share of the next revision of the latest history.
+    RevisionProgress,
     /// Block until the sender drops, keeping later work pending.
     #[cfg(test)]
     Hold(crossbeam_channel::Receiver<()>),
@@ -94,6 +100,7 @@ impl Worker {
             }
             WorkerCommand::Repository(action) => self.handle_repository_action(action, messages),
             WorkerCommand::AutoReviewFinished(review) => self.finish_auto_review(&review, messages),
+            WorkerCommand::RevisionProgress => self.next_revision_progress(messages),
             WorkerCommand::Explore(input) => self.handle_explore(input, messages),
             #[cfg(test)]
             WorkerCommand::Hold(release) => {
@@ -182,11 +189,7 @@ impl Worker {
                 let _ = messages.send(RevisionCandidatesLoaded { direction, result });
             }
             RepositoryAction::LoadRevisionHistory { load_id } => {
-                let result = self
-                    .repository
-                    .revision_history()
-                    .map_err(|error| error.to_string());
-                let _ = messages.send(RevisionHistoryLoaded { load_id, result });
+                self.load_revision_history(load_id, messages);
             }
             RepositoryAction::EditRevision { change_id } => {
                 self.edit_revision(messages, &change_id);
@@ -209,6 +212,59 @@ impl Worker {
                 self.start_auto_review(&checkpoint, messages);
             }
             RepositoryAction::UnreviewAll(checkpoint) => self.unreview_all(&checkpoint, messages),
+        }
+    }
+
+    /// Loads the revision history, sends the shares still known at once, and queues the
+    /// computing of the others.
+    fn load_revision_history(
+        &mut self,
+        load_id: RevisionHistoryLoadId,
+        messages: &ApplicationEventSender,
+    ) {
+        let result = self
+            .repository
+            .revision_history()
+            .map_err(|error| error.to_string());
+        let started = result
+            .as_ref()
+            .ok()
+            .map(|lines| self.revision_progress.start(load_id, lines, &self.store));
+        let _ = messages.send(RevisionHistoryLoaded { load_id, result });
+        let Some(started) = started else {
+            return;
+        };
+        for (change_id, progress) in started.known {
+            let _ = messages.send(RevisionProgressLoaded {
+                load_id,
+                change_id,
+                progress: Some(progress),
+            });
+        }
+        if started.queue {
+            let _ = self.commands.send(WorkerCommand::RevisionProgress);
+        }
+    }
+
+    /// Computes the reviewed share of the next revision of the latest history, then queues the
+    /// one after it behind the commands that came meanwhile.
+    fn next_revision_progress(&mut self, messages: &ApplicationEventSender) {
+        let Some((load_id, change_id)) = self.revision_progress.next() else {
+            return;
+        };
+        let progress = self.revision_progress.compute(
+            &self.repository,
+            &self.tracker,
+            &self.store,
+            &change_id,
+        );
+        let _ = messages.send(RevisionProgressLoaded {
+            load_id,
+            change_id,
+            progress,
+        });
+        if self.revision_progress.queue() {
+            let _ = self.commands.send(WorkerCommand::RevisionProgress);
         }
     }
 

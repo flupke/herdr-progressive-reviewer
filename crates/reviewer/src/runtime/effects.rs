@@ -33,6 +33,7 @@ use super::document;
 use super::highlighting;
 use super::page_sharing::PageSharing;
 use super::page_threads::PageThreads;
+use super::revision_progress::HistoryProgress;
 use super::route::WorkerStopped;
 use super::worker::{Worker, WorkerCommand};
 use crate::watcher::SourceWatchRequests;
@@ -196,6 +197,7 @@ impl Effects {
             auto_review: None,
             held_kickoff: None,
             documents: documents.clone(),
+            revision_progress: HistoryProgress::default(),
         };
         let worker_messages = messages.clone();
         let worker_thread = thread::spawn(move || {

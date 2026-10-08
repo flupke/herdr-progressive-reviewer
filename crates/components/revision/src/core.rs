@@ -1,6 +1,8 @@
 //! Revision component state and event handling.
 
-use crate::ui::{RevisionHistoryInputResult, RevisionHistorySelection, SelectableRevision};
+use crate::ui::{
+    RevisionHistoryInputResult, RevisionHistorySelection, RevisionShare, SelectableRevision,
+};
 use component_core::{
     Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
 };
@@ -15,7 +17,7 @@ use ui_events::{
     CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,
     RepositoryRefreshStarted, ReviewLocation, ReviewLocationJumped, ReviewLocationRestoreRequested,
     RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
-    RevisionSelectorRequested, ToastRequested, ViewportChanged,
+    RevisionProgressLoaded, RevisionSelectorRequested, ToastRequested, ViewportChanged,
 };
 use ui_shortcuts::{
     ApplicationShortcut, Key, RevisionShortcut, ShortcutMatcher, ShortcutSubscription,
@@ -47,6 +49,7 @@ enum RevisionNavigationState {
         origin: ReviewLocation,
     },
     SelectingHistory {
+        load_id: RevisionHistoryLoadId,
         selection: RevisionHistorySelection,
         origin: ReviewLocation,
     },
@@ -170,11 +173,11 @@ impl RevisionComponent {
         let Some(state) = self.state.take() else {
             return;
         };
-        let origin = match state {
+        let (load_id, origin) = match state {
             RevisionNavigationState::LoadingHistory { load_id, origin }
                 if load_id == event.load_id =>
             {
-                origin
+                (load_id, origin)
             }
             state => {
                 self.state = Some(state);
@@ -194,6 +197,7 @@ impl RevisionComponent {
                     return;
                 };
                 self.state = Some(RevisionNavigationState::SelectingHistory {
+                    load_id,
                     selection: RevisionHistorySelection::new(lines.clone()),
                     origin,
                 });
@@ -204,6 +208,22 @@ impl RevisionComponent {
                     kind: toasts::ToastKind::Error,
                 });
             }
+        }
+    }
+
+    /// Shows the reviewed share of one revision of the history the selector shows.
+    fn progress_loaded(&mut self, event: &RevisionProgressLoaded) {
+        if let Some(RevisionNavigationState::SelectingHistory {
+            load_id, selection, ..
+        }) = &mut self.state
+            && *load_id == event.load_id
+        {
+            let share = match event.progress {
+                None => RevisionShare::Unreadable,
+                Some(progress) if progress.is_empty() => RevisionShare::NothingToReview,
+                Some(progress) => RevisionShare::Percent(progress.percent()),
+            };
+            selection.reviewed(event.change_id.clone(), share);
         }
     }
 
@@ -360,7 +380,9 @@ impl RevisionComponent {
     }
 
     fn history_key(&mut self, key: Key) -> Vec<Action> {
-        let Some(RevisionNavigationState::SelectingHistory { selection, origin }) = &mut self.state
+        let Some(RevisionNavigationState::SelectingHistory {
+            selection, origin, ..
+        }) = &mut self.state
         else {
             return Vec::new();
         };
@@ -406,6 +428,7 @@ impl Component<Action> for RevisionComponent {
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::candidates_loaded);
         subscriptions.subscribe(Self::history_loaded);
+        subscriptions.subscribe(Self::progress_loaded);
         subscriptions.subscribe(Self::edit_failed);
         subscriptions.subscribe(Self::selector_requested);
         subscriptions.subscribe_input(

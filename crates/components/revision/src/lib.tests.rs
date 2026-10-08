@@ -3,14 +3,15 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
 use review_repository::repository::{
-    ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
+    ChangeId, DiffStatistics, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
 use review_source::ReviewCheckpoint;
+use review_state::ReviewState;
 use review_types::ReviewUnit;
 use ui_events::{
     CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,
     RepositoryRefreshStarted, ReviewLocation, RevisionCandidatesLoaded, RevisionEditFailed,
-    RevisionHistoryLoadId, RevisionHistoryLoaded,
+    RevisionHistoryLoadId, RevisionHistoryLoaded, RevisionProgressLoaded,
 };
 use ui_shortcuts::{ApplicationShortcut, Key, ShortcutSubscription};
 use ui_theme::Theme;
@@ -471,9 +472,136 @@ fn revision_history_keeps_jj_terminal_colors() {
         .draw(|frame| component.render(frame.area(), frame.buffer_mut()))
         .unwrap();
 
-    let first_history_cell = terminal.backend().buffer().cell((7, 5)).unwrap();
-    assert_eq!(first_history_cell.symbol(), "a");
+    let buffer = terminal.backend().buffer();
+    let first_history_cell = (0..buffer.area.width)
+        .filter_map(|column| buffer.cell((column, 5)))
+        .find(|cell| cell.symbol() == "a")
+        .unwrap();
     assert_eq!(first_history_cell.fg, Color::Magenta);
+}
+
+#[test]
+fn each_history_revision_shows_its_reviewed_share_once_computed() {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(vec![history_line("alpha"), immutable_history_line("trunk")]),
+    })
+    .unwrap();
+    let screen = rendered_component(&bus, target);
+    assert!(screen.contains("   · alpha"), "{screen}");
+    assert!(screen.contains("│      trunk"), "{screen}");
+
+    bus.publish(progress_loaded(0, "alpha")).unwrap();
+    let screen = rendered_component(&bus, target);
+    assert!(screen.contains("  50% alpha"), "{screen}");
+    assert!(screen.contains("│      trunk"), "{screen}");
+}
+
+#[test]
+fn the_share_goes_between_jj_graph_and_the_change_id() {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    let graph = "\u{1b}[32m○\u{1b}[0m  ";
+    let line = history_line("alpha");
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(vec![RevisionHistoryLine {
+            text: format!("{graph}{}", line.text),
+            plain_text: format!("○  {}", line.plain_text),
+            graph_end: Some(graph.len()),
+            ..line
+        }]),
+    })
+    .unwrap();
+
+    bus.publish(progress_loaded(0, "alpha")).unwrap();
+
+    assert!(rendered_component(&bus, target).contains("○  50% alpha"));
+}
+
+#[test]
+fn a_history_revision_that_cannot_be_read_shows_a_question_mark() {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(vec![history_line("lost")]),
+    })
+    .unwrap();
+
+    bus.publish(RevisionProgressLoaded {
+        load_id: history_load_id(0),
+        change_id: ChangeId::from("lost".to_owned()),
+        progress: None,
+    })
+    .unwrap();
+
+    assert!(rendered_component(&bus, target).contains("   ? lost"));
+}
+
+#[test]
+fn a_history_revision_with_nothing_to_review_shows_a_dash() {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(vec![history_line("empty")]),
+    })
+    .unwrap();
+
+    bus.publish(RevisionProgressLoaded {
+        load_id: history_load_id(0),
+        change_id: ChangeId::from("empty".to_owned()),
+        progress: Some(std::iter::empty::<(DiffStatistics, &ReviewState)>().collect()),
+    })
+    .unwrap();
+
+    assert!(rendered_component(&bus, target).contains("   – empty"));
+}
+
+#[test]
+fn a_share_computed_for_an_earlier_history_is_ignored() {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(vec![history_line("alpha")]),
+    })
+    .unwrap();
+
+    bus.publish(progress_loaded(7, "alpha")).unwrap();
+
+    assert!(rendered_component(&bus, target).contains("   · alpha"));
+}
+
+/// Half of `change_id` reviewed, computed for the history of `load_id`.
+fn progress_loaded(load_id: u64, change_id: &str) -> RevisionProgressLoaded {
+    let line = DiffStatistics {
+        lines_added: 1,
+        lines_removed: 0,
+    };
+    let (reviewed, unreviewed) = (ReviewState::reviewed(), ReviewState::unreviewed(line, None));
+    RevisionProgressLoaded {
+        load_id: history_load_id(load_id),
+        change_id: ChangeId::from(change_id.to_owned()),
+        progress: Some(
+            [(line, &reviewed), (line, &unreviewed)]
+                .into_iter()
+                .collect(),
+        ),
+    }
 }
 
 #[test]
@@ -708,8 +836,10 @@ fn history_line_with_text(full_id: &str, short_id: &str, description: &str) -> R
     RevisionHistoryLine {
         text: format!("\u{1b}[35m{short_id}\u{1b}[39m {description}"),
         plain_text: format!("{short_id} {description}"),
+        graph_end: Some(0),
         short_change_id: Some(short_id.to_owned()),
         change_id: Some(ChangeId::from(full_id.to_owned())),
+        commit_id: None,
         is_current: false,
         is_immutable: false,
     }

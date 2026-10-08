@@ -404,6 +404,15 @@ pub struct RevisionHistoryLoaded {
     pub result: Result<Vec<review_repository::repository::RevisionHistoryLine>, String>,
 }
 
+/// How much of one revision of a loaded history is reviewed, computed after the history, one
+/// revision at a time; none when the revision could not be read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionProgressLoaded {
+    pub load_id: RevisionHistoryLoadId,
+    pub change_id: review_repository::repository::ChangeId,
+    pub progress: Option<ReviewProgress>,
+}
+
 /// A requested revision edit did not produce a new repository snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionEditFailed {

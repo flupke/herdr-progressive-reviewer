@@ -181,6 +181,7 @@ impl ReviewStore {
             partial,
         };
         self.write_record(review_unit, &record)?;
+        self.stamp_marks(review_unit)?;
         Ok(record)
     }
 
@@ -220,7 +221,10 @@ impl ReviewStore {
         StatePath::validate(path)?;
         let target = self.record_path(review_unit, path);
         match fs::remove_file(&target) {
-            Ok(()) => self.sync_parent(&target),
+            Ok(()) => {
+                self.sync_parent(&target)?;
+                self.stamp_marks(review_unit)
+            }
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(Error::StateIo {
                 operation: "remove review record",
@@ -236,7 +240,10 @@ impl ReviewStore {
         ReviewUnitKey::validate(review_unit)?;
         let target = self.record_directory(review_unit);
         match fs::remove_dir_all(&target) {
-            Ok(()) => self.sync_parent(&target),
+            Ok(()) => {
+                self.sync_parent(&target)?;
+                self.stamp_marks(review_unit)
+            }
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(Error::StateIo {
                 operation: "clear file review marks",
@@ -322,6 +329,53 @@ impl ReviewStore {
             }
         }
         Ok(copy)
+    }
+
+    /// A value that changes each time the marks of `review_unit` change, from any process: what
+    /// is computed from the marks stays valid while it stays the same. None before the first
+    /// change of its marks that wrote one.
+    pub fn marks_stamp(&self, review_unit: &ReviewUnit) -> Result<Option<String>> {
+        ReviewUnitKey::validate(review_unit)?;
+        let target = self.stamp_path(review_unit);
+        match fs::read_to_string(&target) {
+            Ok(stamp) => Ok(Some(stamp)),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(Error::StateIo {
+                operation: "read review marks stamp",
+                path: target,
+                source,
+            }),
+        }
+    }
+
+    /// Records that the marks of `review_unit` changed: a new random stamp, renamed into place
+    /// so that a reader never sees half of it. It is not synced to disk: what it keeps valid
+    /// lives in memory, and goes with a crash too.
+    fn stamp_marks(&self, review_unit: &ReviewUnit) -> Result<()> {
+        const OPERATION: &str = "stamp review marks";
+        let target = self.stamp_path(review_unit);
+        let stamp = StateKey::random(OPERATION, &target)?;
+        let temporary = target.with_extension(format!("tmp-{}", stamp.0));
+        let io = |path: &Path, source| Error::StateIo {
+            operation: OPERATION,
+            path: path.to_owned(),
+            source,
+        };
+        if let Some(parent) = target.parent() {
+            self.create_dir(parent)?;
+        }
+        fs::write(&temporary, stamp.0.as_bytes()).map_err(|source| io(&temporary, source))?;
+        fs::rename(&temporary, &target).map_err(|source| {
+            let _ = fs::remove_file(&temporary);
+            io(&target, source)
+        })
+    }
+
+    fn stamp_path(&self, review_unit: &ReviewUnit) -> PathBuf {
+        self.repository_dir
+            .join("changes")
+            .join(review_unit.as_str())
+            .join("marks-stamp")
     }
 
     fn record_directory(&self, review_unit: &ReviewUnit) -> PathBuf {

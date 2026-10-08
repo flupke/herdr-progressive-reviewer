@@ -31,6 +31,11 @@ impl ReviewProgress {
         self.total_lines += total;
     }
 
+    /// Whether the change has no changed line to review.
+    pub fn is_empty(self) -> bool {
+        self.total_lines == 0
+    }
+
     /// The reviewed share in whole percent, rounded down.
     pub fn percent(self) -> u64 {
         self.share_of(100)

@@ -557,3 +557,35 @@ fn overlapping_stored_authors_give_each_line_one_author() {
         }]
     );
 }
+
+#[test]
+fn each_change_of_a_reviews_marks_gives_it_a_new_stamp() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let baseline = "b".repeat(64);
+    assert_eq!(store.marks_stamp(&fixture.change).unwrap(), None);
+
+    store
+        .mark(&fixture.change, b"a.rs", &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
+    let marked = store.marks_stamp(&fixture.change).unwrap().unwrap();
+    store.unreview(&fixture.change, b"a.rs").unwrap();
+    let unmarked = store.marks_stamp(&fixture.change).unwrap().unwrap();
+    // Unmarking a path without a mark changes nothing.
+    store.unreview(&fixture.change, b"a.rs").unwrap();
+    assert_eq!(
+        store.marks_stamp(&fixture.change).unwrap().unwrap(),
+        unmarked
+    );
+    store
+        .mark(&fixture.change, b"a.rs", &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
+    let marked_again = store.marks_stamp(&fixture.change).unwrap().unwrap();
+    store.unreview_all(&fixture.change).unwrap();
+    let cleared = store.marks_stamp(&fixture.change).unwrap().unwrap();
+
+    let stamps = [&marked, &unmarked, &marked_again, &cleared];
+    for (index, stamp) in stamps.iter().enumerate() {
+        assert!(!stamps[index + 1..].contains(stamp), "{stamps:?}");
+    }
+}

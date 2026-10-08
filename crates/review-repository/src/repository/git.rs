@@ -435,6 +435,14 @@ impl RepositoryBackend for GitBackend {
         Ok(Vec::new())
     }
 
+    fn identity_of(
+        &self,
+        _repository: &Repository,
+        _change_id: &ChangeId,
+    ) -> Result<Option<SnapshotIdentity>> {
+        Ok(None)
+    }
+
     fn edit_revision(&self, _repository: &Repository, _change_id: &ChangeId) -> Result<bool> {
         Ok(false)
     }

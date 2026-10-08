@@ -519,6 +519,12 @@ trait RepositoryBackend: std::fmt::Debug + Send + Sync {
     fn set_state_root(&self, repository_root: &Path, state_root: &Path);
     fn watch_plan(&self, root: &Path) -> WatchPlan;
     fn current_identity(&self, repository: &Repository) -> Result<SnapshotIdentity>;
+    /// The identity of the revision of `change_id`, which a backend without revisions has not.
+    fn identity_of(
+        &self,
+        repository: &Repository,
+        change_id: &ChangeId,
+    ) -> Result<Option<SnapshotIdentity>>;
     fn read_files(
         &self,
         repository: &Repository,
@@ -602,10 +608,15 @@ pub struct RevisionHistoryLine {
     pub text: String,
     /// Text without terminal control sequences, used if ANSI parsing fails.
     pub plain_text: String,
+    /// Where jj's graph ends in `text`, as a byte offset, and the revision's own text starts:
+    /// set on the rows that represent a commit.
+    pub graph_end: Option<usize>,
     /// The short change identifier shown in the terminal-rendered text.
     pub short_change_id: Option<String>,
     /// The full change identifier when this row represents a commit.
     pub change_id: Option<ChangeId>,
+    /// The commit identifier when this row represents a commit.
+    pub commit_id: Option<SnapshotId>,
     /// Whether this row represents the current working-copy commit.
     pub is_current: bool,
     /// Whether this row is immutable context that cannot be selected.
@@ -716,6 +727,17 @@ impl Repository {
         }
 
         Ok(PollResult::Complete(Snapshot { identity, files }))
+    }
+
+    /// The snapshot of the revision of `change_id`, read from the commit as it is, without
+    /// snapshotting the working copy; none when the backend has no revisions.
+    pub fn snapshot_of(&self, change_id: &ChangeId) -> Result<Option<Snapshot>> {
+        let Some(identity) = self.backend.identity_of(self, change_id)? else {
+            return Ok(None);
+        };
+        let mut files = self.backend.read_files(self, &identity)?;
+        self.backend.read_stats(self, &identity, &mut files)?;
+        Ok(Some(Snapshot { identity, files }))
     }
 
     /// Snapshot and read the current change identity.

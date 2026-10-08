@@ -361,8 +361,10 @@ fn lsp_startup_does_not_close_the_revision_selector() {
         result: Ok(vec![RevisionHistoryLine {
             text: "change current revision".to_owned(),
             plain_text: "change current revision".to_owned(),
+            graph_end: None,
             short_change_id: Some("change".to_owned()),
             change_id: Some(ChangeId::from("change".to_owned())),
+            commit_id: None,
             is_current: true,
             is_immutable: false,
         }]),
@@ -400,8 +402,10 @@ fn clicking_the_change_id_opens_the_revision_selector_and_the_title_the_commit_m
         result: Ok(vec![RevisionHistoryLine {
             text: "change current revision".to_owned(),
             plain_text: "change current revision".to_owned(),
+            graph_end: None,
             short_change_id: Some("change".to_owned()),
             change_id: Some(ChangeId::from("change".to_owned())),
+            commit_id: None,
             is_current: true,
             is_immutable: false,
         }]),
@@ -435,8 +439,10 @@ fn clicking_outside_the_revision_selector_closes_it() {
         result: Ok(vec![RevisionHistoryLine {
             text: "change current revision".to_owned(),
             plain_text: "change current revision".to_owned(),
+            graph_end: None,
             short_change_id: Some("change".to_owned()),
             change_id: Some(ChangeId::from("change".to_owned())),
+            commit_id: None,
             is_current: true,
             is_immutable: false,
         }]),

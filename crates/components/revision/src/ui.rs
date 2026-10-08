@@ -1,10 +1,12 @@
 //! Revision selector state, input handling, layout, and rendering.
 
+use std::collections::HashMap;
+
 use ansi_to_tui::IntoText;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
@@ -13,10 +15,23 @@ use ui_frame::Frame;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
+/// How much of one revision of the history is reviewed, once the worker computed it.
+#[derive(Clone, Copy)]
+pub(super) enum RevisionShare {
+    /// The share of its changed lines that review marks cover, in whole percent.
+    Percent(u64),
+    /// It changes no line.
+    NothingToReview,
+    /// The worker could not read it.
+    Unreadable,
+}
+
 pub(super) struct RevisionHistorySelection {
     lines: Vec<RevisionHistoryLine>,
     selected_line: usize,
     filter: Option<RevisionHistoryFilter>,
+    /// The reviewed share of each revision, as the worker computes them.
+    reviewed: HashMap<ChangeId, RevisionShare>,
 }
 
 #[derive(Default)]
@@ -82,7 +97,13 @@ impl RevisionHistorySelection {
             lines,
             selected_line,
             filter: None,
+            reviewed: HashMap::new(),
         }
+    }
+
+    /// Shows how much of the revision of `change_id` is reviewed.
+    pub(super) fn reviewed(&mut self, change_id: ChangeId, share: RevisionShare) {
+        self.reviewed.insert(change_id, share);
     }
 
     pub(super) fn row_count(&self) -> usize {
@@ -349,15 +370,7 @@ pub(super) fn render_history(
     let lines = selection
         .lines
         .iter()
-        .map(|history_line| {
-            history_line
-                .text
-                .as_bytes()
-                .into_text()
-                .ok()
-                .and_then(|text| text.lines.into_iter().next())
-                .unwrap_or_else(|| Line::raw(history_line.plain_text.clone()))
-        })
+        .map(|history_line| history_row(history_line, selection, palette))
         .collect::<Vec<_>>();
     SelectorPopup::new(area, selection.lines.len()).render(
         buffer,
@@ -371,4 +384,57 @@ pub(super) fn render_history(
             .filter(|line| selection.is_selectable(line))
             .map(|_| selection.selected_line),
     );
+}
+
+/// One row of the history: jj's graph, then the revision's reviewed share, then its change ID
+/// and description, as `@  45% nolqkwnw Cover users…`: one space on each side of the share,
+/// right-aligned to the width of `100%` so that the change IDs line up. The share is a dot while
+/// the worker computes it, a dash on a revision with nothing to review, a question mark on one it
+/// could not read, and blank on an immutable revision, which is not reviewed here.
+fn history_row(
+    line: &RevisionHistoryLine,
+    selection: &RevisionHistorySelection,
+    palette: &Palette,
+) -> Line<'static> {
+    let Some(end) = line
+        .graph_end
+        .filter(|end| line.text.is_char_boundary(*end))
+    else {
+        return ansi_line(&line.text).unwrap_or_else(|| Line::raw(line.plain_text.clone()));
+    };
+    let (Some(graph), Some(revision)) = (
+        ansi_line(line.text[..end].trim_end_matches(' ')),
+        ansi_line(&line.text[end..]),
+    ) else {
+        return Line::raw(line.plain_text.clone());
+    };
+    let share = line
+        .change_id
+        .as_ref()
+        .and_then(|id| selection.reviewed.get(id));
+    let mark = match (line.is_immutable, share) {
+        (true, _) => String::new(),
+        (false, Some(RevisionShare::Percent(percent))) => format!("{percent}%"),
+        (false, Some(RevisionShare::NothingToReview)) => "–".to_owned(),
+        (false, Some(RevisionShare::Unreadable)) => "?".to_owned(),
+        (false, None) => "·".to_owned(),
+    };
+    let mut spans = graph.spans;
+    spans.push(Span::styled(
+        format!(" {mark:>4} "),
+        Style::default().fg(palette.dim),
+    ));
+    spans.extend(revision.spans);
+    Line::from(spans)
+}
+
+/// The first line of ANSI-coloured `text`, if it parses.
+fn ansi_line(text: &str) -> Option<Line<'static>> {
+    if text.is_empty() {
+        return Some(Line::default());
+    }
+    text.as_bytes()
+        .into_text()
+        .ok()
+        .and_then(|text| text.lines.into_iter().next())
 }
