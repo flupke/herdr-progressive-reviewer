@@ -11,7 +11,7 @@ use ui_controls::NavigationLink;
 use ui_frame::Frame;
 use ui_theme::Palette;
 
-use super::ConversationAction;
+use super::{ConversationAction, ConversationAnchor};
 use crate::{
     DiffComponent,
     comment_layout::CommentRow,
@@ -131,7 +131,7 @@ impl DiffComponent {
         let inner = block.inner(area);
         block.render(area, buffer);
         let rows = self.conversation_rows(inner.width, palette);
-        let scroll = self.conversation.scroll;
+        let scroll = self.conversation_scroll(&rows);
         let mut targets = Vec::new();
         let body = inner;
         let mut overlay = Vec::new();
@@ -202,6 +202,35 @@ impl DiffComponent {
             }
         }
         output.rows
+    }
+
+    /// Where the view scrolls to: what it keeps in sight as the thread opens, else where the
+    /// reviewer scrolled. The view clamps the end of the thread to its bottom.
+    fn conversation_scroll(&self, rows: &[CommentRow]) -> usize {
+        match &self.conversation.anchor {
+            Some(ConversationAnchor::Reply(anchor)) => rows
+                .iter()
+                .position(
+                    |row| matches!(&row.target, Some(CommentTarget::Message(id)) if id == anchor),
+                )
+                .unwrap_or(self.conversation.scroll),
+            Some(ConversationAnchor::End) => usize::MAX,
+            None => self.conversation.scroll,
+        }
+    }
+
+    /// Turns what the view kept in sight into a plain scroll position, as the reviewer starts to
+    /// scroll.
+    pub(in crate::conversation) fn settle_conversation_scroll(&mut self) {
+        if self.conversation.anchor.is_none() {
+            return;
+        }
+        let rows = self.conversation_rows(self.files.viewport_width, self.services.palette);
+        // The view shows the reply clamped to the end: the scroll starts from what it shows.
+        self.conversation.scroll = self
+            .conversation_scroll(&rows)
+            .min(self.conversation_scroll_limit());
+        self.conversation.anchor = None;
     }
 
     pub(in crate::conversation) fn conversation_scroll_limit(&self) -> usize {

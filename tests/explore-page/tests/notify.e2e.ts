@@ -45,6 +45,8 @@ test('the reviewer turns on notifications and hears when the next question is re
   const chat = screen.getByRole('complementary', 'Conversation with the agent');
   await chat.getByRole('textbox', 'Message to the agent').fill('Why?');
   await chat.getByRole('button', 'Send').tap();
+  // The agent can reply once the message is saved.
+  await expect(chat.getByRole('status')).toContainText('The agent is answering');
   await explore.agentReplies();
   await expect(chat.getByRole('article', 'Reply from the agent')).toBeVisible();
   expect(await shown()).toEqual(['Question 2 is ready', 'The agent replied in the chat']);

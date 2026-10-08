@@ -746,12 +746,9 @@ fn narrow_navigation_keeps_replies_unread_until_the_answer_is_displayed() {
     ui.present();
     assert_eq!(
         ui.book.counts().unread,
-        1,
-        "the reply is below the visible context"
+        0,
+        "the thread opens at the unread reply, which it displays"
     );
-    ui.key(Key::PageDown);
-    ui.present();
-    assert_eq!(ui.book.counts().unread, 0);
 }
 
 #[test]
@@ -1490,4 +1487,230 @@ fn thread_cards_show_where_each_thread_sits_before_its_code_loads() {
     let text = ui.text();
     assert!(text.contains("Saved context"), "{text}");
     assert!(text.contains("Outside diff"), "{text}");
+}
+
+/// A thread whose first reply, long and already read, comes before a short unread one.
+fn thread_with_a_read_and_an_unread_reply() -> ThreadUi {
+    let mut ui = ThreadUi::new(110);
+    let read = "00000000-0000-4000-8000-000000000091";
+    let long = format!(
+        "```\n{}\n```",
+        (0..40)
+            .map(|row| format!("seen line {row:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    ui.answer(0, read, &long);
+    ui.book
+        .mark_replies_read(&[MessageId::parse(read).unwrap()]);
+    ui.publish_book();
+    // Long enough to fill the view below its own top.
+    let unread = format!(
+        "Unread answer\n\n```\n{}\n```",
+        (0..40)
+            .map(|row| format!("unread line {row:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    ui.answer(0, "00000000-0000-4000-8000-000000000093", &unread);
+    ui
+}
+
+#[test]
+fn a_thread_opens_with_the_top_of_its_first_unread_reply_at_the_top() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+
+    let text = ui.text();
+    let rows = text.lines().collect::<Vec<_>>();
+    let title = rows
+        .iter()
+        .position(|row| row.contains("Review thread"))
+        .unwrap();
+    // The first row under the pane's border is the rule above the reply, then its header.
+    assert!(rows[title + 1].contains('├'), "{text}");
+    assert!(
+        rows[title + 2..title + 4]
+            .iter()
+            .any(|row| row.contains("Agent")),
+        "{text}"
+    );
+    assert!(text.contains("Unread answer"), "{text}");
+    assert!(!text.contains("seen line 39"), "{text}");
+}
+
+#[test]
+fn scrolling_up_from_the_unread_reply_shows_the_reply_before_it() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+
+    ui.key(Key::PageUp);
+    ui.present();
+
+    // One page up from the unread reply: the end of the reply before it, not its start.
+    let text = ui.text();
+    assert!(text.contains("seen line 39"), "{text}");
+    assert!(!text.contains("seen line 00"), "{text}");
+}
+
+#[test]
+fn a_thread_without_unread_replies_opens_at_its_end() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.book
+        .mark_replies_read(&[MessageId::parse("00000000-0000-4000-8000-000000000093").unwrap()]);
+    ui.publish_book();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+
+    let opened = ui.text();
+    assert!(opened.contains("unread line 39"), "{opened}");
+    assert!(!opened.contains("seen line 00"), "{opened}");
+
+    ui.key(Key::Up);
+    ui.present();
+    assert_ne!(ui.text(), opened, "the first scroll up moves the view");
+}
+
+#[test]
+fn scrolling_up_from_a_short_last_unread_reply_moves_at_once() {
+    let mut ui = ThreadUi::new(110);
+    let read = "00000000-0000-4000-8000-000000000095";
+    let long = format!(
+        "```\n{}\n```",
+        (0..40)
+            .map(|row| format!("seen line {row:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    ui.answer(0, read, &long);
+    ui.book
+        .mark_replies_read(&[MessageId::parse(read).unwrap()]);
+    ui.publish_book();
+    // Too short to reach the top: the view stops at the end of the thread.
+    ui.answer(
+        0,
+        "00000000-0000-4000-8000-000000000097",
+        "Short unread answer",
+    );
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+    let opened = ui.text();
+
+    ui.key(Key::Up);
+    ui.present();
+
+    assert_ne!(ui.text(), opened, "the first scroll up moves the view");
+}
+
+#[test]
+fn coming_back_to_the_threads_tab_keeps_the_reply_it_opened_at_once_read() {
+    let mut ui = ThreadUi::new(110);
+    ui.answer(
+        0,
+        "00000000-0000-4000-8000-000000000101",
+        "Short unread answer",
+    );
+    // The reviewer's long follow-up keeps the end of the thread far below the answer.
+    let follow_up = (0..40)
+        .map(|row| format!("follow-up line {row:02}"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    ui.book
+        .post(Post::reply(ui.ids[0].clone(), follow_up))
+        .unwrap();
+    ui.publish_book();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+    assert!(ui.text().contains("Short unread answer"), "{}", ui.text());
+    // Shown whole, the answer was read.
+    ui.publish_book();
+    assert!(!ui.book.thread(&ui.ids[0]).unwrap().has_unread_replies());
+
+    ui.key(Key::Char('f'));
+    ui.present();
+    ui.key(Key::Char('t'));
+    ui.present();
+
+    let text = ui.text();
+    assert!(text.contains("Short unread answer"), "{text}");
+    assert!(!text.contains("follow-up line 39"), "{text}");
+}
+
+#[test]
+fn a_reply_arriving_at_the_end_of_an_open_thread_shows_from_its_top() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.book
+        .mark_replies_read(&[MessageId::parse("00000000-0000-4000-8000-000000000093").unwrap()]);
+    ui.publish_book();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+
+    let newest = format!(
+        "Newest answer\n\n```\n{}\n```",
+        (0..40)
+            .map(|row| format!("newest line {row:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    ui.answer(0, "00000000-0000-4000-8000-000000000099", &newest);
+    ui.present();
+
+    let text = ui.text();
+    assert!(text.contains("Newest answer"), "{text}");
+    assert!(!text.contains("newest line 39"), "{text}");
+}
+
+#[test]
+fn an_answer_to_a_posted_reply_shows_from_its_top() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.book
+        .mark_replies_read(&[MessageId::parse("00000000-0000-4000-8000-000000000093").unwrap()]);
+    ui.publish_book();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+    ui.key(Key::Char('A'));
+    ui.paste("Why this branch?");
+    ui.key(Key::ControlEnter);
+    ui.present();
+
+    let answer = format!(
+        "Newest answer\n\n```\n{}\n```",
+        (0..40)
+            .map(|row| format!("newest line {row:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    ui.answer(0, "00000000-0000-4000-8000-000000000103", &answer);
+    ui.present();
+
+    let text = ui.text();
+    assert!(text.contains("Newest answer"), "{text}");
+    assert!(!text.contains("newest line 39"), "{text}");
+}
+
+#[test]
+fn coming_back_to_the_threads_tab_keeps_where_the_reviewer_scrolled() {
+    let mut ui = thread_with_a_read_and_an_unread_reply();
+    ui.key(Key::Char('t'));
+    ui.key(Key::Enter);
+    ui.present();
+    ui.key(Key::PageUp);
+    ui.present();
+
+    ui.key(Key::Char('f'));
+    ui.present();
+    ui.key(Key::Char('t'));
+    ui.present();
+
+    // Opened again at the unread reply, the end of the reply before it would be out of view.
+    assert!(ui.text().contains("seen line 39"), "{}", ui.text());
 }

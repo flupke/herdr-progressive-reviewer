@@ -327,6 +327,7 @@ impl DiffComponent {
                 self.restore_conversation_editor();
             }
             self.refresh_conversation_context();
+            self.follow_arriving_replies();
         }
         if let Err(message) = &event.result {
             self.services.events.publish(ToastRequested {

@@ -41,6 +41,11 @@ impl ReviewThread {
         self.unread_replies().any(|message| &message.id == id)
     }
 
+    /// The agent's first reply that the reviewer has not read.
+    pub fn first_unread_reply(&self) -> Option<&Message> {
+        self.unread_replies().next()
+    }
+
     fn unread_replies(&self) -> impl Iterator<Item = &Message> {
         self.messages.iter().filter(|message| {
             message.author == Author::Agent
