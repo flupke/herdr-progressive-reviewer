@@ -23,7 +23,10 @@ pub struct Topic {
     pub id: String,
     pub title: String,
     pub entries: Vec<CodeLocation>,
+    /// The reviewer's decision on the topic, which only the interpretation of an answer
+    /// changes. The tools leave it out: a topic the agent sends keeps its recorded status.
     #[serde(default)]
+    #[schemars(skip)]
     pub status: TopicStatus,
     /// Provisional inquiry; posted questions retain their own immutable wording.
     #[serde(default)]
@@ -73,6 +76,17 @@ pub struct Question {
     /// explaining what it shows and why it matters to the decision.
     pub evidence: Vec<EvidenceRef>,
     pub assessments: Option<Assessments>,
+}
+
+impl Topic {
+    /// Whether `other` says the same as this topic, whatever the status of each.
+    pub(crate) fn same_but_status(&self, other: &Self) -> bool {
+        *self
+            == Self {
+                status: self.status,
+                ..other.clone()
+            }
+    }
 }
 
 impl Question {
@@ -268,6 +282,11 @@ impl Exploration {
         }
     }
 
+    /// The recorded status of the topic `id`, when the round has the topic.
+    pub(crate) fn topic_status(&self, id: &str) -> Option<TopicStatus> {
+        self.topics.get(id).map(|topic| topic.status)
+    }
+
     fn pending(&self) -> bool {
         self.outstanding.is_some()
     }
@@ -449,7 +468,8 @@ impl Exploration {
     /// Take an accepted agent turn, following `answer`, into the interview's
     /// topics, questions, decisions and report.
     pub(crate) fn absorb(&mut self, update: InterviewUpdate, answer: Option<&ReviewerAnswer>) {
-        for topic in update.topics {
+        for mut topic in update.topics {
+            topic.status = self.topic_status(&topic.id).unwrap_or_default();
             self.topics.insert(topic.id.clone(), topic);
         }
         if let Some((interpretation, answer)) = update.interpretation.zip(answer) {

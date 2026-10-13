@@ -333,7 +333,17 @@ fn an_agent_cannot_invent_acceptance_rewrite_questions_or_bind_an_old_answer() {
         entries: vec![],
         status: TopicStatus::Accepted,
     });
-    assert!(exploration.apply(response).is_err());
+    assert!(exploration.apply(response.clone()).unwrap());
+    assert_eq!(exploration.topics["invented"].status, TopicStatus::Open);
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                text: "Why?".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&question(2)),
+        )
+        .unwrap();
     let mut response = update(&request, None);
     response.interpretation = Some(Interpretation {
         answer: "invented".into(),
@@ -342,7 +352,60 @@ fn an_agent_cannot_invent_acceptance_rewrite_questions_or_bind_an_old_answer() {
         follow_ups: vec![],
     });
     assert!(exploration.apply(response).is_err());
-    assert!(exploration.answers.is_empty());
+    assert_eq!(exploration.answers.len(), 1);
+}
+
+#[test]
+fn a_settled_topic_sent_again_keeps_the_reviewers_decision_and_cannot_be_rewritten() {
+    let mut exploration = started();
+    let question = exploration.questions[0].clone();
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                option: Some("keep".into()),
+                ..AnswerInput::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut response = update(&request, Some(self::question(2)));
+    response.next.as_mut().unwrap().id = "other".into();
+    response.next.as_mut().unwrap().topic = "other".into();
+    response.topics.push(Topic {
+        id: "other".into(),
+        title: "Other".into(),
+        ..policy_topic()
+    });
+    response.interpretation = Some(Interpretation {
+        answer: request.answer.as_ref().unwrap().id.clone(),
+        status: TopicStatus::Accepted,
+        recap: "Recorded: keep resolved".into(),
+        follow_ups: vec![],
+    });
+    assert!(exploration.apply(response).unwrap());
+    let next = exploration.questions[1].clone();
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                text: "Go on.".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&next),
+        )
+        .unwrap();
+
+    let mut rewritten = update(&request, None);
+    rewritten.topics.push(Topic {
+        title: "Another title".into(),
+        ..policy_topic()
+    });
+    let error = exploration.apply(rewritten).unwrap_err().to_string();
+    assert!(error.contains("Topic policy is settled"), "{error}");
+
+    let mut resent = update(&request, None);
+    resent.topics.push(policy_topic());
+    assert!(exploration.apply(resent).unwrap());
+    assert_eq!(exploration.topics["policy"].status, TopicStatus::Accepted);
 }
 
 #[path = "interview/adaptive.rs"]

@@ -58,6 +58,9 @@ question whose Door is not two-way.
 - Each call checks the pinned native agent session, then validates against the latest
   stored round under its lock, atomically saves the update and deduplication record,
   publishes it to the UI, and waits for UI application before acknowledging it.
+- A topic's status is the reviewer's: the tools leave it out of their input, and a topic the
+  agent sends keeps the status recorded for it, which only the interpretation of an answer
+  changes. A settled topic cannot be rewritten.
 - Validation errors leave the request open for repair; transport retries must reuse the
   identical semantic payload (with current `review` access after reconnection). A response
   saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted

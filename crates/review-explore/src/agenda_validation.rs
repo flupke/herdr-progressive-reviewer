@@ -16,8 +16,11 @@ impl Exploration {
                 )
             }) {
                 eyre::ensure!(
-                    self.topics.get(&topic.id) == Some(topic),
-                    "Inactive topic wording must be preserved"
+                    self.topics
+                        .get(&topic.id)
+                        .is_some_and(|previous| previous.same_but_status(topic)),
+                    "Topic {} is retired or superseded: leave it out of topics",
+                    topic.id
                 );
             }
             topics.insert(&topic.id, topic);
@@ -28,8 +31,14 @@ impl Exploration {
         let mut changed = HashSet::new();
         for change in &update.agenda {
             eyre::ensure!(
-                topics.contains_key(&change.topic) && changed.insert(&change.topic),
-                "Unknown or duplicate agenda target"
+                topics.contains_key(&change.topic),
+                "Agenda change on unknown topic {}",
+                change.topic
+            );
+            eyre::ensure!(
+                changed.insert(&change.topic),
+                "Topic {} has two agenda changes: send one",
+                change.topic
             );
             change.validate_reason(self, comparison)?;
             match change.action {
@@ -71,10 +80,14 @@ impl Topic {
         let mut pending = self.prerequisites.clone();
         let mut visited = HashSet::new();
         while let Some(id) = pending.pop() {
-            eyre::ensure!(id != self.id, "Agenda prerequisites cannot form a cycle");
+            eyre::ensure!(
+                id != self.id,
+                "The prerequisites of topic {} lead back to it",
+                self.id
+            );
             let prerequisite = topics
                 .get(&id)
-                .ok_or_else(|| eyre::eyre!("Unknown agenda prerequisite"))?;
+                .ok_or_else(|| eyre::eyre!("Topic {} has an unknown prerequisite {id}", self.id))?;
             if visited.insert(id) {
                 pending.extend(prerequisite.prerequisites.clone());
             }

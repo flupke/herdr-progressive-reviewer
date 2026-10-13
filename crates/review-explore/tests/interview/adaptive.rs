@@ -457,3 +457,39 @@ fn a_section_without_details_or_unknowns_is_its_lead() {
     assert_eq!(door.details, "");
     assert_eq!(door.body(), door.lead);
 }
+
+#[test]
+fn a_retired_settled_topic_sent_again_unchanged_is_accepted() {
+    let mut exploration = started();
+    let request = contribute(&mut exploration, "Keep it resolved.");
+    let mut response = update(&request, Some(next("availability", 1)));
+    response.topics.push(topic("availability", &[]));
+    response.interpretation = Some(Interpretation {
+        answer: request.answer.as_ref().unwrap().id.clone(),
+        status: TopicStatus::Accepted,
+        recap: "Recorded: keep resolved".into(),
+        follow_ups: vec![],
+    });
+    exploration.apply(response).unwrap();
+    let request = contribute(&mut exploration, "The policy no longer applies.");
+    let mut response = update(&request, Some(next("availability", 2)));
+    response.agenda.push(retirement("policy", &request));
+    exploration.apply(response).unwrap();
+    assert_eq!(exploration.agenda_label("policy"), "Retired");
+    let request = contribute(&mut exploration, "Go on.");
+
+    let mut resent = update(&request, Some(next("availability", 3)));
+    resent.topics.push(policy_topic());
+    assert!(exploration.apply(resent.clone()).unwrap());
+
+    let mut rewritten = update(&request, Some(next("availability", 4)));
+    rewritten.topics.push(Topic {
+        title: "Another title".into(),
+        ..policy_topic()
+    });
+    let request = contribute(&mut exploration, "And?");
+    rewritten.request = request.request.clone();
+    let error = exploration.apply(rewritten).unwrap_err().to_string();
+    assert!(error.contains("policy"), "{error}");
+    assert_eq!(exploration.topics["policy"].status, TopicStatus::Accepted);
+}

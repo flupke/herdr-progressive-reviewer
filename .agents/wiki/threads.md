@@ -13,7 +13,8 @@ the unanswered work, with each pending thread's full conversation as context.
 ## Delivery
 
 - Posting saves the comment, then sends the active agent a wakeup through Herdr's
-  `agent.prompt`, also while the agent is working.
+  `agent.prompt`, also while the agent is working. So the wakeup does not ask the agent to
+  fetch again before it ends its turn: a later comment brings its own wakeup.
 - The reviewer asks Herdr to wait until the agent is working or blocked. An agent that is
   working already counts at once. One that shows neither within Herdr's 5 seconds did not
   start on the prompt: its text may still wait in the agent's prompt box.

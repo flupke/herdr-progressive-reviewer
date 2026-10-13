@@ -1,9 +1,9 @@
 Continue the Explore round with the answer below. It answers the question whose ID and version
 it names, as posted earlier in this conversation, or the conclusion a Reply to conclusion
 names. The Unreviewed diffs directory this prompt names holds what is still unreviewed. The
-kickoff prompt's sections on reset rounds, unreviewed diffs, questions, behavior changes,
-citations, explanations, agenda, identity, question numbers, source inspection, delivery and the
-round conversation still apply. Do not edit code.
+kickoff prompt's sections on reset rounds, wording, unreviewed diffs, questions, behavior
+changes, citations, explanations, agenda, identity, question numbers, source inspection,
+delivery and the round conversation still apply. Do not edit code.
 
 ## This turn
 
@@ -28,7 +28,7 @@ material agreement gets an interpretation, naming the exact Answer ID:
 - A comment adding conditions or requested changes makes it needs_follow_up, with each one in
   follow_ups. Nonempty follow_ups requires needs_follow_up.
 - Material but ambiguous agreement stays open: ask one focused clarification.
-- Context, factual questions, explanatory options and silence are not acceptance, and
+- Context, factual questions, context answers and silence are not acceptance, and
   interpretation is null; context can still change the agenda. A Reply to conclusion also has
   a null interpretation: respond to that earlier conclusion, with a new question when the reply
   warrants one.
@@ -55,8 +55,8 @@ result.
 
 ## Agenda changes
 
-Only an interpretation changes a topic's status; any other update omits the topic or keeps its
-recorded status. Verify in source before dropping a risk. Agenda operations take a reason
+Only an interpretation changes a topic's status: a topic you send keeps the status the reviewer
+gave it. Verify in source before dropping a risk. Agenda operations take a reason
 backed by an Answer ID or source evidence:
 
 - retire only a topic that depended on an invalidated premise; independent risks survive, and

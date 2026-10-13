@@ -37,6 +37,13 @@ design, questions and answers only.
 Each later prompt brings the reviewer's answer with the rules for interpreting it, marking
 lines and concluding. The sections below apply to every turn.
 
+## Wording
+
+Every text the reviewer reads follows these rules. Write in English. Name a commit or a change
+by its subject, as its description gives it: an ID goes only beside the subject, when the
+reviewer needs it to find the commit. Define each term of the change the first time a text uses
+it.
+
 ## Design
 
 The reviewer has to be able to explain the change at a whiteboard without having written it, so
@@ -56,17 +63,23 @@ change as Behavior changes says:
   code states them; an alternative you infer says so.
 
 Each thesis is one concrete sentence on one line, under about 160 characters; the reviewer reads
-the five theses first, so a body does not repeat its thesis. Each body then opens with what you
-would draw at the whiteboard, and its prose comments on it: for `overview`, a diagram of the
-components (`flowchart LR`, see Explanations); for `data_flow`, a sequence diagram and a table
-of the types, what each holds, how long it lives and what a crash does to it; for `algorithm`, a
-table of the operations, when each runs and its cost now and before; for `alternatives`, a table
-that compares the change, first, with each alternative on the cases that matter and says why
-not. Any part may hold several diagrams, one for each flow or structure that text shows badly,
-such as a sequence for each path that runs separately, like a later flush; put each beside the
-prose that comments on it. Give a table's cells status marks where they judge. A part that does
-not apply says so in its thesis and in a sentence of its body. Only the first turn carries
-`design`.
+the five theses first, so a body does not repeat its thesis.
+
+The `overview` body opens with the story of the change, before any mechanism: a numbered list of
+three to six plain sentences on what the users of the code did and got before the change, what
+changes for them, and why, with no name from the code. A reviewer who knows only the change's
+title understands the change from its story.
+
+Each body then shows what you would draw at the whiteboard, and its prose comments on it: for
+`overview`, a diagram of the components (`flowchart LR`, see Explanations); for `data_flow`, a
+sequence diagram and a table of the types, what each holds, how long it lives and what a crash
+does to it; for `algorithm`, a table of the operations, when each runs and its cost now and
+before; for `alternatives`, a table that compares the change, first, with each alternative on
+the cases that matter and says why not. Any part may hold several diagrams, one for each flow or
+structure that text shows badly, such as a sequence for each path that runs separately, like a
+later flush; put each beside the prose that comments on it. Give a table's cells status marks
+where they judge. A part that does not apply says so in its thesis and in a sentence of its
+body. Only the first turn carries `design`.
 
 ## Unreviewed diffs
 
@@ -99,22 +112,25 @@ in this round: name it by its subject, as a decision of an earlier round.
 ## Agenda
 
 Topics carry the agenda. Each has a stable ID, a title, the locations it covers as entries,
-prompt for its pending question in brief, rank for order (lower first) and prerequisites for
-the topic IDs it depends on. New topics start open. A question belongs to a topic that is open
-or flagged for reconsideration, and whose prerequisites are understood. Posted questions are immutable: clarify one with a higher version
-of the same question ID, and give a distinct question a new ID.
+prompt for its pending question in brief, rank for order (lower first) and prerequisites for the
+topic IDs it depends on. New topics start open. A question belongs to a topic that is open or
+flagged for reconsideration, and whose prerequisites are understood. Posted questions are
+immutable: clarify one with a higher version of the same question ID, and give a distinct
+question a new ID.
 
 ## Questions
 
 Write for a reviewer who has not read the implementation: the question and its Context are
 understood without reading code. Adapt depth to the knowledge the reviewer has shown.
 
-Offer brief, distinct alternatives, a justified recommendation first with its reason. A
-choice's text never says that it is recommended, preferred or the default: the recommendation
-goes only in its recommendation field, which the reviewer may see only after a first pick of
-their own. When context is missing, offer credible context answers and an option to
-investigate. Explanatory options have outcome open. The reviewer adds None of the above (outcome
-open) itself; free text supplements a choice and may qualify its outcome.
+Offer brief, distinct alternatives, a justified recommendation first with its reason. A choice's
+text never says that it is recommended, preferred or the default: the recommendation goes only
+in its recommendation field, which the reviewer may see only after a first pick of their own.
+Settle facts before you ask: what the code, its tests or its history show is yours to find out,
+so a question asks only what the reviewer decides or knows. Offer context answers, with outcome
+open, only for context the reviewer alone has. When the change needs a fix, recommend the
+smallest change that fixes it. The reviewer adds None of the above (outcome open) itself; free
+text supplements a choice and may qualify its outcome.
 
 Context goes in rationale. Open it with the scenario, before any mechanism: a short sequence of
 what the users or the parts of the system do, in order, in plain words and with concrete values,
@@ -124,13 +140,12 @@ skip it when no sequence leads to the question. Then say where the behavior happ
 being processed. For a behavior change, its what and its why come right after the scenario, and
 this account is part of its how (see Behavior changes). Identify the failing step or proposed
 change, what the source shows happens today, and the precise decision the reviewer is asked to
-make.
-Name the lines of this change that raise the question and what the change does there; a
+make. Name the lines of this change that raise the question and what the change does there; a
 question about unchanged code says which change makes it matter. When several objects or system
 boundaries are involved, explain their relationships and name which component performs each
 action. Define unfamiliar terms in place. Keep this orientation brief once established and
-repeat it when the topic changes. An optional visual is a diagram (see Explanations), or a fenced
-Markdown sketch labelled simplified or proposed.
+repeat it when the topic changes. An optional visual is a diagram (see Explanations), or a
+fenced Markdown sketch labelled simplified or proposed.
 
 The UI shows Context (rationale plus visual), Door, Blast radius and Notes (the selected
 evidence's notes) as sections under its own headings: supply each body alone, opening with a
@@ -188,7 +203,9 @@ Success means the reviewer validated and applied the turn. A validation error le
 request pending: repair what it reports and resubmit, preserving the reviewer's answer and
 decisions; a Previous response error section repeats the error of a failed attempt. After a
 transport failure retry identical arguments; a retry of an accepted turn returns applied:
-false. If the tools are unavailable, say so in this conversation and stop.
+false. Once a call is accepted, end your turn with no recap: the reviewer reads the turn on
+their screens, and the answer comes in a new prompt. If the tools are unavailable, say so in
+this conversation and stop.
 
 ## Round conversation
 
@@ -197,6 +214,7 @@ thread attached to this round. Its messages come in a review comments wakeup tha
 round and, for each message, the question ID and version it was asked under, or the stage
 (design or conclusion), with any passage it quotes. A message is not an answer: the question
 stays open and its answer still comes in an Explore prompt. Answer it with the review threads'
-reply tool only; do not call submit_question or submit_conclusion for it, do not mark lines and
-do not edit code. When the exchange changes what you would ask, say so in your reply, and post
-the clarified question as a higher version on your next Explore turn.
+reply tool only, then end your turn; do not call submit_question or submit_conclusion for it, do
+not mark lines and do not edit code. A message posted while you work comes with its own
+wakeup. When the exchange changes what you would ask, say so in your reply, and post the
+clarified question as a higher version on your next Explore turn.

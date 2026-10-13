@@ -46,28 +46,22 @@ impl Exploration {
         }
         let mut ids = HashSet::new();
         for topic in &update.topics {
-            eyre::ensure!(
-                !topic.id.is_empty() && !topic.title.trim().is_empty() && ids.insert(&topic.id),
-                "Invalid or duplicate topic ID"
-            );
+            let id = &topic.id;
+            eyre::ensure!(!id.is_empty(), "A topic needs an ID");
+            eyre::ensure!(ids.insert(id), "Topic {id} is sent twice: send it once");
+            eyre::ensure!(!topic.title.trim().is_empty(), "Topic {id} needs a title");
             eyre::ensure!(
                 topic
                     .entries
                     .iter()
                     .all(|location| comparison.validate_location(location)),
-                "Topic references an invalid code location"
+                "Topic {id} references an invalid code location"
             );
-            if let Some(previous) = self.topics.get(&topic.id) {
+            if let Some(previous) = self.topics.get(id) {
                 eyre::ensure!(
-                    previous.status == topic.status,
-                    "Only an attributed interpretation may change topic status"
+                    previous.status == TopicStatus::Open || previous.same_but_status(topic),
+                    "Topic {id} is settled and cannot be rewritten: leave it out of topics"
                 );
-                eyre::ensure!(
-                    previous.status == TopicStatus::Open || previous == topic,
-                    "Settled topics cannot be rewritten"
-                );
-            } else {
-                eyre::ensure!(topic.status == TopicStatus::Open, "New topics must be open");
             }
         }
         self.validate_agenda(update, comparison)?;
@@ -311,11 +305,12 @@ impl Exploration {
         {
             return Some(interpretation.status);
         }
-        update
-            .topics
-            .iter()
-            .find(|item| item.id == topic)
-            .or_else(|| self.topics.get(topic))
-            .map(|topic| topic.status)
+        self.topic_status(topic).or_else(|| {
+            update
+                .topics
+                .iter()
+                .any(|item| item.id == topic)
+                .then_some(TopicStatus::Open)
+        })
     }
 }
