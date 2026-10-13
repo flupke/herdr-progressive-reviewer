@@ -790,7 +790,7 @@ impl NoticeWords {
             ),
             RecoveryAction::CancelAnswer => Self::new(
                 "Your answer was not cancelled",
-                "It is no longer your last answer",
+                "It can no longer be cancelled",
                 "The round moved on, in the pane or in another tab, so your answer was not \
                  cancelled.",
                 "Load this page again to see whether it cancelled your answer.",

@@ -44,6 +44,9 @@ Related pages: what the agent's prompts and tools guarantee is in [Explore agent
 - Citations and topic associations mark nothing. Explore resolves no review thread.
 - Cancel answer gives back the review marks of the agent's turn after the answer. When the
   code changed since the round started, lines the cancelled turn reopened stay open.
+- Cancelling an earlier answer cancels every answer after it, latest first, as many Cancel
+  answers in a row would: the next prompt names each of them, and the agent disregards them
+  and its turns after them.
 - An answer cannot be cancelled once Implement was sent.
 
 ## The conclusion and Implement

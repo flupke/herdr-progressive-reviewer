@@ -121,13 +121,14 @@ fn an_answer_cancelled_mid_turn_rejects_the_agents_late_reply() {
 }
 
 #[test]
-fn only_the_latest_answer_can_be_cancelled() {
+fn the_pane_cancels_only_the_latest_answer() {
     let mut harness = Harness::start();
     let (request, access) = harness.answered();
     assert!(applied(harness.submit(&access, question(&request, 2))));
     let (_, _) = harness.answer("Second answer.");
     let first = request.answer.unwrap().id;
 
+    // A pane that has not heard of the second answer yet cancels nothing it does not show.
     let error = harness.cancel(&first).unwrap_err();
 
     assert!(error.contains("Only the latest answer"), "{error}");

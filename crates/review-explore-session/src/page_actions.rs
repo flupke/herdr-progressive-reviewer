@@ -80,13 +80,22 @@ impl ExploreSession {
         self.retry(request).map_err(CommandRefusal::Failed)
     }
 
-    /// Cancels the reviewer's latest answer `answer`, as Cancel answer in the pane, while the
-    /// page offers it.
+    /// Cancels the reviewer's answer `answer` with every answer after it, as Cancel answer in
+    /// the pane does the latest, while the latest answer can be cancelled: the page offers it on
+    /// that answer and on the earlier questions'.
     pub(crate) fn cancel_answer_from_page(&mut self, answer: String) -> Result<(), CommandRefusal> {
-        if self.cancellable().is_none_or(|latest| latest.id != answer) {
+        let offered = self.cancellable().is_some()
+            && self.state.round.as_ref().is_some_and(|round| {
+                round
+                    .exploration
+                    .answers
+                    .iter()
+                    .any(|kept| kept.id == answer)
+            });
+        if !offered {
             return Err(CommandRefusal::Stale);
         }
-        self.cancel_answer(answer)
+        self.cancel_answer(answer, crate::cancel::Cancel::From)
             .map_err(|error| CommandRefusal::Failed(error.to_string()))
     }
 

@@ -77,6 +77,6 @@ function panel(sent, cancellable) {
     answerCard(sent.answer, { withChoice: !sent.question }),
     sent.marked ? markedLine(sent.marked) : null,
     panelActions(sent.card),
-    cancellable ? cancelAnswer(cancellable) : null,
+    cancellable ? cancelAnswer(cancellable.id, 0) : null,
   );
 }

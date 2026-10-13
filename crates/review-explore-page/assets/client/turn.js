@@ -43,7 +43,7 @@ export function turnStrip({ answer, kept = null, response, number }) {
           { class: 'turn-foot' },
           path,
           followUps,
-          answer ? cancelAnswer(answer) : null,
+          answer ? cancelAnswer(answer.id, 0) : null,
         )
       : null,
   );
@@ -108,23 +108,29 @@ export function recorded(response, id = 'turn-record-title') {
 }
 
 /**
- * Cancel this answer, behind its confirmation: in the previous turn, and in the panel of the
- * answer the agent's turn carries.
- * @param {LatestAnswer} answer
+ * Cancel this answer, behind its confirmation: in the previous turn, in the panel of the answer
+ * the agent's turn carries, and on an earlier question's screen, where it takes back the answers
+ * after it too.
+ * @param {string} answer the answer's identity
+ * @param {number} later how many answers came after it
  */
-export function cancelAnswer(answer) {
+export function cancelAnswer(answer, later) {
+  const after =
+    later === 0
+      ? "with the agent's turn after it and the review marks it led to"
+      : `with the ${later === 1 ? 'answer' : `${later} answers`} you sent after it, the agent's turns after them and the review marks they led to`;
   return disclosure(
     'Cancel this answer…',
     h(
       'form',
       { class: 'cancel-answer', 'data-method': 'cancel-answer' },
-      h('input', { type: 'hidden', name: 'answer', value: answer.id }),
+      h('input', { type: 'hidden', name: 'answer', value: answer }),
+      h('p', { class: 'hint' }, `Cancel answer takes this answer back, ${after}: its question waits for your answer again.`),
       h(
-        'p',
-        { class: 'hint' },
-        "Cancel answer takes this answer back, with the agent's turn after it and the review marks it led to: its question waits for your answer again.",
+        'button',
+        { class: 'button secondary', type: 'submit' },
+        later === 0 ? 'Confirm: cancel my answer' : 'Confirm: cancel from this answer',
       ),
-      h('button', { class: 'button secondary', type: 'submit' }, 'Confirm: cancel my answer'),
     ),
     { button: 'button quiet' },
   ).element;

@@ -1,5 +1,5 @@
-//! Cancelling the reviewer's latest answer: the interview returns to the
-//! question it answered, as if the answer had never been sent.
+//! Cancelling the reviewer's latest answer, or an earlier one with every answer after it: the
+//! interview returns to the question it answered, as if the answers had never been sent.
 
 use crate::{Exploration, ExploreRound, ReviewerAnswer, TurnMarks};
 
@@ -122,6 +122,31 @@ impl ExploreRound {
             .is_some_and(|marks| marks.answer.as_deref() == Some(id))
         {
             cancelled.marks.extend(self.marks.remove(question));
+        }
+        Ok(cancelled)
+    }
+
+    /// Cancel the answer `id` and every answer after it, latest first, unless implementation
+    /// was already requested: the round goes back to the question `id` answered.
+    pub fn cancel_answers_from(&mut self, id: &str) -> eyre::Result<Vec<CancelledAnswer>> {
+        eyre::ensure!(
+            self.exploration
+                .answers
+                .iter()
+                .any(|answer| answer.id == id),
+            "This answer is not in the round"
+        );
+        let mut cancelled = Vec::new();
+        while let Some(latest) = self
+            .exploration
+            .answers
+            .last()
+            .map(|answer| answer.id.clone())
+        {
+            cancelled.push(self.cancel_answer(&latest)?);
+            if latest == id {
+                break;
+            }
         }
         Ok(cancelled)
     }

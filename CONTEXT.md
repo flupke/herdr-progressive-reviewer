@@ -173,8 +173,10 @@ while no answer to the question is on its way.
 _Avoid_: replaced question, edited question, re-ask
 
 **Cancel answer**:
-Withdrawing the reviewer's latest answer in an Explore round, which returns the
-round to its state before that answer, including the review marks it led to.
+Withdrawing one of the reviewer's answers in an Explore round with every answer after
+it, which returns the round to its state before that answer, including the review marks
+they led to. The pane offers it on the latest answer; the Explore page also on an
+earlier question.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 
 **Explore page**:

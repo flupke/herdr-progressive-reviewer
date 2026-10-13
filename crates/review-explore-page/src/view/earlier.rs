@@ -1,11 +1,13 @@
 //! A question the reviewer answered earlier in the round, as the page shows it from the round
 //! rail: the question as it was asked, what the reviewer answered and what the agent recorded,
-//! read only. It carries no identity an answer or another action could post with, so nothing
-//! on its screen can change the round.
+//! read only, apart from Cancel answer, which takes back its answer and every answer after it
+//! while the round offers to cancel the latest one.
 
 use std::sync::Arc;
 
-use review_explore::{Assessments, Door, EarlierQuestion, KeptAnswer, MarkPhrase, MarkTense};
+use review_explore::{
+    Assessments, CancelFrom, Door, EarlierQuestion, KeptAnswer, MarkPhrase, MarkTense,
+};
 use review_explore_citations::Citation;
 use serde::Serialize;
 use ts_rs::TS;
@@ -41,11 +43,14 @@ pub(crate) struct EarlierQuestionView {
     /// it names.
     id: String,
     version: u32,
+    /// What Cancel answer takes back from this question, while the round offers it.
+    cancel: Option<CancelFrom>,
 }
 
 impl EarlierQuestionView {
-    /// The view of `record`, whose citations, with their lines, are `citations`.
-    fn new(record: &EarlierQuestion, citations: &[Citation]) -> Self {
+    /// The view of `record`, whose citations, with their lines, are `citations`, offering
+    /// Cancel answer when `cancellable`.
+    fn new(record: &EarlierQuestion, citations: &[Citation], cancellable: bool) -> Self {
         let question = &record.question;
         Self {
             number: record.number,
@@ -79,16 +84,23 @@ impl EarlierQuestionView {
             citations: citations.iter().map(CitationView::new).collect(),
             id: question.id.clone(),
             version: question.version,
+            cancel: record.cancel.clone().filter(|_| cancellable),
         }
     }
 
-    /// The earlier questions of `records`, each with its list of `citations`, in the same order.
-    pub(crate) fn all(records: &[EarlierQuestion], citations: &[Arc<[Citation]>]) -> Vec<Self> {
+    /// The earlier questions of `records`, each with its list of `citations`, in the same order,
+    /// offering Cancel answer when `cancellable`.
+    pub(crate) fn all(
+        records: &[EarlierQuestion],
+        citations: &[Arc<[Citation]>],
+        cancellable: bool,
+    ) -> Vec<Self> {
         records
             .iter()
             .enumerate()
             .map(|(index, record)| {
-                Self::new(record, citations.get(index).map_or(&[][..], |list| list))
+                let citations = citations.get(index).map_or(&[][..], |list| list);
+                Self::new(record, citations, cancellable)
             })
             .collect()
     }

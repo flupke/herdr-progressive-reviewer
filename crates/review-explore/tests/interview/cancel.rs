@@ -161,3 +161,60 @@ fn an_interrupted_delivery_of_a_cancelled_answer_is_forgotten_too() {
         vec![second.answer.unwrap().id, first.answer.unwrap().id]
     );
 }
+
+/// The reviewer's comment `text` on the latest question.
+fn comment(round: &ExploreRound, text: &str) -> TurnRequest {
+    let mut copy = round.exploration.clone();
+    let question = copy.questions.last().cloned().unwrap();
+    copy.request(
+        Some(AnswerInput {
+            text: text.into(),
+            ..AnswerInput::default()
+        }),
+        Some(&question),
+    )
+    .unwrap()
+}
+
+#[test]
+fn cancelling_an_earlier_answer_takes_back_every_answer_after_it() {
+    let mut round = opened();
+    let opening = round.exploration.conversation[0].clone();
+    let mut answers = Vec::new();
+    for (text, version) in [("Readers rebuild it.", 2), ("Only once a day.", 3)] {
+        let request = comment(&round, text);
+        round.post(&request).unwrap();
+        assert!(
+            round
+                .submit(&update(&request, Some(question(version))))
+                .unwrap()
+        );
+        answers.push(request.answer.unwrap().id);
+    }
+
+    let cancelled = round.cancel_answers_from(&answers[0]).unwrap();
+
+    let ids: Vec<_> = cancelled
+        .iter()
+        .map(|cancelled| &cancelled.answer.id)
+        .collect();
+    assert_eq!(ids, [&answers[1], &answers[0]], "latest first");
+    let exploration = &round.exploration;
+    assert_eq!(exploration.conversation, vec![opening]);
+    assert!(exploration.answers.is_empty());
+    assert_eq!(exploration.questions, vec![question(1)]);
+    assert_eq!(
+        answer(&round, "keep").cancelled,
+        vec![answers[1].clone(), answers[0].clone()]
+    );
+    round.validate_restored().unwrap();
+}
+
+#[test]
+fn an_answer_the_round_does_not_hold_cancels_nothing() {
+    let (mut round, _) = concluded();
+    let before = round.clone();
+
+    assert!(round.cancel_answers_from("another").is_err());
+    assert_eq!(round, before);
+}

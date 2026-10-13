@@ -191,7 +191,9 @@ impl PageView {
                 .filter(|_| !storage_failed)
                 .map(|overview| overview.title),
             earlier_questions: round.overview.as_ref().map_or_else(Vec::new, |overview| {
-                EarlierQuestionView::all(&overview.earlier, &round.earlier_citations)
+                // An earlier answer can be cancelled while the latest one can.
+                let cancellable = offers_actions && round.cancellable.is_some();
+                EarlierQuestionView::all(&overview.earlier, &round.earlier_citations, cancellable)
             }),
             tally: round.tally.as_deref().cloned(),
             sent: SentView::of(round, offers_actions),

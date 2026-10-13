@@ -360,6 +360,40 @@ fn cancel_answer_on_the_page_saves_what_cancel_answer_in_the_pane_saves() {
 }
 
 #[test]
+fn cancel_answer_on_an_earlier_question_takes_back_the_answers_after_it() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    let (first, access) = harness.answer("Keep it.");
+    assert!(applied(harness.submit(&access, question(&first, 2))));
+    // The agent works on the second answer when the reviewer cancels the first.
+    let (second, access) = harness.answer("Keep this one too.");
+    let first = first.answer.unwrap().id;
+
+    let cancelled = harness.on_page(PageCommand::Recover(Recovery::CancelAnswer {
+        answer: first.clone(),
+    }));
+
+    assert_eq!(cancelled, Ok(()));
+    let event = harness.next::<ui_events::ExploreAnswerCancelled>();
+    assert!(event.answer == first && event.result.is_ok(), "{event:?}");
+    let saved = harness.saved().exploration;
+    assert!(saved.answers.is_empty());
+    assert_eq!(saved.questions.len(), 1);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::Question {
+            number: 1,
+            answer_cancelled: true,
+            ..
+        }
+    ));
+    assert!(
+        harness.submit(&access, question(&second, 3)).is_err(),
+        "the agent's turn on the later answer is withdrawn"
+    );
+}
+
+#[test]
 fn an_answer_is_no_longer_offered_for_cancel_once_implementation_was_requested() {
     let mut harness = Harness::start();
     harness.conclude();

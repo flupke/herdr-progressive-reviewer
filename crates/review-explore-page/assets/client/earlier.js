@@ -2,9 +2,9 @@
 // step on the round rail (`#question-N`, route.js) or reached with a swipe on a phone. On the
 // desk, the question as it was asked, with its Context, Door and Blast radius rows and its
 // citations; in the panel, what the reviewer answered, what the answer marked and what the agent
-// recorded, then the way back to the step the round stands at. Everything is read only: the
-// screen holds no form, and its data carries no identity an action could post with, so nothing
-// on it can change the round.
+// recorded, then the way back to the step the round stands at. Everything is read only but
+// Cancel answer, which the screen offers while the round offers to cancel the latest answer: it
+// takes this answer back with every answer after it, and the question waits again.
 
 /** @import { EarlierQuestionView } from "./types.ts" */
 /** @import { Current } from "./design.js" */
@@ -15,7 +15,7 @@ import { citationsSection } from './citations.js';
 import { goTo } from './design.js';
 import { h } from './dom.js';
 import { questionReading } from './question.js';
-import { followUpsLine, recorded } from './turn.js';
+import { cancelAnswer, followUpsLine, recorded } from './turn.js';
 
 /**
  * The screen of an earlier question.
@@ -55,6 +55,7 @@ function panel(question, current) {
       : h('p', { class: 'hint' }, 'The round left this question unanswered.'),
     question.marks.map(markedLine),
     record(question),
+    question.cancel ? cancelAnswer(question.cancel.answer, question.cancel.later) : null,
     current ? goTo(current) : null,
   );
 }

@@ -359,7 +359,7 @@ impl ExploreSession {
             Command::CancelImplementation => self.state.implementation = None,
             // The pane learns the outcome from the event the session sends.
             Command::CancelAnswer(answer) => {
-                let _ = self.cancel_answer(answer);
+                let _ = self.cancel_answer(answer, cancel::Cancel::Latest);
             }
             Command::Cancel => {
                 self.cancel_record();

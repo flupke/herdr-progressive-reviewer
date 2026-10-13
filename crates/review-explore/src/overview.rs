@@ -12,7 +12,7 @@ mod title;
 pub use answer::{Decision, DecisionTag, KeptAnswer};
 pub use quiz::{QuizProgress, QuizStage};
 pub use rail::{RailStep, Step, StepState};
-pub use record::{AgentRecord, EarlierQuestion};
+pub use record::{AgentRecord, CancelFrom, EarlierQuestion};
 pub use title::TabTitle;
 
 use serde::Serialize;
@@ -58,6 +58,19 @@ impl RoundOverview {
                 .collect(),
             title: TabTitle::of(&position),
         }
+    }
+}
+
+impl RoundOverview {
+    /// Whether `answer` answers one of the earlier questions, which Cancel answer may take back
+    /// with every answer after it.
+    pub fn answers_earlier(&self, answer: &str) -> bool {
+        self.earlier.iter().any(|earlier| {
+            earlier
+                .cancel
+                .as_ref()
+                .is_some_and(|cancel| cancel.answer == answer)
+        })
     }
 }
 

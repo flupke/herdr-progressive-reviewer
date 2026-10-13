@@ -1,5 +1,6 @@
-//! Cancelling the reviewer's latest answer: the question it answered comes
-//! back with the answer ready to edit and send again.
+//! Cancelling the reviewer's latest answer, or following an earlier answer cancelled on the
+//! Explore page with every answer after it: the question it answered comes back with the
+//! answer ready to edit and send again.
 
 use review_explore::{Command, ExplorePage, ReviewerAnswer};
 use ui_actions::Action;
@@ -41,16 +42,20 @@ impl ExploreComponent {
     }
 
     pub(super) fn answer_cancelled(&mut self, event: &ExploreAnswerCancelled) {
-        // An answer cancelled on the Explore page: the pane follows it as its own, when it shows
-        // the answer as the latest one.
-        let elsewhere = self.cancelling.is_none()
-            && event.result.is_ok()
-            && self
-                .exploration
-                .as_ref()
-                .and_then(|exploration| exploration.answers.last())
-                .is_some_and(|latest| latest.id == event.answer);
-        if self.cancelling.as_ref() != Some(&event.answer) && !elsewhere {
+        // An answer cancelled on the Explore page, with the answers after it: the pane follows it
+        // as its own, when it shows the answer.
+        let later = self.exploration.as_ref().and_then(|exploration| {
+            let index = exploration
+                .answers
+                .iter()
+                .position(|answer| answer.id == event.answer)?;
+            Some(exploration.answers.len() - index - 1)
+        });
+        // The pane's own cancel of another answer, if one is on its way, fails once the round
+        // lost that answer.
+        let ours = self.cancelling.as_ref() == Some(&event.answer);
+        let elsewhere = !ours && event.result.is_ok() && later.is_some();
+        if !ours && !elsewhere {
             return;
         }
         self.cancelling = None;
@@ -80,12 +85,17 @@ impl ExploreComponent {
         self.durable.posting = None;
         self.forget_removed_pages();
         self.progress = Progress::Ready;
-        self.status = if elsewhere {
-            "Answer cancelled on the Explore page. Change it and send it again."
+        let place = if elsewhere {
+            " on the Explore page"
         } else {
-            "Answer cancelled. Change it and send it again."
-        }
-        .into();
+            ""
+        };
+        let with = match later.unwrap_or_default() {
+            0 => String::new(),
+            1 => ", with the answer after it".into(),
+            later => format!(", with the {later} answers after it"),
+        };
+        self.status = format!("Answer cancelled{place}{with}. Change it and send it again.");
         self.expanded_marks
             .retain(|request| self.marks.contains_key(request));
         self.reopen_answer(&answer);

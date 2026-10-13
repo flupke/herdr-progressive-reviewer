@@ -23,6 +23,19 @@ pub struct EarlierQuestion {
     /// the reviewer answered it, then those of a conclusion that followed the answer, applied
     /// when the round accepted it. Usually one; a clarified question may have one per version.
     pub marks: Vec<TurnMarks>,
+    /// What Cancel answer from this question takes back; `None` for a question the round left
+    /// unanswered.
+    pub cancel: Option<CancelFrom>,
+}
+
+/// The reviewer's answer to an earlier question, which Cancel answer takes back with every
+/// answer after it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ts_rs::TS)]
+pub struct CancelFrom {
+    /// The answer's identity.
+    pub answer: String,
+    /// How many answers came after it.
+    pub later: usize,
 }
 
 /// What the agent recorded of an answer: how it interpreted it, and its reply.
@@ -54,6 +67,16 @@ impl EarlierQuestion {
                 .marks_applied_by(|answer| step.answered_by(answer))
                 .cloned()
                 .collect(),
+            cancel: answer.and_then(|answer| {
+                let index = exploration
+                    .answers
+                    .iter()
+                    .position(|kept| kept.id == answer.id)?;
+                Some(CancelFrom {
+                    answer: answer.id.clone(),
+                    later: exploration.answers.len() - index - 1,
+                })
+            }),
         }
     }
 }

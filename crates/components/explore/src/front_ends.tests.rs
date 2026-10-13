@@ -743,3 +743,49 @@ fn a_revised_question_keeps_the_comment_left_on_it_while_the_reviewer_reads_anot
     component.select(2);
     assert_eq!(component.editor.text(), "Only with a test.");
 }
+
+#[test]
+fn the_pane_follows_an_earlier_answer_cancelled_on_the_page_while_it_cancels_the_latest() {
+    let round = asked_round();
+    let (first, mut saved) = answered_elsewhere(&round);
+    let first_id = first.answer.as_ref().unwrap().id.clone();
+    let second = question("q2");
+    let turn = agent_turn(&saved.exploration, &first.request, Some(&first_id), &second);
+    saved.exploration.conversation.push(turn);
+    saved.exploration.questions.push(second.clone());
+    saved.exploration.pause_delivery();
+    let mut copy = saved.exploration.clone();
+    let later = copy
+        .request(
+            Some(AnswerInput {
+                text: "And this one.".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&second),
+        )
+        .unwrap();
+    assert!(saved.post(&later).unwrap());
+    saved.revision += 1;
+    let mut pane = Pane::showing(&saved);
+    // The reviewer's Cancel answer in the pane is on its way.
+    pane.component().cancelling = Some(later.answer.as_ref().unwrap().id.clone());
+    let mut cancelled = saved;
+    cancelled.cancel_answers_from(&first_id).unwrap();
+    cancelled.revision += 1;
+
+    pane.bus
+        .publish(ExploreAnswerCancelled {
+            answer: first_id,
+            result: Ok(Arc::new(cancelled)),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(component.exploration.as_ref().unwrap().answers.is_empty());
+    assert_eq!(component.selected, 0, "back on the first question");
+    assert!(
+        component.status.contains("with the answer after it"),
+        "{}",
+        component.status
+    );
+}

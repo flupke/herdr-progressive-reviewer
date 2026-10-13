@@ -1308,6 +1308,7 @@ async fn a_message_names_a_question_asked_again_by_the_step_of_its_version() {
             reply: None,
         },
         marks: Vec::new(),
+        cancel: None,
     };
     let mut overview = at_question_2(false);
     overview.rail[2].state = StepState::Done;

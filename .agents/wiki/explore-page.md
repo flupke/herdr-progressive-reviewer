@@ -43,7 +43,7 @@ opens again with it.
 | Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, the agent not starting, an unknown delivery or a stop (`Interrupted`), in the panel of the answer the turn carries when it carries one; Cancel this answer |
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
 | A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
-| An earlier question in the history | A free-text answer | None: the question opens read only from its step on the rail (`#question-N`), with the answer and what the agent recorded |
+| An earlier question in the history | A free-text answer | The question opens read only from its step on the rail (`#question-N`), with the answer and what the agent recorded, and Cancel this answer, which takes back every answer after it too, while the latest answer can be cancelled |
 | The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; "Not ready? Reply to the agent instead", which opens the chat, whose message answers nothing; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
 | A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Edit before sending, then Send a new request |

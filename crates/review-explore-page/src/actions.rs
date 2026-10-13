@@ -48,12 +48,15 @@ impl<R: Rounds> Actions<'_, R> {
             RoundCall::Stop(params) => self.stop(params).await,
             RoundCall::Retry(params) => self.retry(params).await,
             RoundCall::CancelAnswer(params) => {
-                let offered = self
-                    .round
-                    .stages
-                    .latest()
-                    .cancellable
-                    .is_some_and(|answer| answer.id == params.answer);
+                // The latest answer, or an earlier question's while the latest can be cancelled.
+                let round = self.round.stages.latest();
+                let offered = round.cancellable.is_some_and(|latest| {
+                    latest.id == params.answer
+                        || round
+                            .overview
+                            .as_ref()
+                            .is_some_and(|overview| overview.answers_earlier(&params.answer))
+                });
                 let command = PageCommand::Recover(Recovery::CancelAnswer {
                     answer: params.answer,
                 });

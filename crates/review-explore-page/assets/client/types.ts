@@ -31,6 +31,19 @@ export type ButtonTier = "primary" | "secondary";
  */
 export type Call = RoundCall | ConclusionCall | ConversationCall;
 export type CancelAnswerParams = { answer: string, };
+/**
+ * The reviewer's answer to an earlier question, which Cancel answer takes back with every
+ * answer after it.
+ */
+export type CancelFrom = { 
+/**
+ * The answer's identity.
+ */
+answer: string, 
+/**
+ * How many answers came after it.
+ */
+later: number, };
 export type CancelImplementationParams = { delivery: string, };
 /**
  * A time a card's reason tells: "Sent at 14:36.", in the reader's clock, or "Sent 0:42 ago",
@@ -325,7 +338,11 @@ citations: Array<CitationView>,
  * The question's identity and latest version, which a message of the chat written beside
  * it names.
  */
-id: string, version: number, };
+id: string, version: number, 
+/**
+ * What Cancel answer takes back from this question, while the round offers it.
+ */
+cancel: CancelFrom | null, };
 export type Field = { name: string, value: string, };
 /**
  * One changed file's review marks.

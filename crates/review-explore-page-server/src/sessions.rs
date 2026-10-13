@@ -6,8 +6,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::{
-    AgentRecord, Decision, DiagramError, EarlierQuestion, KeptAnswer, MarkCounts, Question,
-    QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
+    AgentRecord, CancelFrom, Decision, DiagramError, EarlierQuestion, KeptAnswer, MarkCounts,
+    Question, QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
 };
 use review_explore_citations::Citation;
 use review_explore_page::{
@@ -179,11 +179,21 @@ impl Session {
         let id = self.round_id();
         let design = self.data.design();
         let items = self.data.quiz_items().len();
-        let (earlier, earlier_citations): (Vec<_>, Vec<_>) = self.answered_questions
+        let (mut earlier, earlier_citations): (Vec<_>, Vec<_>) = self.answered_questions
             [..self.taken_up]
             .iter()
             .cloned()
             .unzip();
+        for cancel in earlier
+            .iter_mut()
+            .filter_map(|record| record.cancel.as_mut())
+        {
+            cancel.later = self
+                .answered
+                .iter()
+                .position(|answer| answer.id == cancel.answer)
+                .map_or(0, |index| self.answered.len() - index - 1);
+        }
         let overview = RoundOverview {
             decisions: self.decisions.clone(),
             earlier,
@@ -337,6 +347,11 @@ impl Session {
                     not_relevant: marks.not_relevant.clone(),
                     ..TurnMarks::default()
                 }],
+                // How many answers follow it is counted when the round is published.
+                cancel: Some(CancelFrom {
+                    answer: format!("answer-{}", self.answered.len() + 1),
+                    later: 0,
+                }),
             };
             self.answered_questions.push((record, citations.clone()));
             turn_answer.question = Some(AnsweredQuestion {
@@ -554,6 +569,43 @@ impl Session {
         }
     }
 
+    /// The question the answer `answer` answered, asked again once the reviewer cancelled that
+    /// answer with every answer after it. `None` when the session has no such answer.
+    fn question_after_cancel_answers_from(&mut self, answer: &str) -> Option<RoundStage> {
+        let index = self.answered.iter().position(|kept| kept.id == answer)?;
+        if index + 1 == self.answered.len() {
+            return self.question_after_cancel_answer();
+        }
+        let (record, _) = self
+            .answered_questions
+            .iter()
+            .find(|(record, _)| {
+                record
+                    .cancel
+                    .as_ref()
+                    .is_some_and(|cancel| cancel.answer == answer)
+            })?
+            .clone();
+        let number = record.number;
+        self.answered.truncate(index);
+        self.answer_marks.truncate(index);
+        self.decisions.truncate(number - 1);
+        self.answered_questions.truncate(number - 1);
+        self.taken_up = self.taken_up.min(self.answered_questions.len());
+        self.concluded = false;
+        self.turn_answer = None;
+        self.asked = number;
+        let mut stage = self.data.question_stage(number, Some(record.question));
+        if let RoundStage::Question {
+            answer_cancelled, ..
+        } = &mut stage
+        {
+            *answer_cancelled = true;
+        }
+        self.latest_question = Some(stage.clone());
+        Some(stage)
+    }
+
     /// The agent's latest question, asked again once the reviewer cancelled its answer: the
     /// reviewer has seen its recommendation. `None` when the agent asked none.
     fn question_after_cancel_answer(&mut self) -> Option<RoundStage> {
@@ -719,7 +771,10 @@ impl Session {
                 ("stop", Some(self.interrupted(Interruption::Stopped)))
             }
             Recovery::Retry { .. } => ("retry", Some(self.attempt_again())),
-            Recovery::CancelAnswer { .. } => ("cancel-answer", self.question_after_cancel_answer()),
+            Recovery::CancelAnswer { answer } => (
+                "cancel-answer",
+                self.question_after_cancel_answers_from(answer),
+            ),
             Recovery::Reset { .. } => ("reset", Some(self.no_round())),
             Recovery::CancelImplementation { .. } => (
                 "cancel-implementation",
