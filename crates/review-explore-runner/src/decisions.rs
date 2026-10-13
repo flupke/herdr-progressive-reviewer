@@ -1,4 +1,4 @@
-//! What a kickoff says about the review's earlier rounds: how many the
+//! What every turn's round data says about the review's earlier rounds: how many the
 //! reviewer reset, whose decisions are void, and the questions the reviewer
 //! decided in the others, so a fresh reader does not ask them again.
 
@@ -9,7 +9,7 @@ use std::fmt;
 /// The questions the reviewer decided in a review's earlier rounds that still
 /// stand, oldest first, and how many rounds before them were reset. A
 /// cancelled answer has left its round, so it is never here.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct EarlierDecisions {
     /// How many rounds before them the reviewer reset: their decisions are void.
     reset_rounds: usize,
@@ -17,7 +17,7 @@ pub struct EarlierDecisions {
 }
 
 /// An answer to a question that chose, and how the agent interpreted it.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Decision {
     answer: ReviewerAnswer,
     /// None when the round ended before the agent's turn after the answer.

@@ -21,6 +21,7 @@ mod run_ahead;
 mod start_block;
 mod submission;
 mod turn;
+mod turn_files;
 mod turn_log;
 mod unreviewed;
 mod unreviewed_diffs;
@@ -125,6 +126,8 @@ pub struct ExploreSession {
     marks: review_explore_tally::ChangeMarks,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
+    /// The instructions of the latest prompt, as files.
+    turn_files: Option<turn_files::TurnFiles>,
     /// Why no round can start, as the latest review marks the session read say.
     start_block: Option<review_explore::StartBlock>,
     /// The forks of the question that waits.
@@ -299,6 +302,7 @@ impl ExploreSession {
             citations: page::PageCitations::default(),
             earlier_citations: page::PageCitations::default(),
             diffs: None,
+            turn_files: None,
             start_block: None,
             run_ahead: run_ahead::RunAheadState::new(forks, talk_quiet),
             state: State::default(),

@@ -248,11 +248,9 @@ impl ExploreFlow {
         self.access = access.to_owned();
         if let Some(answer) = &request.answer {
             assert!(prompt.contains(&format!("Answer ID: {}\n", answer.id)));
-            assert!(!prompt.contains("Repository root:"));
-        } else {
-            assert!(prompt.contains(&request.checkpoint.checkpoint));
-            assert!(prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap()));
         }
+        // Every turn carries the round's data, the repository it reviews included.
+        assert!(prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap()));
         self.prompt_offset = prompts.len();
     }
 

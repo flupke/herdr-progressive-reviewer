@@ -2,10 +2,12 @@
 
 use std::sync::Arc;
 
+use eyre::WrapErr;
 use herdr_client::protocol::Agent;
 use review_explore::{Comparison, ConversationBinding, Exploration, ExploreRound, TurnRequest};
-use review_explore_runner::{EarlierDecisions, Unreviewed};
+use review_explore_runner::{EarlierDecisions, RoundData, TurnInstructions, Unreviewed};
 use review_thread_service::PinnedAgent;
+use review_types::ReviewUnit;
 
 use vision_turns::TurnLog;
 
@@ -229,39 +231,73 @@ impl ExploreSession {
     }
 
     /// The agent's prompt for `request` of `comparison`, granting `access`, and the unreviewed
-    /// lines it lists, whose diffs the session keeps until the next prompt.
+    /// lines it lists. The session keeps the turn's files and the diffs until the next prompt.
     pub(crate) fn turn_prompt(
         &mut self,
         request: &TurnRequest,
         comparison: &Comparison,
         access: &str,
     ) -> eyre::Result<(String, Unreviewed)> {
-        let unreviewed = self.unreviewed().inspect_err(|error| {
+        let unreviewed = self.turn_unreviewed()?;
+        let turn = self.turn_instructions(request, comparison, access, &unreviewed)?;
+        // An earlier prompt's files go: each prompt has a directory of its own.
+        self.turn_files = None;
+        let files = crate::turn_files::TurnFiles::write(&turn)
+            .wrap_err("Explore could not write the turn's instructions")?;
+        let prompt = files.prompt().to_owned();
+        self.turn_files = Some(files);
+        Ok((prompt, unreviewed))
+    }
+
+    /// The unreviewed lines of the next turn, written as diffs the session keeps until the next
+    /// prompt. A failure is also shown to the reviewer.
+    pub(crate) fn turn_unreviewed(&mut self) -> eyre::Result<Unreviewed> {
+        self.unreviewed().inspect_err(|error| {
             let _ = self.events.send(ui_events::ToastRequested {
                 text: format!("{error:#}"),
                 kind: toasts::ToastKind::Error,
             });
-        })?;
-        // Only a kickoff lists them; a later turn's agent already has them.
-        let (earlier, notes) = if request.is_kickoff() {
-            let rounds = self
-                .rounds
-                .earlier(&request.checkpoint.review_unit, &request.instance)?;
-            let earlier =
-                EarlierDecisions::new(rounds.standing.iter().map(|round| &round.exploration))
-                    .after_reset(rounds.reset_rounds);
-            // Notes that cannot be read cost the round nothing but themselves.
-            let notes = self.rounds.reviewer_notes().unwrap_or_else(|error| {
+        })
+    }
+
+    /// What the round of `instance` in the review `unit` started with, the same on every turn:
+    /// the decisions of the review's earlier rounds and the reviewer's notes. Notes that cannot
+    /// be read cost the round nothing but themselves; the reviewer hears of it when `kickoff`.
+    pub(crate) fn round_data(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        kickoff: bool,
+    ) -> eyre::Result<RoundData> {
+        let rounds = self.rounds.earlier(unit, instance)?;
+        let earlier = EarlierDecisions::new(rounds.standing.iter().map(|round| &round.exploration))
+            .after_reset(rounds.reset_rounds);
+        let notes = self.rounds.reviewer_notes().unwrap_or_else(|error| {
+            if kickoff {
                 let _ = self.events.send(ui_events::ToastRequested {
                     text: format!("Explore reviewer notes left out: {error}"),
                     kind: toasts::ToastKind::Error,
                 });
-                None
-            });
-            (earlier, notes)
-        } else {
-            (EarlierDecisions::default(), None)
-        };
+            }
+            None
+        });
+        Ok(RoundData { earlier, notes })
+    }
+
+    /// The instructions of the agent's turn for `request` of `comparison`, granting `access`,
+    /// which list `unreviewed`.
+    pub(crate) fn turn_instructions(
+        &self,
+        request: &TurnRequest,
+        comparison: &Comparison,
+        access: &str,
+        unreviewed: &Unreviewed,
+    ) -> eyre::Result<TurnInstructions> {
+        let round = self.round_data(
+            &request.checkpoint.review_unit,
+            &request.instance,
+            request.is_kickoff(),
+        )?;
         let answered = self
             .state
             .round
@@ -269,17 +305,9 @@ impl ExploreSession {
             .zip(request.answer.as_ref())
             .and_then(|(round, answer)| round.exploration.answered_number(answer))
             .map(Into::into);
-        let prompt = review_explore_runner::PreparedTurn::prepare(
-            request,
-            comparison,
-            access,
-            &unreviewed,
-            &earlier,
-            notes.as_deref(),
-            answered,
-        )
-        .prompt();
-        Ok((prompt, unreviewed))
+        Ok(TurnInstructions::prepare(
+            request, comparison, access, unreviewed, &round, answered,
+        ))
     }
 
     pub(crate) fn prompt_finished(&mut self, event: ui_events::ExploreFinished, attempt: &str) {

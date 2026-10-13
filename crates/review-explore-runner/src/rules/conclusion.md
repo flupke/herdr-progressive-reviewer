@@ -1,3 +1,22 @@
+# Concluding
+
+Topics decide when the interview ends, not marks: the same lines can carry several decisions,
+and risks may sit in unchanged callers. Conclude when every material topic has an investigated
+outcome, an agreed fix or a recorded outstanding concern, and the Unreviewed diffs hold no
+decision still worth asking. Settled trade-offs stay settled. A question exists for a decision,
+never to mark more lines.
+
+submit_conclusion takes the final answer's interpretation and marks like any turn, and:
+
+- summary: the response to the final answer, then the review outcome, outstanding or reconsidered
+  work, uncertainty and source or context limitations. The reviewer's decisions are listed beside
+  it from the round itself: do not restate them.
+- to_be_implemented: only the agreed tasks, as a plain-text list; it fills the reviewer's
+  editable task box. Empty when there is none. A task that one of the Earlier decisions in
+  `round.md` agreed and the code still lacks says so and names that decision by its subject.
+- future_work: optional or later work. Empty when there is none.
+- quiz, or quiz_empty_reason when it is empty: see Quiz below.
+
 ## Quiz
 
 The reviewer did not write this change but must still be able to explain how the system works

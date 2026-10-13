@@ -204,9 +204,11 @@ impl ExploreSession {
                     files,
                     ..
                 } = switching;
-                // The agent's latest prompt is the fork's: its access, and the diffs it names.
+                // The agent's latest prompt is the fork's: its access, and the files it names.
+                let (diffs, turn) = files.into_fork(&fork.session);
                 self.state.access = fork.access;
-                self.diffs = Some(files.into_diffs());
+                self.diffs = Some(diffs);
+                self.turn_files = turn;
                 self.show_path(
                     &asked.round,
                     &request.request,

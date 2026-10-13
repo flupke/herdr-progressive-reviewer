@@ -1,6 +1,7 @@
 use super::*;
 use markdown_marks::{Callout, Mark, StatusMark};
 use review_explore::{Exploration, ReviewerAnswer};
+use review_explore_round_settings::WritingStyle;
 use std::sync::Arc;
 
 pub(super) fn comparison() -> Comparison {
@@ -17,57 +18,61 @@ pub(super) fn comparison() -> Comparison {
     }
 }
 
-/// The prompt for `request`, with nothing unreviewed and no earlier decisions.
+/// The turn's data for `request`, with nothing unreviewed and no earlier decisions.
 fn prepare(request: &TurnRequest, comparison: &Comparison) -> String {
     prepare_with(request, comparison, &EarlierDecisions::default())
 }
 
-/// The prompt for `request`, with nothing unreviewed and the `earlier`
+/// The turn's data for `request`, with nothing unreviewed and the `earlier`
 /// decisions of the review.
 pub(super) fn prepare_with(
     request: &TurnRequest,
     comparison: &Comparison,
     earlier: &EarlierDecisions,
 ) -> String {
-    PreparedTurn::prepare(
+    data(&TurnInstructions::prepare(
         request,
         comparison,
         "fresh-access",
         &Unreviewed::default(),
-        earlier,
+        &RoundData {
+            earlier: earlier.clone(),
+            notes: None,
+        },
         None,
-        None,
-    )
-    .prompt()
+    ))
 }
 
-/// The prompt for `request`, whose answer answers the question the reviewer's screens number
-/// `answered`.
+/// The turn's data for `request`, whose answer answers the question the reviewer's screens
+/// number `answered`.
 fn prepare_answered(request: &TurnRequest, comparison: &Comparison, answered: usize) -> String {
-    PreparedTurn::prepare(
+    data(&TurnInstructions::prepare(
         request,
         comparison,
         "fresh-access",
         &Unreviewed::default(),
-        &EarlierDecisions::default(),
-        None,
+        &RoundData::default(),
         Some(answered.into()),
+    ))
+}
+
+/// The texts of the files of `turn` that hold data: the round's, then the turn's.
+fn data(turn: &TurnInstructions) -> String {
+    format!(
+        "{}\n{}",
+        file(turn, "round.md").unwrap(),
+        file(turn, "turn.md").unwrap()
     )
-    .prompt()
 }
 
-/// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
-fn turn_input(prompt: &str) -> &str {
-    turn_input_in(prompt, WritingStyle::Plain)
-}
-
-/// What a later prompt of a round written in `writing` says after its fixed rules.
-fn turn_input_in(prompt: &str, writing: WritingStyle) -> &str {
-    prompt
-        .strip_prefix(
-            PreparedTurn::instructions(false, false, ChangeAuthor::Reviewer, writing).as_str(),
-        )
-        .expect("a later prompt starts with its rules")
+/// What the turn's own data says after the rule that heads it: identity, unreviewed lines and
+/// answer.
+fn turn_input(data: &str) -> &str {
+    let rule = include_str!("rules/turn.md");
+    &data[data
+        .find(rule)
+        .expect("the turn's data starts with its rule")
+        + rule.len()..]
 }
 
 fn answer(request: &TurnRequest) -> ReviewerAnswer {
@@ -105,12 +110,6 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
         "Repository root: {}",
         comparison.repository_root.display()
     )));
-    assert!(
-        prompt.starts_with(
-            PreparedTurn::instructions(true, false, ChangeAuthor::Reviewer, WritingStyle::Plain)
-                .as_str()
-        )
-    );
 }
 
 #[test]
@@ -167,7 +166,7 @@ fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
         request, original,
         "Preparing a prompt must not shrink reviewer history"
     );
-    assert!(!prompt.contains("Repository root:"));
+    assert!(!turn_input(&prompt).contains("Repository root:"));
     assert!(!prompt.contains("This is recommended"));
     assert_eq!(prompt.matches(&request.instance).count(), 1);
     assert_eq!(prompt.matches(&request.request).count(), 1);
@@ -347,7 +346,7 @@ fn a_description_cannot_pass_for_a_prompt_field() {
 }
 
 #[test]
-fn only_the_kickoff_carries_the_description() {
+fn every_turn_carries_the_description() {
     let mut comparison = comparison();
     comparison.base = Some(serde_json::from_value(jj("Script an Explore agent")).unwrap());
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
@@ -356,7 +355,7 @@ fn only_the_kickoff_carries_the_description() {
 
     let wakeup = prepare(&request, &comparison);
 
-    assert!(!wakeup.contains("Change description"));
+    assert!(wakeup.contains("Change description (quoted):\n> Script an Explore agent\n"));
 }
 
 #[test]
@@ -369,96 +368,241 @@ fn git_working_trees_and_undescribed_changes_have_no_description() {
     }
 }
 
-#[test]
-fn every_prompt_states_the_same_not_relevant_rules() {
-    let rules = include_str!("not_relevant.md").trim_end();
-
-    for kickoff in [true, false] {
-        let instructions =
-            PreparedTurn::instructions(kickoff, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-        assert!(instructions.ends_with(rules), "kickoff: {kickoff}");
-        assert_eq!(instructions.matches("## Not relevant").count(), 1);
-    }
+/// The turn `request` of a round on `comparison`, with nothing unreviewed.
+fn prepared(request: &TurnRequest, comparison: &Comparison) -> TurnInstructions {
+    TurnInstructions::prepare(
+        request,
+        comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+        &RoundData::default(),
+        None,
+    )
 }
 
-/// The level-two headings of `rules`, in order.
-fn sections(rules: &str) -> Vec<&str> {
-    rules
-        .lines()
-        .filter(|line| line.starts_with("## "))
-        .collect()
-}
-
-/// The rule files of a prompt, in order: the turn's, the quiz after the first turn, Not
-/// relevant, the challenger's script, the rules of a review of someone else's change and the
-/// writing style's rules.
-fn rule_files(
+/// The first turn of a round on `comparison` that `setup` sets up, or its turn after an answer
+/// when `kickoff` is false.
+fn turn_of(
+    comparison: &Comparison,
     kickoff: bool,
-    challenger: bool,
-    author: ChangeAuthor,
-    writing: WritingStyle,
-) -> Vec<&'static str> {
-    let mut files = if kickoff {
-        vec![
-            include_str!("interview.md"),
-            include_str!("texts.md"),
-            include_str!("diagrams.md"),
-        ]
-    } else {
-        vec![include_str!("wakeup.md"), include_str!("quiz.md")]
-    };
-    files.push(include_str!("not_relevant.md"));
-    if challenger {
-        files.push(if kickoff {
-            include_str!("challenger.md")
-        } else {
-            include_str!("challenger_wakeup.md")
-        });
+    setup: impl FnOnce(&mut Exploration),
+) -> TurnInstructions {
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    setup(&mut exploration);
+    let mut request = exploration.request(None, None).unwrap();
+    if !kickoff {
+        request.answer = Some(answer(&request));
     }
-    if author == ChangeAuthor::Other {
-        files.push(if kickoff {
-            include_str!("others_change.md")
-        } else {
-            include_str!("others_change_wakeup.md")
-        });
-    }
-    if writing == WritingStyle::SimplifiedTechnicalEnglish {
-        files.push(if kickoff {
-            include_str!("writing.md")
-        } else {
-            include_str!("writing_wakeup.md")
-        });
-    }
-    files
+    prepared(&request, comparison)
+}
+
+/// The text of the file `name` of `turn`, when the turn has one.
+fn file<'a>(turn: &'a TurnInstructions, name: &str) -> Option<&'a str> {
+    turn.files()
+        .iter()
+        .find(|file| file.name == name)
+        .map(|file| file.text.as_str())
+}
+
+fn names(turn: &TurnInstructions) -> Vec<&'static str> {
+    turn.files().iter().map(|file| file.name).collect()
+}
+
+/// The first line of a rule file: its heading.
+fn heading(rules: &str) -> &str {
+    rules.lines().next().unwrap()
+}
+
+/// The section of `index` that holds `rules`, from their heading to the next section.
+fn section<'a>(index: &'a str, rules: &str) -> &'a str {
+    let start = index.find(heading(rules)).expect(index);
+    let end = index[start + 1..]
+        .find("\n## ")
+        .map_or(index.len(), |end| start + 1 + end);
+    &index[start..end]
 }
 
 #[test]
-fn every_prompt_holds_its_turns_rules_and_not_relevant_then_the_challengers_script_then_the_writing_style()
- {
-    let styles = [
-        WritingStyle::Plain,
-        WritingStyle::SimplifiedTechnicalEnglish,
-    ];
-    for (kickoff, challenger, writing) in [true, false]
-        .into_iter()
-        .flat_map(|kickoff| [(kickoff, false), (kickoff, true)])
-        .flat_map(|(kickoff, challenger)| styles.map(|writing| (kickoff, challenger, writing)))
-    {
-        for author in [ChangeAuthor::Reviewer, ChangeAuthor::Other] {
-            let expected: Vec<_> = rule_files(kickoff, challenger, author, writing)
-                .into_iter()
-                .flat_map(sections)
-                .collect();
+fn a_turn_writes_its_index_then_its_data_then_its_rules() {
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        let turn = turn_of(&comparison, kickoff, |_| {});
 
-            let instructions = PreparedTurn::instructions(kickoff, challenger, author, writing);
+        let names = names(&turn);
+
+        assert_eq!(names[..2], [INDEX, "turn.md"], "kickoff: {kickoff}");
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "{names:?}");
+    }
+}
+
+#[test]
+fn the_index_holds_the_rules_of_every_turn_and_the_design_rules_on_the_first() {
+    let comparison = comparison();
+    let design = heading(include_str!("rules/design.md"));
+    for kickoff in [true, false] {
+        let turn = turn_of(&comparison, kickoff, |_| {});
+        let index = file(&turn, INDEX).unwrap();
+
+        for rules in [
+            include_str!("rules/questions.md"),
+            include_str!("rules/sources.md"),
+            include_str!("rules/texts.md"),
+            include_str!("rules/not-relevant.md"),
+        ] {
+            assert!(index.contains(heading(rules)), "kickoff: {kickoff}");
+        }
+        assert_eq!(index.contains(design), kickoff);
+        assert_eq!(names(&turn).contains(&"first-turn.md"), kickoff);
+        assert_eq!(names(&turn).contains(&"next-turn.md"), !kickoff);
+    }
+}
+
+#[test]
+fn only_a_round_with_a_challenger_has_its_script_on_every_turn() {
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        for challenger in [false, true] {
+            let turn = turn_of(&comparison, kickoff, |round| round.challenger = challenger);
 
             assert_eq!(
-                sections(&instructions),
-                expected,
-                "kickoff: {kickoff}, challenger: {challenger}, {author:?}, writing: {writing:?}"
+                names(&turn).contains(&"challenger.md"),
+                challenger,
+                "kickoff: {kickoff}"
+            );
+            // The field the script asks for appears nowhere else.
+            assert_eq!(
+                turn.files()
+                    .iter()
+                    .any(|file| file.text.contains("challenger_proposals")),
+                challenger,
+                "kickoff: {kickoff}"
             );
         }
     }
+}
+
+#[test]
+fn only_a_review_of_someone_elses_change_has_its_rules_on_every_turn() {
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        for author in [ChangeAuthor::Reviewer, ChangeAuthor::Other] {
+            let turn = turn_of(&comparison, kickoff, |round| round.author = author);
+
+            assert_eq!(
+                names(&turn).contains(&"others-change.md"),
+                author == ChangeAuthor::Other,
+                "kickoff: {kickoff}, {author:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn only_a_round_in_simplified_technical_english_has_the_rules_of_its_style() {
+    let comparison = comparison();
+    let style = heading(include_str!("rules/writing-style.md"));
+    let mut inputs = Vec::new();
+    for writing in [
+        WritingStyle::Plain,
+        WritingStyle::SimplifiedTechnicalEnglish,
+    ] {
+        for kickoff in [true, false] {
+            let turn = turn_of(&comparison, kickoff, |round| round.writing = writing);
+
+            let texts = section(file(&turn, INDEX).unwrap(), include_str!("rules/texts.md"));
+            assert_eq!(
+                texts.contains(style),
+                writing == WritingStyle::SimplifiedTechnicalEnglish,
+                "{writing:?}, kickoff: {kickoff}"
+            );
+        }
+        let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+        exploration.writing = writing;
+        let mut request = exploration.request(None, None).unwrap();
+        request.answer = Some(answer(&request));
+        inputs.push(
+            prepare(&request, &comparison)
+                .replace(&request.instance, "")
+                .replace(&request.request, ""),
+        );
+    }
+    // The style changes the rules only, never what the turn brings.
+    assert_eq!(inputs[0], inputs[1]);
+}
+
+#[test]
+fn the_sources_give_the_commands_of_the_version_control_the_change_comes_from() {
+    let jj_commands = heading(include_str!("rules/sources-jj.md"));
+    let git_commands = heading(include_str!("rules/sources-git.md"));
+    let git = serde_json::json!({"Git": {
+        "base_tree": "r", "display_id": "HEAD", "snapshot_id": "c"
+    }});
+    for (base, has_jj, has_git) in [
+        (Some(jj("Fix it")), true, false),
+        (Some(git), false, true),
+        (None, true, true),
+    ] {
+        let mut comparison = comparison();
+        comparison.base = base.map(|base| serde_json::from_value(base).unwrap());
+        let turn = turn_of(&comparison, true, |_| {});
+
+        let sources = section(
+            file(&turn, INDEX).unwrap(),
+            include_str!("rules/sources.md"),
+        );
+
+        assert_eq!(sources.contains(jj_commands), has_jj, "{sources}");
+        assert_eq!(sources.contains(git_commands), has_git, "{sources}");
+    }
+}
+
+#[test]
+fn the_index_names_every_other_file_once_and_sends_the_turns_data_and_steps_first() {
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        let turn = turn_of(&comparison, kickoff, |round| {
+            round.challenger = true;
+            round.author = ChangeAuthor::Other;
+        });
+        let index = file(&turn, INDEX).unwrap();
+        let later = index.find(rules::READ_LATER).expect(index);
+
+        for name in names(&turn).into_iter().skip(1) {
+            assert_eq!(index.matches(&format!("- `{name}`:")).count(), 1, "{name}");
+        }
+        let steps = if kickoff {
+            "first-turn.md"
+        } else {
+            "next-turn.md"
+        };
+        let entry = |name: &str| index.find(&format!("- `{name}`:")).unwrap();
+        for name in ["turn.md", steps, "challenger.md", "others-change.md"] {
+            assert!(entry(name) < later, "{name}");
+        }
+        for name in ["diagrams.md", "conclusion.md", "conversation.md"] {
+            assert!(entry(name) > later, "{name}");
+        }
+        // The round's data is new on the first turn, and known after it.
+        assert_eq!(entry("round.md") < later, kickoff);
+    }
+}
+
+#[test]
+fn the_prompt_names_the_round_its_index_and_the_tools_that_end_the_turn() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let request = exploration.request(None, None).unwrap();
+    let turn = prepared(&request, &comparison);
+
+    let prompt = turn.prompt(std::path::Path::new("/run/turn-7"));
+
+    assert!(prompt.contains(&request.instance), "{prompt}");
+    assert!(prompt.contains("/run/turn-7/index.md"), "{prompt}");
+    for tool in ["submit_question", "submit_conclusion"] {
+        assert!(prompt.contains(tool), "{prompt}");
+    }
+    assert!(!prompt.contains("fresh-access"), "the access is in turn.md");
 }
 
 /// The strings `value` holds as an enum value or a constant, at any depth.
@@ -498,69 +642,20 @@ fn the_not_relevant_rules_name_every_field_and_reason_a_mark_takes() {
     );
     assert_eq!(reasons.len(), 3, "{reasons:?}");
 
+    let comparison = comparison();
     for kickoff in [true, false] {
-        let instructions =
-            PreparedTurn::instructions(kickoff, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
+        let turn = turn_of(&comparison, kickoff, |_| {});
+        let rules = section(
+            file(&turn, INDEX).unwrap(),
+            include_str!("rules/not-relevant.md"),
+        );
         for name in fields.clone().chain(reasons.iter().cloned()) {
             assert!(
-                instructions.contains(&format!("`{name}`")),
+                rules.contains(&format!("`{name}`")),
                 "kickoff: {kickoff}, {name}"
             );
         }
     }
-}
-
-#[test]
-fn only_a_round_with_a_challenger_carries_its_script() {
-    let comparison = comparison();
-    let script = include_str!("challenger.md").trim_end();
-    let reminder = include_str!("challenger_wakeup.md").trim_end();
-    for challenger in [false, true] {
-        let mut exploration = Exploration::new(Arc::new(comparison.clone()));
-        exploration.challenger = challenger;
-        let mut request = exploration.request(None, None).unwrap();
-
-        let kickoff = prepare(&request, &comparison);
-        request.answer = Some(answer(&request));
-        let wakeup = prepare(&request, &comparison);
-
-        assert_eq!(kickoff.contains(script), challenger);
-        assert_eq!(wakeup.contains(reminder), challenger);
-        assert!(!wakeup.contains(script), "the script is sent once");
-    }
-}
-
-#[test]
-fn only_a_round_in_simplified_technical_english_carries_the_rules_of_its_style() {
-    let comparison = comparison();
-    let rules = include_str!("writing.md").trim_end();
-    let reminder = include_str!("writing_wakeup.md").trim_end();
-    let mut inputs = Vec::new();
-    for writing in [
-        WritingStyle::Plain,
-        WritingStyle::SimplifiedTechnicalEnglish,
-    ] {
-        let ste = writing == WritingStyle::SimplifiedTechnicalEnglish;
-        let mut exploration = Exploration::new(Arc::new(comparison.clone()));
-        exploration.writing = writing;
-        let mut request = exploration.request(None, None).unwrap();
-
-        let kickoff = prepare(&request, &comparison);
-        request.answer = Some(answer(&request));
-        let wakeup = prepare(&request, &comparison);
-
-        assert_eq!(kickoff.contains(rules), ste, "{writing:?}");
-        assert_eq!(wakeup.contains(reminder), ste, "{writing:?}");
-        assert!(!wakeup.contains(rules), "the full rules are sent once");
-        let input = turn_input_in(&wakeup, writing);
-        inputs.push(
-            input
-                .replace(&request.instance, "")
-                .replace(&request.request, ""),
-        );
-    }
-    // The style changes the rules only, never what the prompt brings.
-    assert_eq!(inputs[0], inputs[1]);
 }
 
 #[test]
@@ -583,49 +678,28 @@ fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
     );
     assert_eq!(results.len(), 4, "{results:?}");
 
-    // The script alone: `reason` is also a field of a not-relevant mark.
-    let script = include_str!("challenger.md");
+    let script = include_str!("rules/challenger.md");
     for name in fields.chain(results).chain([FIELD.to_owned()]) {
         assert!(script.contains(&format!("`{name}`")), "{name}");
     }
-    assert!(
-        PreparedTurn::instructions(false, true, ChangeAuthor::Reviewer, WritingStyle::Plain)
-            .contains(&format!("`{FIELD}`"))
-    );
-    for kickoff in [true, false] {
-        assert!(
-            !PreparedTurn::instructions(
-                kickoff,
-                false,
-                ChangeAuthor::Reviewer,
-                WritingStyle::Plain
-            )
-            .contains(FIELD)
-        );
-    }
 }
 
 #[test]
-fn the_kickoff_names_the_marker_of_every_callout_and_status_mark() {
-    let markers = Callout::ALL
+fn the_texts_rules_name_the_marker_of_every_callout_and_status_mark() {
+    let comparison = comparison();
+    let turn = turn_of(&comparison, false, |_| {});
+    let texts = section(file(&turn, INDEX).unwrap(), include_str!("rules/texts.md"));
+    for marker in Callout::ALL
         .iter()
         .map(|callout| callout.marker())
-        .chain(StatusMark::ALL.iter().map(|mark| mark.marker()));
-    let kickoff =
-        PreparedTurn::instructions(true, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-    let wakeup =
-        PreparedTurn::instructions(false, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-    for marker in markers {
-        assert!(kickoff.contains(&format!("`{marker}`")), "{marker}");
-        assert!(
-            !wakeup.contains(marker),
-            "the kickoff states them once: {marker}"
-        );
+        .chain(StatusMark::ALL.iter().map(|mark| mark.marker()))
+    {
+        assert!(texts.contains(&format!("`{marker}`")), "{marker}");
     }
 }
 
 #[test]
-fn the_kickoff_asks_for_the_theses_and_every_part_of_the_design() {
+fn the_design_rules_ask_for_the_theses_and_every_part_of_the_design() {
     const FIELD: &str = "design";
     let update =
         serde_json::to_value(schemars::schema_for!(review_explore::InterviewUpdate)).unwrap();
@@ -650,61 +724,37 @@ fn the_kickoff_asks_for_the_theses_and_every_part_of_the_design() {
     assert_eq!(part_fields.len(), 2, "{part_fields:?}");
     assert_eq!(required(part), 2, "{part}");
 
-    for challenger in [false, true] {
-        let kickoff = PreparedTurn::instructions(
-            true,
-            challenger,
-            ChangeAuthor::Reviewer,
-            WritingStyle::Plain,
-        );
-        for name in parts
-            .iter()
-            .chain(&part_fields)
-            .map(String::as_str)
-            .chain([FIELD])
-        {
-            assert!(kickoff.contains(&format!("`{name}`")), "{name}");
-        }
+    let comparison = comparison();
+    let turn = turn_of(&comparison, true, |_| {});
+    let rules = format!(
+        "{}{}",
+        file(&turn, "first-turn.md").unwrap(),
+        section(file(&turn, INDEX).unwrap(), include_str!("rules/design.md"))
+    );
+    for name in parts
+        .iter()
+        .chain(&part_fields)
+        .map(String::as_str)
+        .chain([FIELD])
+    {
+        assert!(rules.contains(&format!("`{name}`")), "{name}");
     }
 }
 
 #[test]
-fn the_kickoff_names_the_fence_of_a_diagram_and_the_mermaid_version_the_page_draws_it_with() {
-    let kickoff =
-        PreparedTurn::instructions(true, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-    let wakeup =
-        PreparedTurn::instructions(false, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-    let fence = format!("```{}", mermaid_js::FENCE);
-    assert!(kickoff.contains(&fence), "{kickoff}");
-    assert!(kickoff.contains(mermaid_js::VERSION), "{kickoff}");
-    assert!(!wakeup.contains(&fence), "the kickoff states it once");
+fn the_diagram_rules_name_the_fence_and_the_mermaid_version_the_page_draws_with() {
+    let comparison = comparison();
+    let turn = turn_of(&comparison, false, |_| {});
+    let diagrams = file(&turn, "diagrams.md").unwrap();
+    assert!(
+        diagrams.contains(&format!("```{}", mermaid_js::FENCE)),
+        "{diagrams}"
+    );
+    assert!(diagrams.contains(mermaid_js::VERSION), "{diagrams}");
 }
 
 #[test]
-fn every_later_turn_states_the_quiz_rules_and_the_kickoff_leaves_them_to_the_schema() {
-    let rules = include_str!("quiz.md").trim_end();
-    let heading = rules.lines().next().unwrap();
-
-    for kickoff in [true, false] {
-        for challenger in [false, true] {
-            let instructions = PreparedTurn::instructions(
-                kickoff,
-                challenger,
-                ChangeAuthor::Reviewer,
-                WritingStyle::Plain,
-            );
-            assert_eq!(
-                instructions.matches(heading).count(),
-                usize::from(!kickoff),
-                "kickoff: {kickoff}, challenger: {challenger}"
-            );
-            assert_eq!(instructions.contains(rules), !kickoff);
-        }
-    }
-}
-
-#[test]
-fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
+fn every_turn_has_the_rules_to_conclude_and_they_name_every_field_a_quiz_item_takes() {
     let conclusion =
         serde_json::to_value(schemars::schema_for!(review_explore::ConclusionSubmission)).unwrap();
     let quiz = ["quiz", "quiz_empty_reason"];
@@ -723,25 +773,16 @@ fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
         .collect();
     assert_eq!(fields.len(), 6, "{fields:?}");
 
-    let instructions =
-        PreparedTurn::instructions(false, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-    for name in fields.iter().map(String::as_str).chain(quiz) {
-        assert!(instructions.contains(&format!("`{name}`")), "{name}");
-    }
-}
-
-#[test]
-fn every_kickoff_states_the_same_diagram_rules() {
-    // One prompt, whether the reviewer follows the round in the pane or on the Explore page.
-    let rules = include_str!("diagrams.md").trim_end();
-    for challenger in [false, true] {
-        let kickoff = PreparedTurn::instructions(
-            true,
-            challenger,
-            ChangeAuthor::Reviewer,
-            WritingStyle::Plain,
-        );
-        assert!(kickoff.contains(rules), "challenger: {challenger}");
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        let turn = turn_of(&comparison, kickoff, |_| {});
+        let rules = file(&turn, "conclusion.md").unwrap();
+        for name in fields.iter().map(String::as_str).chain(quiz) {
+            assert!(
+                rules.contains(&format!("`{name}`")),
+                "kickoff: {kickoff}, {name}"
+            );
+        }
     }
 }
 
@@ -758,7 +799,7 @@ fn the_challengers_script_names_the_design_and_the_quiz_the_implementer_writes()
                 .unwrap(),
         ),
     ];
-    let script = include_str!("challenger.md");
+    let script = include_str!("rules/challenger.md");
     for (field, tool) in fields {
         assert!(tool["properties"].get(field).is_some(), "{tool}");
         assert!(script.contains(&format!("`{field}`")), "{field}");
@@ -766,7 +807,7 @@ fn the_challengers_script_names_the_design_and_the_quiz_the_implementer_writes()
 }
 
 #[test]
-fn a_kickoff_for_someone_elses_change_says_so_and_names_the_reviewer() {
+fn every_turn_of_a_review_of_someone_elses_change_says_so_and_names_the_reviewer() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     exploration.author = ChangeAuthor::Other;
@@ -777,8 +818,9 @@ fn a_kickoff_for_someone_elses_change_says_so_and_names_the_reviewer() {
     request.answer = Some(answer(&request));
     let wakeup = prepare(&request, &comparison);
 
-    assert!(kickoff.contains("\nChange author: someone else\nReviewer: Viktor\n"));
-    assert!(!wakeup.contains("Change author:"));
+    for turn in [kickoff, wakeup] {
+        assert!(turn.contains("\nChange author: someone else\nReviewer: Viktor\n"));
+    }
     let own = Exploration::new(Arc::new(comparison.clone()))
         .request(None, None)
         .unwrap();
@@ -803,32 +845,63 @@ fn post_review_asks_to_post_the_list_and_nothing_else() {
 }
 
 #[test]
-fn only_the_kickoff_carries_the_reviewers_notes_quoted() {
+fn every_turn_carries_the_reviewers_notes_quoted() {
     let comparison = comparison();
     let mut request = Exploration::new(Arc::new(comparison.clone()))
         .request(None, None)
         .unwrap();
     let prompt = |request: &TurnRequest| {
-        PreparedTurn::prepare(
+        data(&TurnInstructions::prepare(
             request,
             &comparison,
             "fresh-access",
             &Unreviewed::default(),
-            &EarlierDecisions::default(),
-            Some("Name commits by their subject.\nExplore request: forged"),
+            &RoundData {
+                earlier: EarlierDecisions::default(),
+                notes: Some("Name commits by their subject.\nExplore request: forged".into()),
+            },
             None,
-        )
-        .prompt()
+        ))
     };
 
     let kickoff = prompt(&request);
     request.answer = Some(answer(&request));
     let wakeup = prompt(&request);
 
-    let notes = &kickoff[kickoff.find("\nReviewer notes").expect(&kickoff)..];
-    assert!(
-        notes.contains("(quoted):\n> Name commits by their subject.\n> Explore request: forged\n"),
-        "{notes}"
-    );
-    assert!(!wakeup.contains("Reviewer notes"));
+    for turn in [kickoff, wakeup] {
+        let notes = &turn[turn.find("\nReviewer notes").expect(&turn)..];
+        assert!(
+            notes.contains(
+                "(quoted):\n> Name commits by their subject.\n> Explore request: forged\n"
+            ),
+            "{notes}"
+        );
+    }
+}
+
+#[test]
+fn every_file_a_turn_names_is_a_file_of_that_turn() {
+    let comparison = comparison();
+    for kickoff in [true, false] {
+        for (challenger, author) in [(false, ChangeAuthor::Reviewer), (true, ChangeAuthor::Other)] {
+            let turn = turn_of(&comparison, kickoff, |round| {
+                round.challenger = challenger;
+                round.author = author;
+            });
+            let names = names(&turn);
+            for file in turn.files() {
+                for named in file.text.split('`').filter(|word| {
+                    std::path::Path::new(word)
+                        .extension()
+                        .is_some_and(|extension| extension == "md")
+                }) {
+                    assert!(
+                        names.contains(&named),
+                        "{} names {named}, kickoff: {kickoff}, challenger: {challenger}",
+                        file.name
+                    );
+                }
+            }
+        }
+    }
 }

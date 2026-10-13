@@ -66,7 +66,7 @@ struct Harness {
     /// The agent's forks, as run-ahead starts them.
     forks: run_ahead::FakeForks,
     files: Box<dyn ReviewRepositoryFixture>,
-    _state: TempDir,
+    state: TempDir,
 }
 
 impl Harness {
@@ -135,7 +135,7 @@ impl Harness {
             threads,
             forks: run_ahead::FakeForks::default(),
             files,
-            _state: state,
+            state,
         };
         let restored = harness.reopen();
         assert!(matches!(restored.result, Ok(None)));
@@ -224,6 +224,11 @@ impl Harness {
             .retry_request()
             .expect("the turn is saved")
             .clone()
+    }
+
+    /// The reviewer writes `notes` for every Explore round, in the file beside the settings.
+    fn write_reviewer_notes(&self, notes: &str) {
+        std::fs::write(self.state.path().join("explore-reviewer-notes.md"), notes).unwrap();
     }
 
     /// Post a turn and return the access value its delivered prompt grants.
@@ -439,7 +444,8 @@ impl AgentPort for GatedAgents {
     }
 
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
-        self.agents.prompt_agent(pane_id, text)
+        self.agents
+            .prompt_agent(pane_id, &review_test_support::turn::with_turn(text))
     }
 }
 
@@ -689,9 +695,20 @@ fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
     assert_eq!(kickoff["access"], access);
     assert_eq!(kickoff["request"], first.request);
     assert_eq!(kickoff["round"], first.instance);
-    assert_eq!(
-        kickoff["text"],
-        harness.agents.prompts().last().unwrap().text
+    // The prompt as sent, which the agent read with its turn's files.
+    let sent = kickoff["text"].as_str().unwrap();
+    assert!(
+        sent.contains(&format!("/{}", review_explore_runner::INDEX)),
+        "{sent}"
+    );
+    assert!(
+        harness
+            .agents
+            .prompts()
+            .last()
+            .unwrap()
+            .text
+            .starts_with(sent)
     );
     assert!(
         kickoff["unreviewed"]
@@ -958,9 +975,9 @@ fn a_new_rounds_kickoff_lists_the_standing_earlier_decisions_without_cancelled_a
     );
 }
 
-/// The input of a kickoff `prompt`, after its fixed rules.
+/// The data of a kickoff `prompt`: the round's, from its first field, then the turn's.
 fn kickoff_input(prompt: &str) -> &str {
-    &prompt[prompt.find("\nExplore review access:").unwrap()..]
+    &prompt[prompt.find("\nRepository root:").unwrap()..]
 }
 
 #[test]

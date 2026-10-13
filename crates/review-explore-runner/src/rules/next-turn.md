@@ -1,14 +1,13 @@
-Continue the Explore round with the answer below. It answers the question whose ID and version
-it names, as posted earlier in this conversation, or the conclusion a Reply to conclusion
-names. The Unreviewed diffs directory this prompt names holds what is still unreviewed. The
-kickoff's Questions, Sources and citations, Identity, Round conversation, Delivery and Texts
-the reviewer reads still apply, and so do its reset rounds and earlier decisions. Do not edit code.
+# Next turn
 
-## This turn
+`turn.md` brings the reviewer's answer. It answers the question whose ID and version it names,
+as you posted it earlier in this conversation, or the conclusion a Reply to conclusion names.
+
+## Steps
 
 1. Disregard each Cancelled answer and your turn after it, as if neither happened: the reviewer
-   has already reversed the review marks that answer applied, and the answer below replaces
-   it.
+   has already reversed the review marks that answer applied, and the answer in `turn.md`
+   replaces it.
 2. Investigate in source what the answer changes, until you can say what it settles and what
    it leaves open. A question about the code is answered by inspecting the source.
 3. Interpret the answer (see Interpretation) and respond to it directly: in reply on a question
@@ -16,7 +15,7 @@ the reviewer reads still apply, and so do its reset rounds and earlier decisions
 4. Mark the lines the answer settled (see Review marks).
 5. Update the agenda: add, refine or reorder topics as understanding changes (see
    Agenda changes). Then ask the next question with submit_question, or conclude (see
-   Concluding).
+   `conclusion.md`).
 
 ## Interpretation
 
@@ -40,16 +39,16 @@ what the reviewer says, show the conflict and ask a focused follow-up.
 
 Record what the answer settled in the same submit_question or submit_conclusion:
 
-- `reviewed`: rows of this prompt's Unreviewed diffs that the answer settled, cited or not,
+- `reviewed`: rows of this turn's Unreviewed diffs that the answer settled, cited or not,
   with the line numbers the diffs show: lines the reviewer decided, accepted, or now
   understands well enough that no question about them remains, including lines a requested
   change will rewrite. Null lines mark a whole file.
 - `reopened`: reviewed lines the answer makes matter again, whoever marked them. They are no
   longer in the diffs: take their numbers from the repository.
-- `not_relevant`: see Not relevant below.
+- `not_relevant`: see Not relevant in the index.
 
 Lines the answer did not settle stay unmarked. A question's marks apply when the reviewer
-answers it, a conclusion's when it is accepted; the next prompt's Unreviewed diffs show the
+answers it, a conclusion's when it is accepted; the next turn's Unreviewed diffs show the
 result.
 
 ## Agenda changes
@@ -66,24 +65,3 @@ backed by an Answer ID or source evidence:
 
 The latest operation on a topic defines its lifecycle. After a topic is decided, move to
 another.
-
-## Concluding
-
-Topics decide when the interview ends, not marks: the same lines can carry several decisions,
-and risks may sit in unchanged callers. Conclude when every material topic has an investigated
-outcome, an agreed fix or a recorded outstanding concern, and the Unreviewed diffs hold no
-decision still worth asking. Settled trade-offs stay settled. A question exists for a decision,
-never to mark more lines.
-
-submit_conclusion takes the final answer's interpretation and marks like any turn, and:
-
-- summary: the response to the final answer, then the review outcome, outstanding or reconsidered
-  work, uncertainty and source or context limitations. The reviewer's decisions are listed beside
-  it from the round itself: do not restate them.
-- to_be_implemented: only the agreed tasks, as a plain-text list; it fills the reviewer's
-  editable task box. Empty when there is none. A task that one of the kickoff's Earlier
-  decisions agreed and the code still lacks says so and names that decision by its subject.
-- future_work: optional or later work. Empty when there is none.
-- quiz, or quiz_empty_reason when it is empty: see Quiz.
-
-Only the reviewer's Implement action authorizes implementation.

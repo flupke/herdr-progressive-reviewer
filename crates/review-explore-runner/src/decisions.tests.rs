@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    Unreviewed,
-    tests::{comparison, prepare_with as prepare},
-};
+use crate::tests::{comparison, prepare_with as prepare};
 use std::sync::Arc;
 
 /// An earlier round in which the reviewer gave `answers`, each a question ID,
@@ -146,14 +143,14 @@ fn the_first_round_has_no_earlier_decisions() {
     let earlier = EarlierDecisions::new([&round(&[("q1", None, "Ship it")])]);
 
     assert_eq!(earlier.to_string(), "");
-    assert!(kickoff(&earlier).contains(&format!(
-        "Change description: none\n{}",
-        Unreviewed::default()
-    )));
+    // The round's data ends on the description: no earlier decision follows it.
+    let kickoff = kickoff(&earlier);
+    let round = &kickoff[..kickoff.find(include_str!("rules/turn.md")).expect(&kickoff)];
+    assert!(round.ends_with("Change description: none\n\n"), "{round}");
 }
 
 #[test]
-fn only_the_kickoff_lists_the_earlier_decisions() {
+fn every_turn_lists_the_earlier_decisions_in_the_rounds_data() {
     let comparison = comparison();
     let first = round(&[("q1", Some("keep"), "")]);
     let earlier = EarlierDecisions::new([&first]);
@@ -164,8 +161,9 @@ fn only_the_kickoff_lists_the_earlier_decisions() {
 
     let wakeup = prepare(&request, &comparison, &earlier);
 
-    assert_eq!(wakeup.matches("answer-q1").count(), 1, "{wakeup}");
-    assert!(!wakeup.contains("> Keep q1?"), "{wakeup}");
+    // Once as an earlier decision in the round's data, once as the answer of the turn.
+    assert_eq!(wakeup.matches("answer-q1").count(), 2, "{wakeup}");
+    assert_eq!(wakeup.matches("> Keep q1?").count(), 1, "{wakeup}");
 }
 
 /// Record that an agent turn of `round` took up `answer`.

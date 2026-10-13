@@ -1,4 +1,4 @@
-## Writing style
+### Writing style
 
 Apply the writing rules below to every text the reviewer reads: the design, each question with
 its Context, choices, Door, Blast radius and notes, your replies, the conclusion, the quiz and

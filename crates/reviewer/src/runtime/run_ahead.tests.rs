@@ -173,6 +173,8 @@ fn e2e_fork_process() {
         .collect();
     fs::write(forks.join(format!("{session}.args")), arguments.join("\n")).unwrap();
     fs::write(forks.join(format!("{session}.env")), names.join("\n")).unwrap();
+    // The fork reads the turn's files as it reads the prompt that names them.
+    let prompt = review_test_support::turn::with_turn(&prompt);
     fs::write(forks.join(format!("{session}.prompt")), &prompt).unwrap();
     report.report(&StandInEvent::ForkStarted { parent, prompt });
     let usage = r#"{"input_tokens":3,"cache_creation_input_tokens":20,"cache_read_input_tokens":1000,"output_tokens":7}"#;

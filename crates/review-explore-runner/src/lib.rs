@@ -1,160 +1,82 @@
-//! Start an Explore interview once, then wake the same agent for each human answer.
-use markdown_marks::{Callout, Mark, StatusMark};
+//! Start an Explore interview once, then wake the same agent for each human answer. Each turn's
+//! instructions are files the review tool writes for the agent to read, trimmed to the round;
+//! the prompt only names the round, where its index is, and the tools that end the turn.
+use std::path::Path;
+
 use review_explore::{ChangeAuthor, Comparison, TurnRequest};
-use review_explore_round_settings::WritingStyle;
 
 mod decisions;
 mod input;
+mod rules;
 mod unreviewed;
 
 pub use decisions::EarlierDecisions;
+pub use rules::TurnFile;
 pub use unreviewed::Unreviewed;
 
-#[derive(Debug)]
-pub struct PreparedTurn {
-    prompt: String,
+/// What a round started with, the same on every turn: the decisions of the review's earlier
+/// rounds and the reviewer's notes.
+#[derive(Debug, Default)]
+pub struct RoundData {
+    pub earlier: EarlierDecisions,
+    pub notes: Option<String>,
 }
 
-impl PreparedTurn {
-    /// The prompt for `request`, listing the unreviewed lines. A kickoff
-    /// also lists the `earlier` decisions of the review and the reviewer's `notes`. `answered`
-    /// is the number the reviewer's screens give the question the request's answer
-    /// answers.
+/// The index every turn's directory holds, which the prompt names.
+pub const INDEX: &str = "index.md";
+
+/// One agent turn's instructions, as the files of its directory.
+#[derive(Clone, Debug)]
+pub struct TurnInstructions {
+    instance: String,
+    files: Vec<TurnFile>,
+}
+
+impl TurnInstructions {
+    /// The instructions for `request`, listing the unreviewed lines, with the round's data: the
+    /// change, and what the `round` started with. `answered` is the number the reviewer's
+    /// screens give the question the request's answer answers.
     pub fn prepare(
         request: &TurnRequest,
         comparison: &Comparison,
         access: &str,
         unreviewed: &Unreviewed,
-        earlier: &EarlierDecisions,
-        notes: Option<&str>,
+        round: &RoundData,
         answered: Option<review_types::QuestionNumber>,
     ) -> Self {
-        let kickoff = request.is_kickoff().then(|| input::Kickoff {
+        let round = input::Round {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
-            decisions: earlier,
+            decisions: &round.earlier,
             author: request.author,
             reviewer: request.reviewer.as_deref(),
-            notes,
-        });
-        let instructions = Self::instructions(
-            kickoff.is_some(),
-            request.challenger,
-            request.author,
-            request.writing,
-        );
+            notes: round.notes.as_deref(),
+        };
         let input = input::TurnInput {
             request,
             access,
-            kickoff,
             unreviewed,
             answered,
         };
         Self {
-            prompt: format!("{instructions}\n\n{input}"),
+            instance: request.instance.clone(),
+            files: rules::files(request, comparison, &input.to_string(), &round.to_string()),
         }
     }
 
-    /// The rules of a turn: the kickoff's, or a later turn's followed by the conclusion's quiz,
-    /// which a first turn rarely needs and its tool's schema describes; then Not relevant,
-    /// which every prompt states; then the challenger's script when the round has one, the
-    /// rules of a review of someone else's change when `author` says it is one, and the rules
-    /// of the round's writing style when it has some.
-    fn instructions(
-        kickoff: bool,
-        challenger: bool,
-        author: ChangeAuthor,
-        writing: WritingStyle,
-    ) -> String {
-        let turn = if kickoff {
-            format!(
-                "{}\n\n{}",
-                include_str!("interview.md").trim_end(),
-                Self::texts()
-            )
-        } else {
-            format!(
-                "{}\n\n{}",
-                include_str!("wakeup.md").trim_end(),
-                include_str!("quiz.md").trim_end()
-            )
-        };
-        let mut instructions =
-            format!("{}\n\n{}", turn, include_str!("not_relevant.md").trim_end());
-        if challenger {
-            let script = if kickoff {
-                include_str!("challenger.md")
-            } else {
-                include_str!("challenger_wakeup.md")
-            };
-            instructions.push_str("\n\n");
-            instructions.push_str(script.trim_end());
-        }
-        if author == ChangeAuthor::Other {
-            let rules = if kickoff {
-                include_str!("others_change.md")
-            } else {
-                include_str!("others_change_wakeup.md")
-            };
-            instructions.push_str("\n\n");
-            instructions.push_str(rules.trim_end());
-        }
-        if let Some(style) = Self::writing(kickoff, writing) {
-            instructions.push_str("\n\n");
-            instructions.push_str(style.trim_end());
-        }
-        instructions
+    /// The files to write in the turn's directory, the index first.
+    pub fn files(&self) -> &[TurnFile] {
+        &self.files
     }
 
-    /// The rules of the writing style `writing`: in full in the kickoff, and as a short
-    /// reminder in every later turn, so that the style holds in a long round, whose earlier
-    /// turns the agent may have compacted, and after a restore. The plain style has none.
-    fn writing(kickoff: bool, writing: WritingStyle) -> Option<&'static str> {
-        match (writing, kickoff) {
-            (WritingStyle::Plain, _) => None,
-            (WritingStyle::SimplifiedTechnicalEnglish, true) => Some(include_str!("writing.md")),
-            (WritingStyle::SimplifiedTechnicalEnglish, false) => {
-                Some(include_str!("writing_wakeup.md"))
-            }
-        }
-    }
-
-    /// How to write the texts the reviewer reads, with the markers of their callouts and status
-    /// marks, and their diagrams.
-    fn texts() -> String {
-        fn markers<M: Mark>() -> String {
-            M::ALL
-                .iter()
-                .map(|mark| format!("`{}`", mark.marker()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        }
+    /// The prompt of the turn whose files are written in `directory`.
+    pub fn prompt(&self, directory: &Path) -> String {
         format!(
-            "{}\n\nA callout is a quote that opens with its marker, as in `> {} Run it twice.`: {}.\n\
-             A status mark opens a table cell, as in `| {} 2 ms |`: {}.\n\n{}",
-            include_str!("texts.md").trim_end(),
-            Callout::Tip.marker(),
-            markers::<Callout>(),
-            StatusMark::Good.marker(),
-            markers::<StatusMark>(),
-            Self::diagrams(),
+            "Explore round {}: read {} and follow it. The turn ends in one call to the reviewer's \
+             MCP tool submit_question or submit_conclusion.\n",
+            self.instance,
+            directory.join(INDEX).display()
         )
-    }
-
-    /// When an explanation draws a diagram, how the page draws it, and how to avoid parse
-    /// errors.
-    fn diagrams() -> String {
-        format!(
-            "A diagram is a fenced block that opens with ```` ```{} ````, which the Explore page \
-             draws with Mermaid {}.\n{}",
-            mermaid_js::FENCE,
-            mermaid_js::VERSION,
-            include_str!("diagrams.md").trim_end(),
-        )
-    }
-
-    pub fn prompt(self) -> String {
-        self.prompt
     }
 }
 

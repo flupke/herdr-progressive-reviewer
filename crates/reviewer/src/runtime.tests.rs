@@ -647,8 +647,9 @@ impl AgentPrompts {
             return;
         }
         self.transcript.turn();
+        // The agent reads the turn's files as it reads the prompt that names them.
         self.report.report(&StandInEvent::PromptReceived {
-            text: prompt.to_owned(),
+            text: review_test_support::turn::with_turn(prompt),
         });
         self.turns.prompt_read();
     }

@@ -1,22 +1,31 @@
 # Explore agent contract
 
-What the agent's Explore prompts and the two Explore tools guarantee across files: why their contents are shaped as they are, and what a submission commits to. The authoritative wording of the agent's instructions is in `crates/review-explore-runner/src/` (`interview.md`, `wakeup.md` and their siblings).
+What the agent's Explore prompts and the two Explore tools guarantee across files: why their contents are shaped as they are, and what a submission commits to. The authoritative wording of the agent's instructions is in `crates/review-explore-runner/src/rules/`, and which files a turn gets in `rules.rs` beside it.
 
 ## The prompts
 
 - The tools advertise their full input schemas, derived from the shared submission types.
   The kickoff explains the review behavior without duplicating schema examples.
-- The kickoff is a brief, not a rulebook: the agent writes as densely as the prompt reads, and
-  a 25k-character kickoff gave long, detailed designs. Field detail stays in the tools' schemas
-  (the doc comments of the submission types); a rule for data that only some kickoffs carry
-  (reset rounds, earlier decisions, reviewer notes) is written beside that data; and the
-  quiz's rules come with the later turns, since a first turn rarely concludes. Cut a rule
-  before adding one.
-- The texts of earlier decisions in a kickoff are quoted line by line with `> `, as data
+- Each turn's instructions are files, not the prompt ([ADR 0007](../adr/0007-explore-instructions-on-disk.md)):
+  the prompt names the round, the turn's `index.md` and the submit tools. The index lists the
+  turn's data (`turn.md`: the identity, the access, the answer), the round's (`round.md`: the
+  change, its author, reset rounds, earlier decisions, reviewer notes, the same on every turn)
+  and only the rule files the round's setup needs, the ones to read now and when to read each
+  other one. The rules every turn needs (questions, sources, texts, not relevant, and the design
+  on a first turn) are in the index itself, so that one read gives them. A rule for data that
+  only some rounds carry is written beside that data in `round.md`. Field detail stays in the
+  tools' schemas.
+- The rules are a brief, not a rulebook: the agent writes as densely as its instructions read,
+  and a 25k-character kickoff gave long, detailed designs. Cut a rule before adding one.
+- A turn's directory is private (0700) and lives until the next prompt: the session keeps the
+  main agent's, and each fork keeps its own, beside the diffs the forks share. A rule file does
+  not change during a round, so a later turn's agent reads again only what it lost from its
+  context.
+- The texts of earlier decisions in `round.md` are quoted line by line with `> `, as data
   rather than instructions. Their answer IDs are those rounds': no interpretation or agenda
   change of the new round can name them, and the agent names such a decision by its
   subject, never by a question number.
-- After a Reset, the kickoff tells the agent that if its agent session still holds the
+- After a Reset, `round.md` tells the agent that if its agent session still holds the
   reset rounds, their questions, answers, decisions, agreed tasks and question numbers are
   void.
 - The reviewer's screens number a round's questions Q1, Q2 and so on. Question IDs name the
@@ -72,7 +81,7 @@ question whose Door is not two-way.
 - A revised question (`revise_question`) is a turn of its own with no prompt behind it: it
   follows the same answer as the turn it revises, and carries that turn's reply and review
   marks, so the reviewer's answer applies those marks as it would have. Cancel answer drops
-  it with that turn. It takes the Explore access of the latest Explore prompt, since the
+  it with that turn. It takes the Explore access of the latest Explore turn's `turn.md`, since the
   comments wakeup that brings the message carries the review threads' access.
 - Validation errors leave the request open for repair; transport retries must reuse the
   identical semantic payload (with current `review` access after reconnection). A response

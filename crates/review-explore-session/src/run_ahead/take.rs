@@ -1,6 +1,7 @@
 //! Taking the forks of the question that waits: one per choice the setting names, each told
 //! the prompt the agent would get after that answer, under the identities reserved for it.
 
+use std::collections::BTreeMap;
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -8,32 +9,37 @@ use std::sync::Arc;
 use agent_fork::ProcessStamp;
 use review_explore::{Alternative, AnswerInput, Comparison, ExploreRound, Question};
 use review_explore_round_settings::RunAhead;
-use review_explore_runner::{EarlierDecisions, PreparedTurn, Unreviewed};
+use review_explore_runner::{RoundData, TurnInstructions, Unreviewed};
 use review_run_ahead::{FAILURES_TO_HALT, ForkPoint, ForkRecord, ForkStart, RoundForks};
 use review_types::MarkAuthor;
 use tempfile::TempDir;
 
 use super::settle::Trigger;
 use super::{Event, ReservedIds, RoundKey, RunAheadInput, Taken, TakenFork};
+use crate::turn_files::TurnFiles;
 use crate::unreviewed_diffs::UnreviewedDiffs;
 use crate::{ExploreSession, Input};
 
-/// The files the forks of one question read: the unreviewed diffs their prompts name, written
-/// from a copy of the review marks with the question's marks applied.
+/// The files the forks of one question read: the unreviewed diffs their turns name, written
+/// from a copy of the review marks with the question's marks applied, and each fork's
+/// instructions, by its session.
 pub(super) struct ForkFiles {
     _marks: TempDir,
     diffs: UnreviewedDiffs,
+    turns: BTreeMap<String, TurnFiles>,
 }
 
 impl ForkFiles {
-    /// The unreviewed diffs the forks' prompts name.
+    /// The unreviewed diffs the forks' turns name.
     pub(super) fn diffs(&self) -> &UnreviewedDiffs {
         &self.diffs
     }
 
-    /// The unreviewed diffs, which outlive the copy of the review marks they were written from.
-    pub(super) fn into_diffs(self) -> UnreviewedDiffs {
-        self.diffs
+    /// The unreviewed diffs and the instructions of the fork whose session is `session`, which
+    /// outlive the copy of the review marks the diffs were written from.
+    pub(super) fn into_fork(mut self, session: &str) -> (UnreviewedDiffs, Option<TurnFiles>) {
+        let turn = self.turns.remove(session);
+        (self.diffs, turn)
     }
 }
 
@@ -112,8 +118,16 @@ impl ExploreSession {
         let choices = self.choices_to_prepare(&question)?;
         let round = self.state.round.clone().ok_or("no round")?;
         let comparison = self.state.comparison.clone().ok_or("no change captured")?;
-        let (unreviewed, files) = self
+        let (unreviewed, mut files) = self
             .unreviewed_after_answer(&round)
+            .map_err(|error| format!("{error:#}"))?;
+        // A fork's turn carries the round's data as the agent's would.
+        let round_data = self
+            .round_data(
+                &comparison.checkpoint.review_unit,
+                &round.exploration.instance,
+                false,
+            )
             .map_err(|error| format!("{error:#}"))?;
         // Kept while the question waits: forks taken again are told the same.
         let armed = self.run_ahead.armed.as_mut().ok_or("no question waits")?;
@@ -130,10 +144,18 @@ impl ExploreSession {
                     choice,
                     &comparison,
                     &unreviewed,
+                    &round_data,
                     reserved,
                 )
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(fork, turn)| {
+                let prompt = turn.prompt().to_owned();
+                files.turns.insert(fork.session.clone(), turn);
+                (fork, prompt)
+            })
+            .collect();
         Ok(ForkPlan {
             point,
             files,
@@ -189,6 +211,7 @@ impl ExploreSession {
             ForkFiles {
                 _marks: marks,
                 diffs,
+                turns: BTreeMap::new(),
             },
         ))
     }
@@ -357,17 +380,18 @@ pub(super) fn halted() -> String {
     format!("Run-ahead stopped for this round: {FAILURES_TO_HALT} forks in a row failed")
 }
 
-/// The fork that answers `question` with `choice`, and the prompt it gets: the one the agent
-/// would get after that answer, under the identities `reserved` for the choice, with the
-/// fork's own access value.
+/// The fork that answers `question` with `choice`, the files of its turn and the prompt that
+/// names them: the turn the agent would get after that answer, under the identities `reserved`
+/// for the choice, with the fork's own access value.
 fn fork_turn(
     round: &ExploreRound,
     question: &Question,
     choice: &Alternative,
     comparison: &Arc<Comparison>,
     unreviewed: &Unreviewed,
+    round_data: &RoundData,
     reserved: &ReservedIds,
-) -> Result<(TakenFork, String), String> {
+) -> Result<(TakenFork, TurnFiles), String> {
     let mut exploration = round.exploration.clone();
     let mut request = exploration
         .request(
@@ -387,25 +411,24 @@ fn fork_turn(
         .as_ref()
         .and_then(|answer| round.exploration.answered_number(answer))
         .map(Into::into);
-    let prompt = PreparedTurn::prepare(
-        &request,
-        comparison,
-        &access,
-        unreviewed,
-        &EarlierDecisions::default(),
-        None,
-        answered,
-    )
-    .prompt();
+    let turn = TurnInstructions::prepare(
+        &request, comparison, &access, unreviewed, round_data, answered,
+    );
+    let files = TurnFiles::write(&turn).map_err(|error| {
+        format!(
+            "the files of the turn for {} not written: {error}",
+            choice.id
+        )
+    })?;
     let fork = TakenFork {
         session: uuid::Uuid::new_v4().to_string(),
         access,
         choice: choice.id.clone(),
         request,
-        prompt: prompt.clone(),
+        turn,
         process: None,
         kept: None,
         ended: false,
     };
-    Ok((fork, prompt))
+    Ok((fork, files))
 }

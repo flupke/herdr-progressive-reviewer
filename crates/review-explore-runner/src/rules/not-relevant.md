@@ -1,6 +1,6 @@
 ## Not relevant
 
-On every turn, the first included, list in `not_relevant` the rows of this prompt's Unreviewed
+On every turn, the first included, list in `not_relevant` the rows of this turn's Unreviewed
 diffs that you read and that hold no decision for the reviewer, with the line numbers the
 diffs show. They are marked reviewed without a question of their own, so the reviewer's
 attention goes to what is left. Use it, at your discretion, for one of these reasons, which

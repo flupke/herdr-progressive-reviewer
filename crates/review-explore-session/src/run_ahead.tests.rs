@@ -221,8 +221,10 @@ impl ForkHost for FakeForks {
         ended: Box<dyn FnOnce(ForkEnd) + Send>,
     ) -> Result<ProcessStamp, String> {
         let mut host = self.host();
-        host.started
-            .push((start.session.to_owned(), start.prompt.clone()));
+        host.started.push((
+            start.session.to_owned(),
+            review_test_support::turn::with_turn(&start.prompt),
+        ));
         host.ended.insert(start.session.to_owned(), ended);
         let pid = 100_000 + u32::try_from(host.started.len()).unwrap();
         Ok(ProcessStamp { pid, started: 1 })
@@ -1494,6 +1496,31 @@ fn after_a_talk_in_the_agent_s_pane_forks_taken_again_hold_it_and_a_bare_answer_
 
     assert_eq!(harness.forks.switches(), std::slice::from_ref(&fork));
     assert_eq!(harness.latest_path(), TurnPath::Prepared { session: fork });
+}
+
+#[test]
+fn a_fork_s_turn_carries_the_round_s_data_so_an_answer_still_switches_to_it() {
+    let mut harness = Harness::start();
+    // Notes are part of the round's data, which every turn and every fork's turn carries.
+    harness.write_reviewer_notes("Name commits by their subject.");
+    harness.ask(RunAhead::Every);
+    let (fork, _) = harness.fork_submits("keep");
+    assert!(
+        harness
+            .fork_prompt(&fork)
+            .contains("> Name commits by their subject."),
+        "{}",
+        harness.fork_prompt(&fork)
+    );
+
+    harness.post_answer(Some("keep"), " ");
+
+    assert_eq!(
+        harness.forks.switches(),
+        std::slice::from_ref(&fork),
+        "the real turn matches the fork's: {:?}",
+        harness.forks.log()
+    );
 }
 
 #[test]

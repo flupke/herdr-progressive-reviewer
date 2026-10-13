@@ -1,10 +1,10 @@
-## Someone else's change
+# Someone else's change
 
 The reviewer did not write this change: they review it for its author, who is not in this
 conversation. The reviewer first learns what the change does, then decides what to ask or tell
-its author. Every turn follows these rules, which take the place of the rules above where they
-differ. Post review takes the place of Implement wherever a rule names Implement, and authorizes
-posting the review only, never a code edit.
+its author. Every turn follows these rules, which take the place of the other files' rules where
+they differ. Post review takes the place of Implement wherever a rule names Implement, and
+authorizes posting the review only, never a code edit.
 
 - The reviewer reads the design's story and theses first: write them in plain words, as you
   would to a colleague who saw only the change's title, with no term of the change that the

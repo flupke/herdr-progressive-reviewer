@@ -5,16 +5,13 @@
 //! its reason.
 
 use review_explore::TurnRequest;
+use review_explore_runner::Unreviewed;
 use review_run_ahead::{AnswerRecord, DiscardReason, PlainReason, TurnPath};
 
 use super::switch::Switching;
 use super::{Armed, Asked};
 use crate::ExploreSession;
 use crate::turn::SavedTurn;
-
-/// Where the unreviewed diffs of a prompt stand, so that two prompts compare but for where
-/// each one's diffs were written.
-const DIFFS: &str = "<diffs>";
 
 impl ExploreSession {
     /// `request` under the identities reserved for its choice, when it answers the question that
@@ -188,9 +185,9 @@ impl ExploreSession {
         Ok(index)
     }
 
-    /// Whether the agent's prompt for the answer of `switching` would be the prompt of its
-    /// fork, but for where their diffs were written, and list the same unreviewed lines as the
-    /// fork's diffs; otherwise why not. The session keeps the diffs of that prompt, as for a
+    /// Whether the agent's turn for the answer of `switching` would list the same unreviewed
+    /// lines as the fork's diffs and, written with those diffs, have the files of the fork's
+    /// turn; otherwise why not. The session keeps the diffs it wrote for the turn, as for a
     /// prompt it sends.
     fn same_turn(&mut self, switching: &Switching) -> Result<(), PlainReason> {
         let Switching {
@@ -203,9 +200,7 @@ impl ExploreSession {
             error: format!("{error:#}"),
         };
         let comparison = self.turn_comparison(request).map_err(unchecked)?;
-        let (prompt, unreviewed) = self
-            .turn_prompt(request, &comparison, &fork.access)
-            .map_err(unchecked)?;
+        let unreviewed = self.turn_unreviewed().map_err(unchecked)?;
         if !self
             .diffs
             .as_ref()
@@ -213,11 +208,17 @@ impl ExploreSession {
         {
             return Err(PlainReason::UnreviewedChanged);
         }
-        let real = prompt.replace(&*unreviewed.directory.to_string_lossy(), DIFFS);
-        let prepared = fork
-            .prompt
-            .replace(&*files.diffs().directory().to_string_lossy(), DIFFS);
-        if real != prepared {
+        // The same lines: the real turn names the diffs the fork read, so its files compare as
+        // they are.
+        let unreviewed = Unreviewed {
+            directory: files.diffs().directory().to_owned(),
+            index: files.diffs().index(),
+            ..unreviewed
+        };
+        let turn = self
+            .turn_instructions(request, &comparison, &fork.access, &unreviewed)
+            .map_err(unchecked)?;
+        if turn.files() != fork.turn.files() {
             return Err(PlainReason::PromptChanged);
         }
         Ok(())

@@ -34,6 +34,7 @@ use std::sync::Arc;
 use agent_fork::ProcessStamp;
 use herdr_client::protocol::{Agent, AgentStatus, PaneId};
 use review_explore::{InterviewUpdate, Question, TurnRequest};
+use review_explore_runner::TurnInstructions;
 use review_run_ahead::{
     DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch, SwitchFailure, TurnPath,
 };
@@ -210,9 +211,10 @@ struct TakenFork {
     session: String,
     access: String,
     choice: String,
-    /// The turn the fork was told, as if the reviewer had picked its choice, and its prompt.
+    /// The turn the fork was told, as if the reviewer had picked its choice, and its
+    /// instructions.
     request: TurnRequest,
-    prompt: String,
+    turn: TurnInstructions,
     process: Option<ProcessStamp>,
     /// The turn the fork submitted, kept for its choice.
     kept: Option<InterviewUpdate>,

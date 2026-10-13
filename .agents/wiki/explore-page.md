@@ -62,7 +62,7 @@ Blast radius, the conclusion) is rendered to HTML on the server by
 and keeps a fenced block's language as the class `language-<name>` of its
 `<code>`. Callouts (`> [!TIP]`) and table-cell status marks (`[!good]`) are
 defined once in [`crates/markdown-marks`](../../crates/markdown-marks): the page,
-the pane's renderer and the kickoff prompt all read them from there.
+the pane's renderer and the agent's instructions all read them from there.
 
 The page follows the reviewer's design handoff in
 [`docs/design/explore-page/`](../../docs/design/explore-page/README.md): its `README.md` is the

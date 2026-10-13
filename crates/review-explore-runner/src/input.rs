@@ -1,20 +1,20 @@
-//! Human-readable wakeups; full questions and answers remain in reviewer history.
+//! The data of a turn and of its round, as the agent reads them; full questions and answers
+//! remain in reviewer history.
 use review_explore::{ChangeAuthor, ReviewerAnswer, TopicStatus, TurnRequest};
 use std::{fmt, path::Path};
 
 pub(super) struct TurnInput<'a> {
     pub(super) request: &'a TurnRequest,
     pub(super) access: &'a str,
-    /// What only the kickoff tells the agent.
-    pub(super) kickoff: Option<Kickoff<'a>>,
     pub(super) unreviewed: &'a crate::Unreviewed,
     /// The number the reviewer's screens give the question the answer answers.
     pub(super) answered: Option<review_types::QuestionNumber>,
 }
 
-/// Where the reviewed change is, what it says it does and what the reviewer
-/// decided in the review's earlier rounds.
-pub(super) struct Kickoff<'a> {
+/// What the round started with, the same on every turn: where the reviewed change is, what it
+/// says it does, who wrote it, what the reviewer decided in the review's earlier rounds and
+/// what the reviewer asks of every round.
+pub(super) struct Round<'a> {
     pub(super) repository_root: &'a Path,
     pub(super) description: Option<&'a str>,
     pub(super) decisions: &'a crate::EarlierDecisions,
@@ -52,7 +52,7 @@ impl fmt::Display for Outcome {
     }
 }
 
-impl fmt::Display for Kickoff<'_> {
+impl fmt::Display for Round<'_> {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             output,
@@ -100,9 +100,6 @@ impl fmt::Display for TurnInput<'_> {
             request.checkpoint.review_unit.as_str()
         )?;
         writeln!(output, "Checkpoint: {}", request.checkpoint.checkpoint)?;
-        if let Some(kickoff) = &self.kickoff {
-            write!(output, "{kickoff}")?;
-        }
         write!(output, "{}", self.unreviewed)?;
         if let Some(error) = &request.response_error {
             writeln!(output, "\nPrevious response error:\n{error}")?;

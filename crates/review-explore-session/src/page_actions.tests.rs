@@ -65,13 +65,15 @@ impl Harness {
     }
 }
 
-/// `prompt` without its access value, which each prompt renews, and the directory of its
-/// unreviewed diffs, which each prompt writes anew.
+/// `prompt` without its access value, which each prompt renews, and the directories of its
+/// turn's files and of its unreviewed diffs, which each prompt writes anew.
 fn without_access(prompt: &str) -> String {
     prompt
         .lines()
         .filter(|line| {
-            !line.starts_with("Explore review access: ") && !line.starts_with("Unreviewed diffs: ")
+            !line.starts_with("Explore review access: ")
+                && !line.starts_with("Unreviewed diffs: ")
+                && !line.contains(&format!("/{}", review_explore_runner::INDEX))
         })
         .collect::<Vec<_>>()
         .join("\n")

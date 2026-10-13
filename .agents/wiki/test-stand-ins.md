@@ -32,6 +32,13 @@ started. To wait for what a new agent process reports, a test counts the events 
 before it starts it, and looks only after them. Wait from one thread at a time: a second waiter
 may take the event the first waits for into the history while the first blocks on the socket.
 
+An Explore prompt only names its turn's `index.md`; the change, the identity, the access and the
+answer are in the turn's `round.md` and `turn.md`, whose directory goes at the next prompt. So
+the stand-ins report the prompt with those files appended
+(`review_test_support::turn::with_turn`), read as it arrives: the
+stand-in agent, a stand-in fork, and the session tests' agents and forks. A test reads the
+turn's fields from the reported prompt, never from the directory later.
+
 The stand-in agent of a second pane connects as `StandInRole::SecondAgent`
 (`REVIEW_AGENT_E2E_ROLE=second`). The test's switches that must reach the agent before a
 prompt, in the order Herdr types them, stay files in the server's directory, which the agent
