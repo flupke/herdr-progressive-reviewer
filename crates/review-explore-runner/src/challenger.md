@@ -91,7 +91,7 @@ the reviewer, and names that decision.
 
 ### Synthesis
 
-The turn's question is written in full, in the Questions and Citations format above, in one
+The turn's question is written in full, in the format of Questions above, with its citations, in one
 voice: no longer than a question written alone, and without naming the implementer, the
 challenger or their exchange. The alternatives include each side's choice. Context keeps the
 facts that survived checking and the reason that would decide either way. When the decision

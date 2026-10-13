@@ -37,11 +37,19 @@ impl RoundData for Rich {
     fn glossary(&self) -> std::collections::BTreeMap<String, String> {
         [
             (
+                "reply queue",
+                "The queue that holds the reviewer's replies until they go out together.",
+            ),
+            (
                 "ReplyQueue",
-                "The queue that holds the agent's replies until they go out together.",
+                "The type of the reply queue, in the pane's notification code.",
             ),
             (
                 "FlushPolicy",
+                "The type of the flush rule: its idle delay and its size cap.",
+            ),
+            (
+                "flush rule",
                 "The rule that decides when the queued replies go out.",
             ),
         ]

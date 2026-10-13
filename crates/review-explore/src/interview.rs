@@ -65,6 +65,7 @@ pub struct Topic {
     pub prompt: String,
     #[serde(default)]
     pub prerequisites: Vec<String>,
+    /// The topic's place in the agenda: a lower rank comes first.
     #[serde(default)]
     pub rank: u32,
 }

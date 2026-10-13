@@ -55,11 +55,11 @@ impl PreparedTurn {
         }
     }
 
-    /// The rules of a turn: the kickoff's, or a later turn's, followed by the
-    /// sections every prompt states (the conclusion's quiz, then Not relevant),
-    /// by the challenger's script when the round has one, by the rules of a review of
-    /// someone else's change when `author` says it is one, and by the rules of
-    /// the round's writing style when it has some.
+    /// The rules of a turn: the kickoff's, or a later turn's followed by the conclusion's quiz,
+    /// which a first turn rarely needs and its tool's schema describes; then Not relevant,
+    /// which every prompt states; then the challenger's script when the round has one, the
+    /// rules of a review of someone else's change when `author` says it is one, and the rules
+    /// of the round's writing style when it has some.
     fn instructions(
         kickoff: bool,
         challenger: bool,
@@ -68,20 +68,19 @@ impl PreparedTurn {
     ) -> String {
         let turn = if kickoff {
             format!(
-                "{}\n\n{}\n\n{}",
+                "{}\n\n{}",
                 include_str!("interview.md").trim_end(),
-                include_str!("behavior_changes.md").trim_end(),
-                Self::explanations()
+                Self::texts()
             )
         } else {
-            include_str!("wakeup.md").trim_end().to_owned()
+            format!(
+                "{}\n\n{}",
+                include_str!("wakeup.md").trim_end(),
+                include_str!("quiz.md").trim_end()
+            )
         };
-        let mut instructions = format!(
-            "{}\n\n{}\n\n{}",
-            turn,
-            include_str!("quiz.md").trim_end(),
-            include_str!("not_relevant.md").trim_end()
-        );
+        let mut instructions =
+            format!("{}\n\n{}", turn, include_str!("not_relevant.md").trim_end());
         if challenger {
             let script = if kickoff {
                 include_str!("challenger.md")
@@ -120,9 +119,9 @@ impl PreparedTurn {
         }
     }
 
-    /// How to write the Markdown of an explanation, with the markers of its callouts and status
-    /// marks, and its diagrams.
-    fn explanations() -> String {
+    /// How to write the texts the reviewer reads, with the markers of their callouts and status
+    /// marks, and their diagrams.
+    fn texts() -> String {
         fn markers<M: Mark>() -> String {
             M::ALL
                 .iter()
@@ -133,7 +132,7 @@ impl PreparedTurn {
         format!(
             "{}\n\nA callout is a quote that opens with its marker, as in `> {} Run it twice.`: {}.\n\
              A status mark opens a table cell, as in `| {} 2 ms |`: {}.\n\n{}",
-            include_str!("explanation.md").trim_end(),
+            include_str!("texts.md").trim_end(),
             Callout::Tip.marker(),
             markers::<Callout>(),
             StatusMark::Good.marker(),
@@ -147,7 +146,7 @@ impl PreparedTurn {
     fn diagrams() -> String {
         format!(
             "A diagram is a fenced block that opens with ```` ```{} ````, which the Explore page \
-             draws with Mermaid {}, where the reviewer follows the round on that page.\n{}",
+             draws with Mermaid {}.\n{}",
             mermaid_js::FENCE,
             mermaid_js::VERSION,
             include_str!("diagrams.md").trim_end(),

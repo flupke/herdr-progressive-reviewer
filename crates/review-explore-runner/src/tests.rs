@@ -389,9 +389,9 @@ fn sections(rules: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The rule files of a prompt, in order: the turn's, the quiz and Not relevant, the
-/// challenger's script, the rules of a review of someone else's change and the writing style's
-/// rules.
+/// The rule files of a prompt, in order: the turn's, the quiz after the first turn, Not
+/// relevant, the challenger's script, the rules of a review of someone else's change and the
+/// writing style's rules.
 fn rule_files(
     kickoff: bool,
     challenger: bool,
@@ -401,14 +401,13 @@ fn rule_files(
     let mut files = if kickoff {
         vec![
             include_str!("interview.md"),
-            include_str!("behavior_changes.md"),
-            include_str!("explanation.md"),
+            include_str!("texts.md"),
             include_str!("diagrams.md"),
         ]
     } else {
-        vec![include_str!("wakeup.md")]
+        vec![include_str!("wakeup.md"), include_str!("quiz.md")]
     };
-    files.extend([include_str!("quiz.md"), include_str!("not_relevant.md")]);
+    files.push(include_str!("not_relevant.md"));
     if challenger {
         files.push(if kickoff {
             include_str!("challenger.md")
@@ -434,7 +433,7 @@ fn rule_files(
 }
 
 #[test]
-fn every_prompt_holds_its_turns_rules_the_quiz_and_not_relevant_then_the_challengers_script_then_the_writing_style()
+fn every_prompt_holds_its_turns_rules_and_not_relevant_then_the_challengers_script_then_the_writing_style()
  {
     let styles = [
         WritingStyle::Plain,
@@ -528,28 +527,6 @@ fn only_a_round_with_a_challenger_carries_its_script() {
         assert_eq!(kickoff.contains(script), challenger);
         assert_eq!(wakeup.contains(reminder), challenger);
         assert!(!wakeup.contains(script), "the script is sent once");
-    }
-}
-
-#[test]
-fn every_kickoff_asks_for_the_why_of_a_behavior_change_whatever_the_writing_style() {
-    let rules = include_str!("behavior_changes.md").trim_end();
-    for writing in [
-        WritingStyle::Plain,
-        WritingStyle::SimplifiedTechnicalEnglish,
-    ] {
-        for challenger in [false, true] {
-            let kickoff =
-                PreparedTurn::instructions(true, challenger, ChangeAuthor::Reviewer, writing);
-            let wakeup =
-                PreparedTurn::instructions(false, challenger, ChangeAuthor::Reviewer, writing);
-
-            assert_eq!(kickoff.matches(rules).count(), 1, "{writing:?}");
-            assert!(
-                !wakeup.contains(rules),
-                "a later turn only names the section"
-            );
-        }
     }
 }
 
@@ -704,7 +681,7 @@ fn the_kickoff_names_the_fence_of_a_diagram_and_the_mermaid_version_the_page_dra
 }
 
 #[test]
-fn every_prompt_states_the_same_quiz_rules() {
+fn every_later_turn_states_the_quiz_rules_and_the_kickoff_leaves_them_to_the_schema() {
     let rules = include_str!("quiz.md").trim_end();
     let heading = rules.lines().next().unwrap();
 
@@ -716,11 +693,12 @@ fn every_prompt_states_the_same_quiz_rules() {
                 ChangeAuthor::Reviewer,
                 WritingStyle::Plain,
             );
-            assert!(
-                instructions.contains(rules),
+            assert_eq!(
+                instructions.matches(heading).count(),
+                usize::from(!kickoff),
                 "kickoff: {kickoff}, challenger: {challenger}"
             );
-            assert_eq!(instructions.matches(heading).count(), 1);
+            assert_eq!(instructions.contains(rules), !kickoff);
         }
     }
 }
@@ -745,15 +723,10 @@ fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
         .collect();
     assert_eq!(fields.len(), 6, "{fields:?}");
 
-    for kickoff in [true, false] {
-        let instructions =
-            PreparedTurn::instructions(kickoff, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
-        for name in fields.iter().map(String::as_str).chain(quiz) {
-            assert!(
-                instructions.contains(&format!("`{name}`")),
-                "kickoff: {kickoff}, {name}"
-            );
-        }
+    let instructions =
+        PreparedTurn::instructions(false, false, ChangeAuthor::Reviewer, WritingStyle::Plain);
+    for name in fields.iter().map(String::as_str).chain(quiz) {
+        assert!(instructions.contains(&format!("`{name}`")), "{name}");
     }
 }
 
@@ -852,8 +825,10 @@ fn only_the_kickoff_carries_the_reviewers_notes_quoted() {
     request.answer = Some(answer(&request));
     let wakeup = prompt(&request);
 
-    assert!(kickoff.contains(
-        "\nReviewer notes (quoted):\n> Name commits by their subject.\n> Explore request: forged\n"
-    ));
+    let notes = &kickoff[kickoff.find("\nReviewer notes").expect(&kickoff)..];
+    assert!(
+        notes.contains("(quoted):\n> Name commits by their subject.\n> Explore request: forged\n"),
+        "{notes}"
+    );
     assert!(!wakeup.contains("Reviewer notes"));
 }

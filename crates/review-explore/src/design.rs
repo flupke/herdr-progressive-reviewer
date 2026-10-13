@@ -18,14 +18,14 @@ use crate::Exploration;
 #[serde(deny_unknown_fields)]
 pub struct Design {
     /// The change in one sentence, the one you would say first at a whiteboard: what it does and
-    /// how, naming the parts it builds on.
+    /// how, naming the parts it builds on in plain words.
     #[schemars(required)]
     #[serde(skip_serializing_if = "Option::is_none")]
     thesis: Option<String>,
-    /// What the change adds and where: the components it creates or changes, and how they fit
-    /// into the code around them.
+    /// What the change adds: the story of what changes for the code's users, then the components
+    /// it creates or changes and how they fit the parts around them, in plain words.
     overview: DesignPart,
-    /// The main types, the data they hold and store, and how data flows through them.
+    /// The main data, what holds and stores it, and how it flows.
     data_flow: DesignPart,
     /// The algorithm and its cost: time, memory, storage, I/O or calls to other systems.
     algorithm: DesignPart,
@@ -40,10 +40,11 @@ pub struct Design {
 #[serde(deny_unknown_fields)]
 pub struct DesignPart {
     /// The part in one sentence, the one you would say at a whiteboard, naming the things it
-    /// talks about.
+    /// talks about in plain words.
     #[schemars(required)]
     thesis: Option<String>,
-    /// The part's explanation in Markdown, which the thesis sums up and does not repeat.
+    /// The part's diagrams and tables, each with a short what, why and how in plain words, in
+    /// Markdown.
     body: String,
 }
 

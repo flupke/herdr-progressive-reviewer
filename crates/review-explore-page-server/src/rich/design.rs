@@ -1,8 +1,8 @@
-//! The design of the rich data set's change, in four full parts, each led by a diagram or a table
-//! as the kickoff asks: a diagram of the components with new and changed nodes; a sequence diagram,
-//! a table of the types and a state diagram, so that one part holds several diagrams; a table of
-//! the costs with callouts; and a table of the rejected alternatives, as long as an agent's
-//! explanation of a real change.
+//! The design of the rich data set's change, in four full parts written as the kickoff asks, in
+//! plain words with no file, type or function name: the story and a diagram of the components with
+//! new and changed nodes; a sequence diagram, a table of the data and a state diagram, so that one
+//! part holds several diagrams; a table of the costs with callouts; and a table of the rejected
+//! alternatives.
 
 use review_explore::{Design, DesignPart};
 
@@ -10,25 +10,26 @@ pub(super) fn design() -> Design {
     Design::new(
         "Replies wait in a queue and reach the agent in one notification once the reviewer pauses or enough of them wait.",
         DesignPart::new(
-            "`ReplyQueue` holds each reply in `src/notify/queue.rs` until `FlushPolicy` sends them together.",
+            "A reply queue holds each reply until the flush rule sends the waiting replies together.",
             "\
+1. Before, each reply the reviewer wrote woke the agent at once.
+2. A burst of replies started as many agent turns, which queued up behind each other.
+3. Now the replies wait, and reach the agent together once the reviewer pauses.
+4. The description gives the reason: one turn for a burst instead of one per reply.
+
 ```mermaid
 flowchart LR
   reviewer(\"Reviewer\") --> thread(\"Thread file\")
-  thread --> queue(\"ReplyQueue\"):::new
-  policy(\"FlushPolicy\"):::new --> queue
-  tick(\"Pane tick\"):::changed --> queue
+  thread --> queue(\"Reply queue\"):::new
+  policy(\"Flush rule\"):::new --> queue
+  tick(\"Pane clock\"):::changed --> queue
   queue --> link(\"Agent link\"):::changed
   link --> agent(\"Agent\")
 ```
 
-The change stops telling the agent about each reply the moment the reviewer writes it. Replies \
-now wait in a queue and reach the agent together, in one notification, once the reviewer \
-pauses or once enough of them wait.
-
-Nothing changes for a thread file: each reply is still saved to its thread before it is \
-queued, so a crash loses no reply, only the notification about it. The agent reads a batch as \
-it read a single reply before, one entry per reply, in the order the reviewer wrote them.",
+The reply queue sits between the thread file and the agent link. The pane's clock asks the \
+flush rule, on each tick, whether the waiting replies go out. Each reply is still saved before \
+it waits, so a crash loses a notification, never a reply.",
         ),
         data_flow(),
         DesignPart::new(
@@ -80,33 +81,33 @@ the agent link, which delivers the batch.",
 sequenceDiagram
   participant reviewer as Reviewer
   participant thread as Thread file
-  participant queue as ReplyQueue
-  participant policy as FlushPolicy
+  participant queue as Reply queue
+  participant policy as Flush rule
   participant agent as Agent link
   reviewer->>thread: writes a reply
   thread->>thread: appends it and saves
-  thread->>queue: push(reply, now)
-  queue->>policy: is_full(waiting)?
+  thread->>queue: adds the reply
+  queue->>policy: are twenty waiting?
   alt twenty replies wait
-queue->>agent: notify_batch(waiting, Full)
+queue->>agent: sends the batch, full
   else fewer
 queue-->>queue: keeps the reply
   end
   loop every tick of the pane
-queue->>policy: is_idle(since the last push)?
-policy-->>queue: true after two seconds
-queue->>agent: notify_batch(waiting, Idle)
+queue->>policy: two seconds since the last reply?
+policy-->>queue: yes
+queue->>agent: sends the batch, idle
   end
   reviewer->>queue: closes the pane
-  queue->>agent: notify_batch(waiting, Closing)
+  queue->>agent: sends the batch, closing
 ```
 
-| Type | Holds | Lives | Saved |
+| Data | Holds | Lives | Saved |
 | --- | --- | --- | --- |
-| `Reply` | The thread ID and the text | From the reviewer's keystroke to the thread file | [!good] In the thread file, before it is queued |
-| `ReplyQueue` | The replies the agent has not heard about, and the time of the latest push | As long as the pane | [!warning] In memory only: a crash loses the notification, not the reply |
-| `FlushPolicy` | The idle delay and the size cap | A constant, `FlushPolicy::DEFAULT` | [!good] Nothing to save |
-| `FlushReason` | Idle, Full or Closing | One notification | [!good] Sent with the batch |
+| A reply | Its thread and its text | From the reviewer's keystroke to the thread file | [!good] In the thread file, before it waits |
+| The reply queue | The replies the agent has not heard about, and the time of the latest one | As long as the pane | [!warning] In memory only: a crash loses the notification, not the reply |
+| The flush rule | The idle delay and the size cap | Fixed in the code | [!good] Nothing to save |
+| A batch's reason | Idle, full or closing | One notification | [!good] Sent with the batch |
 
 The queue itself moves between three states, and only a flush empties it:
 

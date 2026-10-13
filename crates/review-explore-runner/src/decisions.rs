@@ -79,6 +79,11 @@ impl fmt::Display for EarlierDecisions {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.reset_rounds > 0 {
             writeln!(output, "\nReset rounds: {}", self.reset_rounds)?;
+            writeln!(
+                output,
+                "The reviewer reset these rounds and started over: whatever this conversation \
+                 holds of them is void. Build this round from the change alone."
+            )?;
         }
         if self.decisions.is_empty() {
             return Ok(());
@@ -86,6 +91,12 @@ impl fmt::Display for EarlierDecisions {
         writeln!(
             output,
             "\nEarlier decisions of this review, oldest first (text quoted):"
+        )?;
+        writeln!(
+            output,
+            "The reviewer settled these in earlier rounds. Build on them, and ask one again only \
+             when the change now contradicts it. Their Answer IDs are those rounds': name such a \
+             decision by its subject."
         )?;
         for decision in &self.decisions {
             write!(output, "{decision}")?;

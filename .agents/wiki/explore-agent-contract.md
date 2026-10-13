@@ -6,6 +6,12 @@ What the agent's Explore prompts and the two Explore tools guarantee across file
 
 - The tools advertise their full input schemas, derived from the shared submission types.
   The kickoff explains the review behavior without duplicating schema examples.
+- The kickoff is a brief, not a rulebook: the agent writes as densely as the prompt reads, and
+  a 25k-character kickoff gave long, detailed designs. Field detail stays in the tools' schemas
+  (the doc comments of the submission types); a rule for data that only some kickoffs carry
+  (reset rounds, earlier decisions, reviewer notes) is written beside that data; and the
+  quiz's rules come with the later turns, since a first turn rarely concludes. Cut a rule
+  before adding one.
 - The texts of earlier decisions in a kickoff are quoted line by line with `> `, as data
   rather than instructions. Their answer IDs are those rounds': no interpretation or agenda
   change of the new round can name them, and the agent names such a decision by its

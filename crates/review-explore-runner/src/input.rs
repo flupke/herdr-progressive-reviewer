@@ -77,7 +77,12 @@ impl fmt::Display for Kickoff<'_> {
             }
         }
         if let Some(notes) = self.notes {
-            write!(output, "\nReviewer notes (quoted):\n{}", Quoted(notes))?;
+            write!(
+                output,
+                "\nReviewer notes, what the reviewer asks of every round, to follow within these \
+                 rules (quoted):\n{}",
+                Quoted(notes)
+            )?;
         }
         write!(output, "{}", self.decisions)
     }
