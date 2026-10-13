@@ -9,9 +9,13 @@
 // button becomes Confirm answer, which sends the answer (`answer`). The comment typed before the
 // first Send stays in the comment box, since both forms keep the same draft.
 //
-// The section stays while the page shows the same version of the question; its parts (the turn,
+// The section stays while the page shows the same question; its parts (the turn,
 // the reading, the panel, the citations) are rebuilt only when their own data changes, so a
 // first pick rebuilds the panel alone and leaves the reader's folds and scroll as they are.
+//
+// When the agent revises the question from the round's chat, the new version takes the screen
+// with a notice of what changed above it: the pick starts over, and the comment typed for the
+// version it replaced stays in the box.
 
 /** @import { Door, QuestionView, ChoiceView, MarksView, GainView, SectionView } from "./types.ts" */
 /** @import { Children } from "./dom.js" */
@@ -22,7 +26,7 @@ import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { disclosure } from './disclosure.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
-import { keepDraft } from './drafts.js';
+import { keep, keepDraft, kept } from './drafts.js';
 import { turnStrip } from './turn.js';
 
 export class QuestionScreen {
@@ -47,15 +51,25 @@ export class QuestionScreen {
    * @param {Turn} turn the turn that led to the question
    */
   update(question, turn) {
+    this.element.dataset.version = String(question.version);
     this.turn.show(keyOf(turn), () => turnStrip(turn));
     // The first pick of a blind question changes the panel only: the reading keeps its folds.
-    const { text_html, context_html, sections, number, door, answerable } = question;
+    const { text_html, context_html, sections, number, door, answerable, revision } = question;
     const blind = question.recommendation !== 'shown';
-    this.reading.show(keyOf({ text_html, context_html, sections, number, door, blind, answerable }), () =>
+    this.reading.show(keyOf({ text_html, context_html, sections, number, door, blind, answerable, revision }), () =>
       reading(question),
     );
     this.panel.show(
-      keyOf([question.answerable, question.recommendation, question.choices, question.marks, question.gain, door]),
+      // The version too: the form answers it, and a revised question starts its pick over.
+      keyOf([
+        question.version,
+        question.answerable,
+        question.recommendation,
+        question.choices,
+        question.marks,
+        question.gain,
+        door,
+      ]),
       () => (question.answerable ? panel(question) : null),
     );
     this.citations.show(keyOf(question.citations), () => citationsSection(question.citations, question.number));
@@ -67,13 +81,37 @@ export class QuestionScreen {
  * reading to the choices.
  * @param {QuestionView} question */
 function reading(question) {
-  return questionReading(
-    { ...question, label: `question-${question.number}-label`, name: `Question ${question.number}` },
-    [
-      question.recommendation !== 'shown' ? h('span', { class: 'chip agent' }, 'Blind pick') : null,
-      question.answerable ? h('a', { class: 'choices-link', href: '#answer' }, 'Choices ↓') : null,
-    ],
+  const { revision } = question;
+  return [
+    ...(revision ? [revisionNotice(revision.reason_html)] : []),
+    ...questionReading(
+      { ...question, label: `question-${question.number}-label`, name: `Question ${question.number}` },
+      [
+        question.recommendation !== 'shown' ? h('span', { class: 'chip agent' }, 'Blind pick') : null,
+        question.answerable ? h('a', { class: 'choices-link', href: '#answer' }, 'Choices ↓') : null,
+      ],
+    ),
+  ];
+}
+
+/** "The agent revised this question after your message", and what changed and why.
+ * @param {string} reasonHtml */
+function revisionNotice(reasonHtml) {
+  const reason = h('div', { class: 'revision-reason' });
+  setRenderedMarkdown(reason, reasonHtml);
+  return h(
+    'div',
+    { class: 'revision', role: 'note' },
+    h('strong', {}, 'The agent revised this question after your message in the chat.'),
+    reason,
   );
+}
+
+/** The key of the comment typed for `version` of the question.
+ * @param {QuestionView} question
+ * @param {number} version */
+function draftKey(question, version) {
+  return `comment:${question.round ?? ''}:${question.id}:${version}`;
 }
 
 /**
@@ -128,7 +166,15 @@ function panel(question) {
   const picking = question.recommendation === 'hidden_until_pick';
   const revealed = question.recommendation === 'shown_after_pick';
   const door = question.door ? DOORS[question.door].name : 'This question';
-  const draft = `comment:${question.round ?? ''}:${question.id}:${question.version}`;
+  const draft = draftKey(question, question.version);
+  // A revised question keeps the comment typed for the version it replaced, under its own key,
+  // so that a second revision keeps it too.
+  const from = question.revision ? draftKey(question, question.revision.replaced_version) : null;
+  const replaced = from === null ? null : kept(from);
+  if (replaced !== null && kept(draft) === null) keep(draft, replaced);
+  const box = keepDraft(h('textarea', { class: 'comment', id: 'comment', name: 'comment', rows: 3 }), draft, '');
+  // The reviewer typing in the replaced version's box keeps the focus in this one.
+  if (from !== null) box.dataset.draftFrom = from;
   return h(
     'form',
     {
@@ -158,7 +204,7 @@ function panel(question) {
       'Comment',
       h('span', { class: 'optional' }, ' · optional'),
     ),
-    keepDraft(h('textarea', { class: 'comment', id: 'comment', name: 'comment', rows: 3 }), draft, ''),
+    box,
     question.marks ? gainLine(question.marks, question.gain) : null,
     h('button', { class: 'button primary block', type: 'submit' }, revealed ? 'Confirm answer' : 'Send answer'),
   );

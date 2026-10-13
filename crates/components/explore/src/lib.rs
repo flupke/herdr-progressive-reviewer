@@ -386,6 +386,17 @@ impl ExploreComponent {
             .is_some_and(|exploration| exploration.conclusion.is_some())
         {
             self.accept_conclusion();
+        } else if count > previous_count && self.revised() {
+            // The agent revised the open question from the round conversation: the reviewer may
+            // be writing an answer, which follows the new version, with the focus where it is.
+            if self.selected + 1 == previous_count {
+                self.selected = count - 1;
+                self.reveal.set(Some(Reveal::Start));
+                self.publish_evidence(self.view_id(), false);
+            } else if let Some(draft) = self.drafts.remove(&DraftKey::Question(previous_count - 1))
+            {
+                self.drafts.insert(DraftKey::Question(count - 1), draft);
+            }
         } else if count > previous_count {
             self.select(count - 1);
             if self.mode == ReviewNavigation::Explore {
@@ -439,6 +450,14 @@ impl ExploreComponent {
                     .publish(ui_events::ReviewPaneFocusRequested(self.durable.focus));
             }
         }
+    }
+
+    /// Whether the agent's latest turn revised the open question.
+    fn revised(&self) -> bool {
+        self.exploration
+            .as_ref()
+            .and_then(|exploration| exploration.conversation.last())
+            .is_some_and(|turn| turn.revision.is_some())
     }
 
     fn select(&mut self, index: usize) {

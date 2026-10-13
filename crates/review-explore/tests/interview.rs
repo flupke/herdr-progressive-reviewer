@@ -416,6 +416,8 @@ mod cancel;
 mod challenger;
 #[path = "interview/not_relevant.rs"]
 mod not_relevant;
+#[path = "interview/revision.rs"]
+mod revision;
 
 #[test]
 fn none_of_the_above_keeps_the_question_open_and_the_original_wording_intact() {

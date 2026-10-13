@@ -67,8 +67,17 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("question exploration");
+        // A version the agent revised waits for no answer: the revision carries its marks.
+        let revised = exploration.questions.get(index).is_some_and(|question| {
+            exploration.conversation.iter().any(|turn| {
+                turn.revision.is_some()
+                    && turn.update.next.as_ref().is_some_and(|newer| {
+                        newer.id == question.id && newer.version > question.version
+                    })
+            })
+        });
         for (position, turn) in exploration.conversation.iter().enumerate() {
-            if turn.update.next.as_ref() != exploration.questions.get(index) {
+            if turn.update.next.as_ref() != exploration.questions.get(index) || revised {
                 continue;
             }
             let request = &turn.update.request;
@@ -98,7 +107,14 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("reply exploration");
-        if let Some(reply) = &turn.update.reply {
+        // A revised question keeps the reply of the version it revised, which shows there.
+        if let Some(revision) = &turn.revision {
+            layout.labelled_prose(
+                "Revised after your message in the round conversation",
+                &revision.reason,
+                palette,
+            );
+        } else if let Some(reply) = &turn.update.reply {
             layout.labelled_prose("Agent", &reply.text, palette);
         }
         if let Some(design) = &turn.update.design {

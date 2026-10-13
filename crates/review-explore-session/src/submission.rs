@@ -14,7 +14,26 @@ impl ExploreSession {
             return;
         };
         if let Err(error) = self.authorize(&request.access) {
-            request.respond(Err(error.to_string()));
+            let revising = matches!(request.operation, Operation::ReviseQuestion(_));
+            let other_access = revising
+                && self.state.storage_error.is_none()
+                && !self.state.historical
+                && self.state.access != request.access;
+            request.respond(Err(if other_access {
+                // Each answer the reviewer sends renews the access.
+                "This is not the Explore review access of the round now. Use the one of your \
+                 latest Explore prompt, not the comments wakeup's. If you did, the round moved \
+                 on since that prompt: the reviewer answered, cancelled an answer or reopened. \
+                 Ask the new version in your next Explore turn"
+                    .into()
+            } else {
+                error.to_string()
+            }));
+            return;
+        }
+        if let Operation::ReviseQuestion(revision) = &request.operation {
+            let revision = (**revision).clone();
+            self.revise(request, &revision);
             return;
         }
         let update = match update_of(&request.operation) {
@@ -40,9 +59,63 @@ impl ExploreSession {
             .as_ref()
             .and_then(|question| round.exploration.question_number(question))
             .map(Into::into);
-        let (response, received) = std::sync::mpsc::channel();
+        Self::acknowledge(&self.events, request, applied, round, shown_as);
+    }
+
+    /// Saves the agent's `revision` of the open question, and shows it.
+    fn revise(&mut self, request: Request, revision: &review_explore::QuestionRevision) {
+        let committed = self.revised(revision);
+        let (applied, round) = match committed {
+            Ok(committed) => committed,
+            Err(error) => {
+                request.respond(Err(error));
+                return;
+            }
+        };
+        let shown_as = round
+            .exploration
+            .question_number(&revision.question)
+            .map(Into::into);
+        Self::acknowledge(&self.events, request, applied, round, shown_as);
+    }
+
+    /// Saves `revision` in the session's round; whether it changed the round, and the round
+    /// after it.
+    fn revised(
+        &mut self,
+        revision: &review_explore::QuestionRevision,
+    ) -> Result<(bool, ExploreRound), String> {
         if self
-            .events
+            .state
+            .round
+            .as_ref()
+            .is_none_or(|round| round.exploration.instance != revision.instance)
+        {
+            return Err("Explore revision belongs to another instance".into());
+        }
+        let super::records::Submitted { applied, round } = self
+            .rounds
+            .revise(
+                &revision.checkpoint.review_unit,
+                &revision.instance,
+                revision,
+            )
+            .map_err(|error| error.to_string())?;
+        self.state.round = Some(round.clone());
+        Ok((applied, round))
+    }
+
+    /// Shows the round `round` an accepted call left, and answers `request` once the reviewer
+    /// applied it.
+    fn acknowledge(
+        events: &component_core::ApplicationEventSender,
+        request: Request,
+        applied: bool,
+        round: ExploreRound,
+        shown_as: Option<review_types::QuestionNumber>,
+    ) {
+        let (response, received) = std::sync::mpsc::channel();
+        if events
             .send(ui_events::ExploreCommitted {
                 round: Arc::new(round),
                 applied,

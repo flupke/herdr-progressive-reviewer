@@ -69,6 +69,7 @@ pub(super) fn conclusion_response() -> TurnResponse {
                 .into(),
         ),
         path: None,
+        revision: None,
     }
 }
 

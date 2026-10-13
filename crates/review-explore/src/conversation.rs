@@ -13,6 +13,10 @@ pub struct Reply {
 pub struct ConversationTurn {
     pub answer: Option<String>,
     pub update: InterviewUpdate,
+    /// Why the agent revised the open question from the round conversation, for a turn that
+    /// did: it follows the same answer as the turn it revised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<crate::Revision>,
 }
 
 impl Exploration {

@@ -61,6 +61,11 @@ question whose Door is not two-way.
 - A topic's status is the reviewer's: the tools leave it out of their input, and a topic the
   agent sends keeps the status recorded for it, which only the interpretation of an answer
   changes. A settled topic cannot be rewritten.
+- A revised question (`revise_question`) is a turn of its own with no prompt behind it: it
+  follows the same answer as the turn it revises, and carries that turn's reply and review
+  marks, so the reviewer's answer applies those marks as it would have. Cancel answer drops
+  it with that turn. It takes the Explore access of the latest Explore prompt, since the
+  comments wakeup that brings the message carries the review threads' access.
 - Validation errors leave the request open for repair; transport retries must reuse the
   identical semantic payload (with current `review` access after reconnection). A response
   saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted

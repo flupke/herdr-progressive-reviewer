@@ -44,6 +44,17 @@ pub(crate) struct QuestionView {
     gain: Option<GainView>,
     /// Whether the page offers to answer: not in an earlier round.
     answerable: bool,
+    /// How the agent revised the question from the round conversation, when it did.
+    revision: Option<RevisionView>,
+}
+
+/// The notice above a question the agent revised from the round conversation.
+#[derive(Debug, Serialize, TS)]
+struct RevisionView {
+    /// What changed in the question and why.
+    reason_html: String,
+    /// The version it replaced, whose comment draft the answer's box takes over.
+    replaced_version: u32,
 }
 
 /// When the page shows the agent's recommendation for a question.
@@ -138,6 +149,7 @@ impl QuestionView {
             question,
             citations,
             marks,
+            response,
             ..
         } = &round.stage
         else {
@@ -161,7 +173,8 @@ impl QuestionView {
                 picked.as_deref(),
             )
             .answerable(!round.earlier)
-            .gain(round.tally.as_ref().and_then(|tally| tally.gain.as_ref())),
+            .gain(round.tally.as_ref().and_then(|tally| tally.gain.as_ref()))
+            .revised(response.revision.as_ref()),
         )
     }
 
@@ -231,7 +244,16 @@ impl QuestionView {
             marks: MarksView::new(marks),
             gain: None,
             answerable: true,
+            revision: None,
         }
+    }
+
+    fn revised(mut self, revision: Option<&crate::round::QuestionRevised>) -> Self {
+        self.revision = revision.map(|revision| RevisionView {
+            reason_html: markdown(&revision.reason, 2),
+            replaced_version: revision.replaced,
+        });
+        self
     }
 
     fn answerable(mut self, answerable: bool) -> Self {

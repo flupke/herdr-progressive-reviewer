@@ -65,6 +65,11 @@ export interface Session {
    * the question: the turn prepared for the answer's choice was not ready yet.
    */
   askNotPreparedQuestion(): Promise<void>;
+  /**
+   * The agent revises the open question from the round's conversation: `question`, a JSON
+   * `Question` of `review_explore` with a higher version, takes its place, with a fixed reason.
+   */
+  reviseQuestion(question: object): Promise<void>;
   /** The reviewer answers in the pane, and the agent works on its next turn. */
   answerInPane(): Promise<void>;
   /**
@@ -217,6 +222,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     askQuestion: (question?: object) => step('question', question),
     askPreparedQuestion: () => step('question-prepared'),
     askNotPreparedQuestion: () => step('question-not-prepared'),
+    reviseQuestion: (question: object) => step('revise', question),
     answerInPane: () => step('answer'),
     answerAfterFirstPick: () => step('answer-after-first-pick'),
     cancelAnswerInPane: () => step('cancel'),

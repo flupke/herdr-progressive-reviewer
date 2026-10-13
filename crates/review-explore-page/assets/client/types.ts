@@ -697,7 +697,11 @@ gain: GainView | null,
 /**
  * Whether the page offers to answer: not in an earlier round.
  */
-answerable: boolean, };
+answerable: boolean, 
+/**
+ * How the agent revised the question from the round conversation, when it did.
+ */
+revision: RevisionView | null, };
 export type QuizAnswerView = { 
 /**
  * The option's position, from 0, as a pick sends it.
@@ -811,6 +815,18 @@ revision: ShortRevision,
  * The first line of the change's description; empty when it has none.
  */
 title: string, };
+/**
+ * The notice above a question the agent revised from the round conversation.
+ */
+export type RevisionView = { 
+/**
+ * What changed in the question and why.
+ */
+reason_html: string, 
+/**
+ * The version it replaced, whose comment draft the answer's box takes over.
+ */
+replaced_version: number, };
 /**
  * What the page asks of the round.
  */

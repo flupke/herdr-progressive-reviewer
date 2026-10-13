@@ -39,15 +39,18 @@ impl Exploration {
             self.outstanding = None;
             self.retry = None;
         }
+        // The agent's turn after the answer, and the revisions of the question it asked.
         let answered = self
             .conversation
             .iter()
-            .position(|turn| turn.answer.as_deref() == Some(id));
-        let request = match answered {
-            Some(index) => Some(self.conversation.remove(index).update.request),
-            None => pending.as_ref().map(|request| request.request.clone()),
-        };
+            .find(|turn| turn.answer.as_deref() == Some(id))
+            .map(|turn| turn.update.request.clone());
+        let request = answered
+            .clone()
+            .or_else(|| pending.as_ref().map(|request| request.request.clone()));
         if answered.is_some() {
+            self.conversation
+                .retain(|turn| turn.answer.as_deref() != Some(id));
             self.replay();
         }
         // Answers cancelled earlier that only this request would have told the agent about.

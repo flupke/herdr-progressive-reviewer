@@ -50,6 +50,7 @@ pub(super) fn answer_response(number: usize) -> TurnResponse {
                 .into(),
         ),
         path: None,
+        revision: None,
     }
 }
 
@@ -70,6 +71,7 @@ fn closing_response() -> TurnResponse {
                 .into(),
         ),
         path: None,
+        revision: None,
     }
 }
 

@@ -41,7 +41,7 @@ pub use files::PageFiles;
 pub use page::{ExplorePage, PageEvent};
 pub use round::{
     Answered, AnsweredQuestion, ImplementationState, Interruption, LatestAnswer,
-    PageImplementation, PageQuiz, PageRound, PublishedRound, QuestionMarks, ReviewName, RoundFeed,
-    RoundPublisher, RoundStage, Rounds, SentAnswer, TurnResponse,
+    PageImplementation, PageQuiz, PageRound, PublishedRound, QuestionMarks, QuestionRevised,
+    ReviewName, RoundFeed, RoundPublisher, RoundStage, Rounds, SentAnswer, TurnResponse,
 };
 pub use socket::page_listener;

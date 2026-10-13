@@ -43,6 +43,7 @@ fn agent_turn(
 ) -> ConversationTurn {
     ConversationTurn {
         answer: answer.map(str::to_owned),
+        revision: None,
         update: serde_json::from_value(serde_json::json!({
             "instance": exploration.instance, "request": request,
             "checkpoint": exploration.comparison.checkpoint,
@@ -639,4 +640,106 @@ fn the_pane_follows_reset_on_the_page() {
         "the pane shows its start screen"
     );
     assert!(component.progress == Progress::Ready);
+}
+
+#[test]
+fn a_revised_question_takes_the_place_of_the_open_one_without_losing_the_answer_being_written() {
+    let round = asked_round();
+    let mut pane = Pane::showing(&round);
+    let component = pane.component();
+    component.editor = comment_editor::CommentEditor::new(
+        "Only with a test.",
+        &comment_editor::KeymapSetting::default(),
+    );
+    component.editing = true;
+    let mut revised = round.clone();
+    let second = Question {
+        version: 2,
+        text: "Keep the policy for each reader?".into(),
+        ..question("q1")
+    };
+    let mut turn = agent_turn(&revised.exploration, "revised", None, &second);
+    turn.revision = Some(review_explore::Revision {
+        message: "message".into(),
+        reason: "You said each reader keeps its own.".into(),
+    });
+    revised.exploration.conversation.push(turn);
+    revised.exploration.questions.push(second);
+    revised.revision += 1;
+    let (response, acknowledged) = std::sync::mpsc::channel();
+
+    let actions = pane
+        .bus
+        .publish(ExploreCommitted {
+            round: Arc::new(revised),
+            applied: true,
+            response,
+        })
+        .unwrap()
+        .into_iter()
+        .flat_map(component_core::DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+
+    assert_eq!(acknowledged.recv().unwrap(), Ok(true));
+    let component = pane.component();
+    assert_eq!(component.selected, 1);
+    assert!(component.editing);
+    assert_eq!(component.editor.text(), "Only with a test.");
+    assert!(actions.is_empty(), "{actions:?}");
+}
+
+#[test]
+fn a_revised_question_keeps_the_comment_left_on_it_while_the_reviewer_reads_another() {
+    let mut round = asked_round();
+    let mut pane = Pane::showing(&round);
+    let second = question("q2");
+    let turn = agent_turn(&round.exploration, "second", Some("answer"), &second);
+    round.exploration.conversation.push(turn);
+    round.exploration.questions.push(second.clone());
+    round.revision += 1;
+    let (response, _acknowledged) = std::sync::mpsc::channel();
+    pane.bus
+        .publish(ExploreCommitted {
+            round: Arc::new(round.clone()),
+            applied: true,
+            response,
+        })
+        .unwrap();
+    let component = pane.component();
+    component.editor = comment_editor::CommentEditor::new(
+        "Only with a test.",
+        &comment_editor::KeymapSetting::default(),
+    );
+    component.select(0);
+    let revised_question = Question {
+        version: 2,
+        ..second
+    };
+    let mut turn = agent_turn(
+        &round.exploration,
+        "revised",
+        Some("answer"),
+        &revised_question,
+    );
+    turn.revision = Some(review_explore::Revision {
+        message: "message".into(),
+        reason: "You said each reader keeps its own.".into(),
+    });
+    round.exploration.conversation.push(turn);
+    round.exploration.questions.push(revised_question);
+    round.revision += 1;
+    let (response, _acknowledged) = std::sync::mpsc::channel();
+
+    pane.bus
+        .publish(ExploreCommitted {
+            round: Arc::new(round),
+            applied: true,
+            response,
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert_eq!(component.selected, 0, "the reviewer stays where they read");
+    component.select(2);
+    assert_eq!(component.editor.text(), "Only with a test.");
 }

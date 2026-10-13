@@ -116,4 +116,7 @@ the review threads, which their owner publishes (`ThreadsPublisher`, `ThreadsFee
 it with the pane's thread commands (`ThreadSender`); the reviewer's side is in
 `crates/reviewer/src/runtime/page_threads.rs`. A message carries the identity the page chose
 for it, so that a repeat posts it once; it wakes the agent with the threads' usual prompt,
-which names the round and the question and says that it is no answer.
+which names the round and the question and says that it is no answer. When a message makes
+the open question wrong, the agent may post a revised question: the page shows it in place of
+the open one with the agent's reason above it, the pick starts over, and the comment typed for
+the version it replaced stays in the box, since a comment's draft is kept per version.

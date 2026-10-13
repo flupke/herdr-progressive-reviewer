@@ -19,3 +19,6 @@ bin/reviewer-control stats --since 2026-09-15 --until 2026-09-30
 
 - A retried turn keeps only the time of its last attempt, so the agent's time on a failed
   attempt counts as the reviewer's.
+- A revised question comes from the round conversation, with no prompt behind it: it adds no
+  agent turn, and the reviewer's answer to it has no answer time, since no turn record says
+  when the question was posted.

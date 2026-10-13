@@ -458,6 +458,7 @@ impl Exploration {
         self.conversation.push(ConversationTurn {
             answer: answer.as_ref().map(|answer| answer.id.clone()),
             update: update.clone(),
+            revision: None,
         });
         self.absorb(update, answer.as_ref());
         self.outstanding = None;

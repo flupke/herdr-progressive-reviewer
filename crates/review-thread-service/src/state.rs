@@ -451,7 +451,9 @@ impl State {
         access.current_agent(&*self.port)?;
         let book = self.load(&access.review_unit)?;
         match operation {
-            Operation::SubmitQuestion(_) | Operation::SubmitConclusion(_) => {
+            Operation::SubmitQuestion(_)
+            | Operation::SubmitConclusion(_)
+            | Operation::ReviseQuestion(_) => {
                 Err("Explore requests belong to the interview owner".into())
             }
             Operation::ListThreads => Ok(Response::Threads(book.threads().to_vec())),

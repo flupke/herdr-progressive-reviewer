@@ -218,6 +218,26 @@ impl SavedRounds {
         Ok(Submitted { applied, round })
     }
 
+    /// Saves the agent's `revision` of the open question of the round `instance`.
+    pub(crate) fn revise(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        revision: &review_explore::QuestionRevision,
+    ) -> Result<Submitted> {
+        let records = self.store.lock_explore(unit)?;
+        if records.history()?.is_historical(instance) {
+            return Err(historical_round_error());
+        }
+        let (applied, round) = records.update_round(instance, |round| {
+            round
+                .exploration
+                .revise(revision.clone())
+                .map_err(|error| error.to_string())
+        })?;
+        Ok(Submitted { applied, round })
+    }
+
     /// A started external call may complete after a reset. Only its result can change history.
     pub(crate) fn finish_dispatch(
         &self,

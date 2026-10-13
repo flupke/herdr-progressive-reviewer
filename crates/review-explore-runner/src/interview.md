@@ -203,7 +203,7 @@ Success means the reviewer validated and applied the turn. A validation error le
 request pending: repair what it reports and resubmit, preserving the reviewer's answer and
 decisions; a Previous response error section repeats the error of a failed attempt. After a
 transport failure retry identical arguments; a retry of an accepted turn returns applied:
-false. Once a call is accepted, end your turn with no recap: the reviewer reads the turn on
+false. Once submit_question or submit_conclusion is accepted, end your turn with no recap: the reviewer reads the turn on
 their screens, and the answer comes in a new prompt. If the tools are unavailable, say so in
 this conversation and stop.
 
@@ -214,7 +214,12 @@ thread attached to this round. Its messages come in a review comments wakeup tha
 round and, for each message, the question ID and version it was asked under, or the stage
 (design or conclusion), with any passage it quotes. A message is not an answer: the question
 stays open and its answer still comes in an Explore prompt. Answer it with the review threads'
-reply tool only, then end your turn; do not call submit_question or submit_conclusion for it, do
-not mark lines and do not edit code. A message posted while you work comes with its own
-wakeup. When the exchange changes what you would ask, say so in your reply, and post the
-clarified question as a higher version on your next Explore turn.
+reply tool, then end your turn; do not call submit_question or submit_conclusion for it, do not
+mark lines and do not edit code. A message posted while you work comes with its own wakeup.
+When a message makes the open question wrong, or settles it in the chat, call revise_question
+before you reply: it puts a higher version of that question in its place at once, with your
+reason above it. A question the chat settled asks the reviewer to confirm what you agreed, so
+one pick records the decision. The tool takes the Explore review access, round and checkpoint
+of your latest Explore prompt, not the access of the comments wakeup. The reviewer may have
+sent an answer meanwhile: the tool then refuses, and you ask the new version on your next
+Explore turn.

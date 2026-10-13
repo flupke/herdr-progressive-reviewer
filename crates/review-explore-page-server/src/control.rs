@@ -13,6 +13,8 @@
 //!   - `question-not-prepared`: the same, as a turn the agent took itself while run-ahead
 //!     watched the question, because the fork of the answer's choice had not finished, which
 //!     the page says;
+//!   - `revise`: the agent revises the open question from the round's conversation: the JSON
+//!     `Question` of the request's body, a higher version, takes its place, with a fixed reason;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
 //!   - `answer-after-first-pick`: the reviewer answers with the recommended choice (the first
 //!     one when none is) after a first pick of another choice, as on a blind question on the

@@ -138,6 +138,7 @@ struct TurnInput {
 enum AgentTool {
     SubmitQuestion,
     SubmitConclusion,
+    ReviseQuestion,
     Reply,
     GetThread,
     ListThreads,
@@ -149,6 +150,7 @@ impl AgentTool {
         match self {
             Self::SubmitQuestion => "submit_question",
             Self::SubmitConclusion => "submit_conclusion",
+            Self::ReviseQuestion => "revise_question",
             Self::Reply => "reply",
             Self::GetThread => "get_thread",
             Self::ListThreads => "list_threads",
@@ -166,7 +168,9 @@ struct ReplyInput {
     tool: AgentTool,
     /// The tool's arguments, as the reviewer's MCP tool takes them (examples in
     /// tests/tui/examples). The turn's access value (`review`), and its `instance`, `request` and
-    /// `checkpoint` (inside `update` for `submit_question`) are filled in unless given; an
+    /// `checkpoint` (inside `update` for `submit_question`) are filled in unless given;
+    /// `revise_question`, answering a comments turn, takes the access value, round and
+    /// checkpoint of the latest Explore turn, inside `revision`; an
     /// `interpretation` without an `answer` is about the answer the turn brought. Arguments with
     /// their own `review` are sent as they are, to check how the reviewer rejects them.
     arguments: serde_json::Map<String, Value>,

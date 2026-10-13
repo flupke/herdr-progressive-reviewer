@@ -498,3 +498,71 @@ fn cancelled_explore_access_rejects_submissions_without_changing_history() {
     assert_eq!(flow.exploration.conversation.len(), 1);
     flow.finish();
 }
+
+#[test]
+fn the_agent_revises_the_open_question_from_the_round_conversation() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let mut question = serde_json::to_value(flow.exploration.questions.last().unwrap()).unwrap();
+    question["version"] = 2.into();
+    question["text"] = "Keep resolved conversations resolved, now that readers rebuild?".into();
+    let revision = serde_json::json!({
+        "revision": {
+            "instance": flow.exploration.instance, "checkpoint": flow.exploration.comparison.checkpoint,
+            "message": "message-1", "reason": "You said readers rebuild the cache.",
+            "question": question,
+        }
+    });
+
+    let accepted = flow.call("revise_question", revision.clone());
+
+    assert_ne!(accepted.is_error, Some(true), "{accepted:?}");
+    let text = &accepted.content[0].as_text().unwrap().text;
+    assert!(
+        text.contains("\"applied\":true") && text.contains("\"shown_as\":\"Q1\""),
+        "{text}"
+    );
+    let revised = flow.exploration.conversation.last().unwrap();
+    assert_eq!(revised.revision.as_ref().unwrap().message, "message-1");
+    assert_eq!(flow.exploration.questions.last().unwrap().version, 2);
+    let retry = flow.call("revise_question", revision);
+    assert!(
+        retry.content[0]
+            .as_text()
+            .unwrap()
+            .text
+            .contains("\"applied\":false")
+    );
+    let before_answer = flow.access.clone();
+    flow.turn(
+        Some(AnswerInput {
+            option: Some("keep".into()),
+            text: "Only with a regression test.".into(),
+            ..Default::default()
+        }),
+        2,
+    );
+    assert_eq!(
+        flow.exploration.answers[0]
+            .question
+            .as_ref()
+            .unwrap()
+            .version,
+        2
+    );
+    // A revision written before the reviewer's answer reached the agent is refused, with why.
+    let mut late = serde_json::to_value(flow.exploration.questions.last().unwrap()).unwrap();
+    late["version"] = 2.into();
+    let current = std::mem::replace(&mut flow.access, before_answer);
+    let refused = flow.call(
+        "revise_question",
+        serde_json::json!({"revision": {
+            "instance": flow.exploration.instance, "checkpoint": flow.exploration.comparison.checkpoint,
+            "message": "message-2", "reason": "Too late.", "question": late,
+        }}),
+    );
+    flow.access = current;
+    assert_eq!(refused.is_error, Some(true));
+    let text = &refused.content[0].as_text().unwrap().text;
+    assert!(text.contains("next Explore turn"), "{text}");
+}

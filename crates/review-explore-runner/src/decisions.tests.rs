@@ -179,6 +179,7 @@ fn take_up(round: &mut Exploration, answer: &str) {
     .unwrap();
     round.conversation.push(review_explore::ConversationTurn {
         answer: Some(answer.into()),
+        revision: None,
         update,
     });
 }

@@ -165,6 +165,13 @@ thread reply. The round's first message starts it, and each round, including one
 started after a Reset, has its own. The Explore page calls its view of it the chat.
 _Avoid_: chat thread, agent chat (in the domain model), Explore turn
 
+**Revised question**:
+A higher version of the open question that the agent posts from the round
+conversation, when a message there made the question wrong, in place of the version
+the reviewer was about to answer. It says why above the question, and is possible only
+while no answer to the question is on its way.
+_Avoid_: replaced question, edited question, re-ask
+
 **Cancel answer**:
 Withdrawing the reviewer's latest answer in an Explore round, which returns the
 round to its state before that answer, including the review marks it led to.

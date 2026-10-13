@@ -22,8 +22,12 @@ impl ExploreSession {
         let Some(fork) = self.run_ahead.fork_with_access(&request.access).cloned() else {
             return Some(request);
         };
-        let result = crate::submission::update_of(&request.operation)
-            .and_then(|update| self.keep_fork_turn(&fork, update, &request.operation));
+        let result = if matches!(request.operation, Operation::ReviseQuestion(_)) {
+            Err("A fork answers its prompt with submit_question or submit_conclusion; it revises no question".into())
+        } else {
+            crate::submission::update_of(&request.operation)
+                .and_then(|update| self.keep_fork_turn(&fork, update, &request.operation))
+        };
         request.respond(result);
         None
     }

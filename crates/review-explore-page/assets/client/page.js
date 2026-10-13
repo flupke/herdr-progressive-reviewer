@@ -315,7 +315,9 @@ export class Page {
       this.question.clear();
       return;
     }
-    const key = keyOf([question.round, question.id, question.version, question.number]);
+    // A revised question keeps the screen: its parts follow the new version, and the comment box
+    // keeps the focus while the reviewer types.
+    const key = keyOf([question.round, question.id, question.number]);
     this.question.component(key, () => new QuestionScreen(question)).update(question, turnOf(view));
   }
 

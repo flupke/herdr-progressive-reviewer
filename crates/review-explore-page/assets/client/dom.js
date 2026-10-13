@@ -13,9 +13,10 @@
 //    spans as code, still as text nodes.
 // 4. A text box's value is set only when it is built, from the reviewer's draft (drafts.js), and
 //    never on a push. A rebuild that takes the focus from a text box gives it back to the text
-//    box of the same draft in the new nodes, with its selection; and one that takes it from a
-//    control marked with `data-focus-key` gives it back to the control of the same key, when
-//    that control can still act.
+//    box of the same draft in the new nodes, or of the draft that takes it over (its
+//    `data-draft-from`, as a revised question's comment), with its selection; and one that
+//    takes it from a control marked with `data-focus-key` gives it back to the control of the
+//    same key, when that control can still act.
 
 /**
  * @typedef {Record<string, string | number | boolean | null | undefined | EventListener>} Props
@@ -261,7 +262,10 @@ function keepingFocus(change) {
   const { selectionStart, selectionEnd, selectionDirection, scrollTop } = focused;
   change();
   if (focused.isConnected) return;
-  const again = document.querySelector(`textarea[data-draft="${CSS.escape(draft)}"]`);
+  const escaped = CSS.escape(draft);
+  const again =
+    document.querySelector(`textarea[data-draft="${escaped}"]`) ??
+    document.querySelector(`textarea[data-draft-from="${escaped}"]`);
   if (!(again instanceof HTMLTextAreaElement)) return;
   again.focus({ preventScroll: true });
   again.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? undefined);

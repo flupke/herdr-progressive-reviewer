@@ -31,6 +31,7 @@ mod not_relevant;
 mod overview;
 mod path_serde;
 mod quiz;
+mod revision;
 mod sections;
 mod source;
 mod start;
@@ -57,6 +58,7 @@ pub use overview::{
     QuizProgress, QuizStage, RailStep, RoundOverview, RoundStanding, Step, StepState, TabTitle,
 };
 pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
+pub use revision::{QuestionRevision, Revision};
 pub use sections::QuestionSection;
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 pub use start::StartBlock;

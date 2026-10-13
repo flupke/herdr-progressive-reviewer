@@ -117,6 +117,22 @@ fn a_turn_fills_the_identity_the_arguments_leave_out() {
 }
 
 #[test]
+fn a_revision_takes_the_round_and_checkpoint_of_the_turn() {
+    let identity = Identity::of(&sent(2, "wakeup")).unwrap();
+
+    let mut revision = json!({"revision": {"message": "m", "reason": "r", "question": {}}});
+    identity.fill("revise_question", &mut revision).unwrap();
+
+    assert_eq!(
+        revision,
+        json!({"review": "access-2", "revision": {
+            "instance": "round", "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
+            "message": "m", "reason": "r", "question": {},
+        }})
+    );
+}
+
+#[test]
 fn an_interpretation_is_about_the_turns_answer_unless_it_names_one() {
     let mut turn = sent(2, "wakeup");
     turn["answer"] = json!({"id": "answer-1"});

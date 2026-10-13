@@ -150,10 +150,12 @@ impl RoundSample {
 
     /// The words of the question and of the reply the same turn put above it.
     fn question_words(exploration: &Exploration, question: &Question) -> usize {
+        // A revised question repeats the reply of the version it revised.
         let reply = exploration
             .conversation
             .iter()
             .find(|turn| turn.update.next.as_ref() == Some(question))
+            .filter(|turn| turn.revision.is_none())
             .and_then(|turn| turn.update.reply.as_ref());
         reply.words() + question.words()
     }

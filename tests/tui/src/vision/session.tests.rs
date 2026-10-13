@@ -267,3 +267,44 @@ fn the_stand_in_agent_answers_a_review_comment_in_the_threads_tab() {
         .unwrap();
     assert!(screen.shows("Why this line?"), "{}", screen.text);
 }
+
+#[test]
+fn the_stand_in_agent_revises_the_open_question_in_the_pane() {
+    let (mut fixture, _) = Fixture::start();
+    let session = &mut fixture.session;
+    session.wait_for("math.rs", false, GUARD).unwrap();
+    let explore = session.screen(false).unwrap().locate("Explore").unwrap();
+    let start = session.act(&Input::Click(explore)).unwrap();
+    let in_the_pane = start.locate("Start in the pane").unwrap();
+    session.act(&Input::Click(in_the_pane)).unwrap();
+    session.next_turn(None, GUARD).unwrap();
+    let question: Value =
+        serde_json::from_str(include_str!("../../examples/question.json")).unwrap();
+    session
+        .reply(1, "submit_question", question["arguments"].clone())
+        .unwrap();
+    let mut revised = question["arguments"]["update"]["next"].clone();
+    revised["version"] = 2.into();
+    revised["text"] = "Should the helpers reject negative input?".into();
+
+    let (reply, _) = session
+        .reply(
+            1,
+            "revise_question",
+            serde_json::json!({"revision": {
+                "message": "message-1", "reason": "You said only positive input reaches them.",
+                "question": revised,
+            }}),
+        )
+        .unwrap();
+
+    assert_eq!(reply["isError"], false, "{reply}");
+    let screen = session
+        .wait_for("Should the helpers reject negative input?", false, GUARD)
+        .unwrap();
+    assert!(
+        screen.shows("Revised after your message"),
+        "{}",
+        screen.text
+    );
+}

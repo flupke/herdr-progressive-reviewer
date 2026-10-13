@@ -68,6 +68,7 @@ fn answer() -> ReviewerAnswer {
 fn turn(request: &str, answer: Option<&str>) -> review_explore::ConversationTurn {
     review_explore::ConversationTurn {
         answer: answer.map(str::to_owned),
+        revision: None,
         update: serde_json::from_value(serde_json::json!({
             "instance": "round", "request": request,
             "checkpoint": {"review_unit": "review", "checkpoint": "checkpoint"},
@@ -344,4 +345,50 @@ fn a_design_saved_before_theses_shows_each_first_paragraph_once_as_a_thesis() {
         let shown = rows.iter().filter(|row| row.contains(thesis)).count();
         assert_eq!(shown, times, "{thesis} in {rows:#?}");
     }
+}
+
+#[test]
+fn a_revised_question_says_why_the_agent_revised_it_instead_of_repeating_the_reply() {
+    let mut bus = ComponentEventBus::<Action>::new();
+    let target = bus.mount(|events| {
+        ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
+    });
+    let component = bus.get_mut::<ExploreComponent>(target).unwrap();
+    let mut exploration = exploration();
+    let question: review_explore::Question = serde_json::from_value(serde_json::json!({
+        "id": "q", "version": 2, "topic": "cache", "text": "Keep the cache per reader?",
+        "rationale": null, "visual": null, "assessments": null, "evidence": [],
+        "alternatives": [
+            {"id": "keep", "text": "Keep", "outcome": "accepted", "recommendation": null},
+            {"id": "drop", "text": "Drop", "outcome": "needs_follow_up", "recommendation": null}
+        ]
+    }))
+    .unwrap();
+    let mut revised = turn("revised", Some("answer"));
+    revised.update.next = Some(question.clone());
+    revised.update.reply = Some(review_explore::Reply {
+        text: "I checked the cache.".into(),
+        evidence: vec![],
+    });
+    revised.revision = Some(review_explore::Revision {
+        message: "message".into(),
+        reason: "You said each reader rebuilds it.".into(),
+    });
+    exploration.conversation.push(revised);
+    exploration.questions.push(question);
+    component.exploration = Some(exploration);
+    let palette = ui_theme::Theme::default().palette;
+    let mut layout = ConversationLayout::new(Rect::new(0, 0, 80, 60));
+
+    component.preceding_reply(0, &mut layout, palette);
+
+    let rows = rows(&layout);
+    shown_in_order(
+        &rows,
+        &["Revised after your message in the round conversation: You said each reader"],
+    );
+    assert!(
+        !rows.iter().any(|row| row.contains("I checked the cache")),
+        "{rows:#?}"
+    );
 }

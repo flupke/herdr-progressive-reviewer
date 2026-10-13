@@ -282,6 +282,8 @@ impl ExploreComponent {
         let agent = position.and_then(|position| {
             exploration.conversation[..=position]
                 .iter()
+                // A revised question came from the round conversation, not from a prompt.
+                .filter(|turn| turn.revision.is_none())
                 .try_fold(0u64, |total, turn| {
                     exploration
                         .agent_elapsed_ms

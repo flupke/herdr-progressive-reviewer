@@ -21,6 +21,7 @@ pub enum Operation {
     Reply(Post),
     SubmitQuestion(Box<review_explore::InterviewUpdate>),
     SubmitConclusion(Box<review_explore::ConclusionSubmission>),
+    ReviseQuestion(Box<review_explore::QuestionRevision>),
 }
 
 /// An in-process request from an MCP handler to the reviewer-owned service.
@@ -35,7 +36,10 @@ pub struct Request {
 impl Operation {
     /// Explore operations belong to the Explore session, not to review threads.
     pub fn belongs_to_explore(&self) -> bool {
-        matches!(self, Self::SubmitQuestion(_) | Self::SubmitConclusion(_))
+        matches!(
+            self,
+            Self::SubmitQuestion(_) | Self::SubmitConclusion(_) | Self::ReviseQuestion(_)
+        )
     }
 }
 

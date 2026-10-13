@@ -39,6 +39,13 @@
 .reveal.same { background: color-mix(in srgb, var(--good) 14%, transparent); }
 .reveal:focus { outline: none; }
 
+/* Above a question the agent revised from the chat: that it did, then what changed and why. */
+.revision { margin: 0 0 14px; padding: 10px 12px; border-radius: var(--radius); font-size: 15px;
+  background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.revision > strong { display: block; font-weight: 650; }
+.revision-reason > :first-child { margin-top: 4px; }
+.revision-reason > :last-child { margin-bottom: 0; }
+
 /* "COMMENT · optional", and a box that grows with the comment. */
 .answer .comment-label { margin-top: 2px; font-weight: 650; }
 .answer .comment-label .optional { font-weight: 400; letter-spacing: 0; text-transform: none; }

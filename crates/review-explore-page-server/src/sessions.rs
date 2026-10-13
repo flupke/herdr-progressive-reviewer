@@ -467,17 +467,7 @@ impl Session {
     /// is being sent.
     fn stage_after(&mut self, step: Step, question: Option<Question>) -> Option<RoundStage> {
         Some(match step {
-            Step::Question { path } => {
-                self.asked += 1;
-                self.concluded = false;
-                let mut stage = self.data.question_stage(self.asked, question);
-                if let RoundStage::Question { response, .. } = &mut stage {
-                    response.path = path.path();
-                }
-                self.latest_question = Some(stage.clone());
-                self.take_up_answers(&stage);
-                stage
-            }
+            Step::Question { .. } | Step::Revise => self.posted(step, question)?,
             Step::Cancel => self.question_after_cancel_answer()?,
             Step::Answer { .. } | Step::Kickoff => self.turn_after(step),
             Step::Prompt(outcome) => self.prompt_unworked(outcome),
@@ -492,6 +482,52 @@ impl Session {
             Step::Implement | Step::Deliver => self.implementation_stage(step)?,
             Step::Round(event) => self.after_round_event(event),
         })
+    }
+
+    /// The question the agent posts in `step`: its next one, or its revision of the latest;
+    /// `question`, or the data set's next question when `None`. `None` when the step revises no
+    /// question.
+    fn posted(&mut self, step: Step, question: Option<Question>) -> Option<RoundStage> {
+        let Step::Question { path } = step else {
+            return self.revised(question?);
+        };
+        self.asked += 1;
+        self.concluded = false;
+        let mut stage = self.data.question_stage(self.asked, question);
+        if let RoundStage::Question { response, .. } = &mut stage {
+            response.path = path.path();
+        }
+        self.latest_question = Some(stage.clone());
+        self.take_up_answers(&stage);
+        Some(stage)
+    }
+
+    /// The latest question, which the agent replaced with its version `question` from the
+    /// round's conversation; `None` when the round asks no question.
+    fn revised(&mut self, question: Question) -> Option<RoundStage> {
+        let mut stage = self.latest_question.clone()?;
+        let RoundStage::Question {
+            question: asked,
+            response,
+            ..
+        } = &mut stage
+        else {
+            return None;
+        };
+        *response = review_explore_page::TurnResponse {
+            revision: Some(review_explore_page::QuestionRevised {
+                reason: "You said the reviewer may keep **one draft per question**: the question \
+                         now asks where that draft lives."
+                    .into(),
+                replaced: asked.version,
+            }),
+            // The revision came from the round conversation, not from run-ahead.
+            path: None,
+            ..response.clone()
+        };
+        **asked = question;
+        self.latest_question = Some(stage.clone());
+        Some(stage)
     }
 
     /// The stage after `event`, outside the agent's turns.
@@ -799,6 +835,9 @@ pub(crate) enum PageChange {
 pub(crate) enum Step {
     /// The agent posts its next question, from a turn that took the path `path`.
     Question { path: RunAheadPath },
+    /// The agent revises the open question from the round's conversation: the question of the
+    /// step's body, a higher version, takes its place with a fixed reason.
+    Revise,
     /// The reviewer answered: the agent works on its next turn. The answer keeps the
     /// question's first choice, as one in the pane does; or, `after_first_pick`, the choice the
     /// agent recommends (its first choice when it recommends none) after a first pick of another
@@ -866,7 +905,7 @@ pub(crate) enum RoundEvent {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 20] = [
+    const NAMES: [(&str, Self); 21] = [
         (
             "question",
             Self::Question {
@@ -907,6 +946,7 @@ impl Step {
             "reopen-sending",
             Self::Prompt(PromptOutcome::ReopenedWhileSending),
         ),
+        ("revise", Self::Revise),
         ("cancel", Self::Cancel),
         ("interrupt", Self::Interrupt),
         ("conclude", Self::Conclude { quiz: false }),

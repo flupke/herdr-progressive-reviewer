@@ -234,6 +234,7 @@ impl ResponseView {
             interpretations: record.interpretation.iter().cloned().collect(),
             reply: record.reply.clone().filter(|text| !text.trim().is_empty()),
             path: None,
+            revision: None,
         })
     }
 

@@ -116,10 +116,21 @@ impl ScriptedAgent {
             "turn {turn} is stale; latest is {}",
             number(latest)
         );
+        // A revision answers the round conversation with the identity of the latest Explore
+        // turn, as the agent takes it from its latest Explore prompt.
+        let source = if tool == "revise_question" {
+            turns
+                .iter()
+                .rev()
+                .find(|turn| turn["kind"] != "comments" && turn["access"].is_string())
+                .context("no Explore turn to revise a question of")?
+        } else {
+            latest
+        };
         // A turn without an identity of its own takes a reply that brings one,
         // to check how the reviewer rejects it.
         if arguments.get("review").is_none() {
-            Identity::of(latest)?.fill(tool, &mut arguments)?;
+            Identity::of(source)?.fill(tool, &mut arguments)?;
         }
         self.post(&json!({
             "jsonrpc": "2.0",
@@ -213,6 +224,20 @@ impl Identity {
                 .as_object_mut()
                 .context("submit_question needs an update object")?,
             "submit_conclusion" => object,
+            "revise_question" => {
+                let revision = object
+                    .entry("revision")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .context("revise_question needs a revision object")?;
+                revision
+                    .entry("instance")
+                    .or_insert_with(|| self.round.clone());
+                revision
+                    .entry("checkpoint")
+                    .or_insert_with(|| self.checkpoint.clone());
+                return Ok(());
+            }
             _ => return Ok(()),
         };
         self.fill_turn(fields);

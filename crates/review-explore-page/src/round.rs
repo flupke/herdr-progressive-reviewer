@@ -362,6 +362,17 @@ pub struct TurnResponse {
     /// turn while the reviewer thought about the answer and the agent continued as it, or the
     /// agent took it itself, and why.
     pub path: Option<TurnPath>,
+    /// How the turn revised the question from the round conversation, when it did.
+    pub revision: Option<QuestionRevised>,
+}
+
+/// The agent's new version of the open question, posted from the round conversation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct QuestionRevised {
+    /// What changed in the question and why, in Markdown.
+    pub reason: String,
+    /// The version the revision replaced.
+    pub replaced: u32,
 }
 
 impl TurnResponse {
@@ -384,6 +395,18 @@ impl TurnResponse {
                 .map(|reply| reply.text.clone())
                 .filter(|text| !text.trim().is_empty()),
             path: None,
+            revision: turn.revision.as_ref().and_then(|revision| {
+                let question = turn.update.next.as_ref()?;
+                let replaced = exploration
+                    .questions
+                    .iter()
+                    .take_while(|posted| *posted != question)
+                    .last()?;
+                Some(QuestionRevised {
+                    reason: revision.reason.clone(),
+                    replaced: replaced.version,
+                })
+            }),
         }
     }
 
