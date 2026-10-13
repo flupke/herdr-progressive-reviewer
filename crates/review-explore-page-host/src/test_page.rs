@@ -23,6 +23,7 @@ pub(crate) fn published(id: &str) -> PublishedRound<'_> {
         review_unit: &REVIEW,
         design: None,
         changed_files: 0,
+        author: review_explore::ChangeAuthor::Reviewer,
         cancellable: None,
         earlier: false,
         overview: &OVERVIEW,

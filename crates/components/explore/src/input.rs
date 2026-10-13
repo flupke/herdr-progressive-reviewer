@@ -59,6 +59,10 @@ impl ExploreComponent {
     pub(super) fn setting(&mut self, setting: ExploreSettingShortcut) -> Vec<Action> {
         self.editing = false;
         match setting {
+            ExploreSettingShortcut::Whose => {
+                self.turn_over_whose();
+                Vec::new()
+            }
             ExploreSettingShortcut::WritingStyle => self.round_settings.toggle_writing(),
             ExploreSettingShortcut::RunAhead => self.round_settings.cycle_run_ahead(),
             ExploreSettingShortcut::Page(setting) => {

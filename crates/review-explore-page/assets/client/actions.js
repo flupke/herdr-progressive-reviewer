@@ -42,6 +42,8 @@ const CALLS = {
     params: {
       challenger: submitter instanceof HTMLButtonElement && submitter.value === 'true',
       start: text(data, 'start'),
+      others: optional(data, 'whose') === 'others',
+      reviewer: optional(data, 'reviewer') ?? '',
     },
   }),
   stop: ({ data }) => ({

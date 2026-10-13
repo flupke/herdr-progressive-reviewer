@@ -1,5 +1,5 @@
 //! Human-readable wakeups; full questions and answers remain in reviewer history.
-use review_explore::{ReviewerAnswer, TopicStatus, TurnRequest};
+use review_explore::{ChangeAuthor, ReviewerAnswer, TopicStatus, TurnRequest};
 use std::{fmt, path::Path};
 
 pub(super) struct TurnInput<'a> {
@@ -18,6 +18,11 @@ pub(super) struct Kickoff<'a> {
     pub(super) repository_root: &'a Path,
     pub(super) description: Option<&'a str>,
     pub(super) decisions: &'a crate::EarlierDecisions,
+    /// Who wrote the change, and the reviewer's name when they gave one.
+    pub(super) author: ChangeAuthor,
+    pub(super) reviewer: Option<&'a str>,
+    /// What the reviewer asks of every round.
+    pub(super) notes: Option<&'a str>,
 }
 
 /// Text quoted line by line, so none of its lines can pass for a field of
@@ -63,6 +68,16 @@ impl fmt::Display for Kickoff<'_> {
                 )?;
             }
             None => writeln!(output, "\nChange description: none")?,
+        }
+        if self.author == ChangeAuthor::Other {
+            writeln!(output, "\nChange author: someone else")?;
+            if let Some(reviewer) = self.reviewer {
+                // One line: the round keeps the first line of what the reviewer typed.
+                writeln!(output, "Reviewer: {reviewer}")?;
+            }
+        }
+        if let Some(notes) = self.notes {
+            write!(output, "\nReviewer notes (quoted):\n{}", Quoted(notes))?;
         }
         write!(output, "{}", self.decisions)
     }

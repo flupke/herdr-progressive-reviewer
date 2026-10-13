@@ -72,7 +72,8 @@
 //! - `GET /test/sessions/{token}/diagram-errors` lists the diagram errors the session's page
 //!   reported, each once: `[{"question", "version", "source", "message"}]`.
 //! - `GET /test/sessions/{token}/starts` lists the rounds the reviewer started from the page,
-//!   in order: `[{"challenger"}]`.
+//!   in order: `[{"challenger"}]`, with `"others": true` and the reviewer's `"reviewer"` name for
+//!   someone else's change.
 //! - `GET /test/sessions/{token}/implementations` lists the lists to be implemented that the
 //!   reviewer sent from the page, in order.
 //! - `GET /test/sessions/{token}/actions` lists, by name and in order, the other actions the

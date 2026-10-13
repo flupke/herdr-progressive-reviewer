@@ -223,7 +223,10 @@ fn a_round_started_from_the_page_waits_for_jev_to_mark_what_it_dismisses(kind: R
         .explore_inbox()
         .deliver(review_explore_session::Input::Page {
             command: review_explore_page::PageCommand::Start {
-                challenger: true,
+                choices: review_explore::RoundChoices {
+                    challenger: true,
+                    ..review_explore::RoundChoices::default()
+                },
                 start,
             },
             reply,

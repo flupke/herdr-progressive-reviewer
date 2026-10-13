@@ -254,8 +254,9 @@ function keepingFocus(change) {
     if (again instanceof HTMLElement && !again.matches(':disabled')) again.focus({ preventScroll: true });
     return;
   }
-  const draft = focused instanceof HTMLTextAreaElement ? focused.dataset.draft : undefined;
-  if (!draft || !(focused instanceof HTMLTextAreaElement)) {
+  const typed = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement;
+  const draft = typed ? focused.dataset.draft : undefined;
+  if (!draft || !typed) {
     change();
     return;
   }
@@ -264,9 +265,9 @@ function keepingFocus(change) {
   if (focused.isConnected) return;
   const escaped = CSS.escape(draft);
   const again =
-    document.querySelector(`textarea[data-draft="${escaped}"]`) ??
-    document.querySelector(`textarea[data-draft-from="${escaped}"]`);
-  if (!(again instanceof HTMLTextAreaElement)) return;
+    document.querySelector(`[data-draft="${escaped}"]`) ??
+    document.querySelector(`[data-draft-from="${escaped}"]`);
+  if (!(again instanceof HTMLTextAreaElement || again instanceof HTMLInputElement)) return;
   again.focus({ preventScroll: true });
   again.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? undefined);
   again.scrollTop = scrollTop;

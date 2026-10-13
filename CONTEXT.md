@@ -240,6 +240,20 @@ comment box, and is part of the answer only once the reviewer confirms it. Also 
 first pick.
 _Avoid_: initial answer, draft choice
 
+**Someone else's change**:
+An Explore round on a change the reviewer did not write, as the reviewer says at Start
+on the Explore page or on the pane's start screen. The reviewer first learns the change,
+then reviews it for its author: every question offers Ask the author, which leaves the
+decision to the author, and the conclusion's list is the review to post, which Post
+review, in place of Implement, asks the agent to post on the change's pull request. On
+the page, the reviewer may give their name, which the kickoff carries.
+_Avoid_: external change, foreign change, PR mode
+
+**Reviewer notes**:
+What the reviewer asks of every Explore round, written in a file beside the reviewer's
+settings, which each kickoff quotes.
+_Avoid_: custom instructions, preferences
+
 **Decision**:
 A question the reviewer answered in an Explore round, with the answer kept (the latest
 answer to the question's latest version): its choice, or its comment when it has no

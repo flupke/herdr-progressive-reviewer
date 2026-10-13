@@ -266,3 +266,19 @@ fn a_saved_run_ahead_is_read_back_and_keeps_the_writing_style() {
     );
     assert_eq!(settings.writing, WritingStyle::Plain);
 }
+
+#[test]
+fn the_reviewer_notes_are_the_file_beside_the_settings_unless_it_is_missing_or_blank() {
+    let fixture = Fixture::new();
+    assert_eq!(fixture.store().explore_reviewer_notes().unwrap(), None);
+    let notes = fixture.state.join("explore-reviewer-notes.md");
+    fs::write(&notes, " \n\n").unwrap();
+    assert_eq!(fixture.store().explore_reviewer_notes().unwrap(), None);
+
+    fs::write(&notes, "Name commits by their subject.\n").unwrap();
+
+    assert_eq!(
+        fixture.store().explore_reviewer_notes().unwrap().as_deref(),
+        Some("Name commits by their subject.\n")
+    );
+}

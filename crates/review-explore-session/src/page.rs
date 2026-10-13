@@ -122,6 +122,7 @@ impl ExploreSession {
                 review_unit: &round.exploration.comparison.checkpoint.review_unit,
                 design: round.exploration.design(),
                 changed_files: round.exploration.comparison.files.len(),
+                author: round.exploration.author,
                 cancellable: cancellable.as_ref(),
                 earlier: self.state.historical,
                 overview,
@@ -176,8 +177,8 @@ impl ExploreSession {
             }
             // A reviewer's worker calls `start_from_page` itself, so that Jev marks before the
             // kickoff: this sends the kickoff at once.
-            PageCommand::Start { challenger, start } => {
-                if let Some(kickoff) = self.start_from_page(challenger, &start, reply) {
+            PageCommand::Start { choices, start } => {
+                if let Some(kickoff) = self.start_from_page(choices, &start, reply) {
                     let _ = self.deliver_turn(kickoff, None);
                 }
             }

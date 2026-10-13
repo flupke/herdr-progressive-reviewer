@@ -579,6 +579,7 @@ mod explore_page {
                 review_unit: &review,
                 design: None,
                 changed_files: 0,
+                author: review_explore::ChangeAuthor::Reviewer,
                 cancellable: None,
                 earlier: false,
                 overview: &overview,

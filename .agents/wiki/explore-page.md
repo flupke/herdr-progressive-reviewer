@@ -35,7 +35,7 @@ opens again with it.
 
 | State of the pane's Explore tab | Pane action | On the page (`RoundStage`) |
 | --- | --- | --- |
-| No round | Start, Start with Challenger | Start, Start with Challenger (`NoRound`) |
+| No round | Whose change (`a`: mine, or someone else's), then Start, Start with Challenger | Whose change (mine, or someone else's with the reviewer's name), then Start, Start with Challenger (`NoRound`) |
 | The latest start failed | Retry, which starts again | The reason, and Start again (`StartFailed`) |
 | Capturing the change, waiting for a start from the page, or a kickoff waiting for Jev | Stop waiting | Stop waiting (`Starting`) |
 | Stopped while capturing | None: waits for the capture to end | `Starting`, then `NoRound` |

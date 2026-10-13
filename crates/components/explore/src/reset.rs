@@ -62,6 +62,9 @@ impl ExploreComponent {
         let page_settings = std::mem::take(&mut self.page_settings);
         let round_settings = std::mem::take(&mut self.round_settings);
         let start_block = self.start_block;
+        // The reviewer says whose change it is once for the pane, as the page keeps it for its
+        // tab.
+        let author = self.author;
         *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
         self.mode = mode;
         self.durable.enabled = enabled;
@@ -69,6 +72,7 @@ impl ExploreComponent {
         self.page_settings = page_settings;
         self.round_settings = round_settings;
         self.start_block = start_block;
+        self.author = author;
     }
 
     fn can_reset(&self) -> bool {

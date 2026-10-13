@@ -17,6 +17,38 @@ pub enum TopicStatus {
     NeedsFollowUp,
 }
 
+/// Who wrote the change a round reviews, as the reviewer says when the round starts.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeAuthor {
+    /// The reviewer: the review settles the reviewer's own decisions, and Implement makes the
+    /// agreed changes.
+    #[default]
+    Reviewer,
+    /// Someone else: the reviewer learns the change and reviews it for its author, every
+    /// question can be left to the author, and Post review posts the review.
+    Other,
+}
+
+impl ChangeAuthor {
+    /// Whether the reviewer wrote the change, which a saved round leaves out.
+    pub fn is_reviewer(&self) -> bool {
+        *self == Self::Reviewer
+    }
+
+    /// Changes to the other author.
+    pub fn toggle(&mut self) {
+        *self = match self {
+            Self::Reviewer => Self::Other,
+            Self::Other => Self::Reviewer,
+        };
+    }
+}
+
+/// The choice every question of a review of someone else's change offers: the reviewer leaves
+/// the decision to the change's author, and asks them.
+pub const ASK_AUTHOR: &str = "ask-author";
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Topic {
@@ -197,6 +229,13 @@ pub struct TurnRequest {
     /// The round has a challenger, so the prompt carries its script.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub challenger: bool,
+    /// Who wrote the change, as the round started with it.
+    #[serde(default, skip_serializing_if = "ChangeAuthor::is_reviewer")]
+    pub author: ChangeAuthor,
+    /// The reviewer's name, when the reviewer gave one at the start of a review of someone
+    /// else's change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
     /// How the agent writes the texts the reviewer reads, as the round started with it.
     #[serde(
         default = "before_writing_styles",
@@ -242,6 +281,13 @@ pub struct Exploration {
     /// A fresh-context subagent of the agent reviews the change beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub challenger: bool,
+    /// Who wrote the change, as the reviewer said when the round started.
+    #[serde(default, skip_serializing_if = "ChangeAuthor::is_reviewer")]
+    pub author: ChangeAuthor,
+    /// The reviewer's name, when the reviewer gave one at the start of a review of someone
+    /// else's change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
     /// How the agent writes the texts the reviewer reads. The reviewer's setting gives it when
     /// the round starts, and the round keeps it.
     #[serde(
@@ -276,6 +322,8 @@ impl Exploration {
             retry: None,
             cancelled: Vec::new(),
             challenger: false,
+            author: ChangeAuthor::Reviewer,
+            reviewer: None,
             writing: before_writing_styles(),
             diagram_errors: Vec::new(),
             quiz_answers: BTreeMap::new(),
@@ -343,6 +391,8 @@ impl Exploration {
             cancelled,
             response_error: None,
             challenger: self.challenger,
+            author: self.author,
+            reviewer: self.reviewer.clone(),
             writing: self.writing,
         };
         self.outstanding = Some(request.clone());

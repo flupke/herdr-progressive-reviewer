@@ -15,6 +15,10 @@ export interface SentAnswer {
 /** A round the reviewer started from the page, as the session received it. */
 export interface SentStart {
   challenger: boolean;
+  /** Whether someone else wrote the change; left out when not. */
+  others?: true;
+  /** The reviewer's name, for someone else's change; left out when none. */
+  reviewer?: string;
 }
 
 /** What the reviewer answered of a conclusion's quiz, as the review tool saves it. */

@@ -165,6 +165,12 @@ pub(crate) struct PostedAnswer {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SentStart {
     challenger: bool,
+    /// Whether someone else wrote the change; left out when not.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    others: bool,
+    /// The reviewer's name, for someone else's change; left out when none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reviewer: Option<String>,
 }
 
 impl Session {
@@ -213,6 +219,12 @@ impl Session {
             review_unit: &review,
             design: (self.asked > 0).then_some(&design),
             changed_files: self.data.change().0.len(),
+            // The latest start from the page says who wrote the change.
+            author: if self.starts.last().is_some_and(|start| start.others) {
+                review_explore::ChangeAuthor::Other
+            } else {
+                review_explore::ChangeAuthor::Reviewer
+            },
             cancellable: self.answered.last(),
             earlier: self.earlier,
             overview: &overview,
@@ -836,8 +848,12 @@ impl Session {
                     self.diagram_errors.push(error);
                 }
             }
-            PageCommand::Start { challenger, start } => {
-                self.starts.push(SentStart { challenger });
+            PageCommand::Start { choices, start } => {
+                self.starts.push(SentStart {
+                    challenger: choices.challenger,
+                    others: choices.author == review_explore::ChangeAuthor::Other,
+                    reviewer: choices.reviewer,
+                });
                 self.publish(RoundStage::Starting {
                     start,
                     started_at_ms: Some(self.clock.now_ms()),

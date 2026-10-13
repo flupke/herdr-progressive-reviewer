@@ -102,6 +102,9 @@ struct Settings {
     explore_round: ExploreRoundSettings,
 }
 
+/// The file beside the settings that holds what the reviewer asks of every Explore round.
+const EXPLORE_REVIEWER_NOTES: &str = "explore-reviewer-notes.md";
+
 /// Review state for one canonical repository.
 #[derive(Clone, Debug)]
 pub struct ReviewStore {
@@ -392,6 +395,21 @@ impl ReviewStore {
             source,
         })?;
         Ok(lock)
+    }
+
+    /// What the reviewer asks of every Explore round, from `explore-reviewer-notes.md` beside
+    /// the settings; `None` when the file is missing or blank.
+    pub fn explore_reviewer_notes(&self) -> Result<Option<String>> {
+        let path = self.state_root.join(EXPLORE_REVIEWER_NOTES);
+        match std::fs::read_to_string(&path) {
+            Ok(notes) => Ok(Some(notes).filter(|notes| !notes.trim().is_empty())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(Error::StateIo {
+                operation: "read the Explore reviewer notes",
+                path,
+                source,
+            }),
+        }
     }
 
     fn settings_path(&self) -> PathBuf {

@@ -251,6 +251,7 @@ impl Exploration {
                 choice.id
             );
         }
+        self.validate_ask_author(question)?;
         if let Some(assessments) = &question.assessments {
             assessments.validate(comparison)?;
         }
@@ -286,6 +287,20 @@ impl Exploration {
             status == Some(TopicStatus::Open)
                 || agenda.is_some_and(|change| change.action == AgendaAction::Reconsider),
             "Agent cannot reopen a settled topic without reconsidering it"
+        );
+        Ok(())
+    }
+
+    /// A question about someone else's change can be left to its author.
+    fn validate_ask_author(&self, question: &Question) -> eyre::Result<()> {
+        eyre::ensure!(
+            self.author == crate::ChangeAuthor::Reviewer
+                || question.alternatives.iter().any(|choice| {
+                    choice.id == crate::ASK_AUTHOR && choice.outcome == TopicStatus::Open
+                }),
+            "In a review of someone else's change, every question offers the choice \"{}\", \
+             with outcome open: \"Ask the author: \" and the question to ask them",
+            crate::ASK_AUTHOR
         );
         Ok(())
     }

@@ -127,6 +127,7 @@ class Panel {
    * @param {string | null} reset
    */
   update(conclusion, reset) {
+    this.element.setAttribute('aria-label', listName(conclusion));
     const quiz = conclusion.quiz;
     this.banner.show(keyOf(quiz), () => (quiz ? quizScore(quiz, { href: quizItem(1), words: 'See the answers' }) : null));
     const card = conclusion.implementation_card;
@@ -139,6 +140,12 @@ class Panel {
         : h('button', { class: 'chat-opener', type: 'button', 'aria-controls': 'chat', onclick: () => requestChat() }, reply),
     );
   }
+}
+
+/** The list's name: the tasks to implement, or the review of someone else's change to post.
+ * @param {ConclusionView} conclusion */
+function listName(conclusion) {
+  return conclusion.posts_review ? 'Review to post' : 'To be implemented';
 }
 
 /**
@@ -154,7 +161,7 @@ function list(conclusion, reset) {
     case 'editable':
       return implementForm(conclusion, null, 'primary');
     case 'draft':
-      return [h('p', { class: 'eyebrow' }, 'To be implemented'), listBlock(markdown(shown.html), false)];
+      return [h('p', { class: 'eyebrow' }, listName(conclusion)), listBlock(markdown(shown.html), false)];
     case 'request':
       if (!implementation) return [];
       return [
@@ -219,7 +226,7 @@ function savedList(implementation, label, settled) {
 function implementForm(conclusion, label, tier) {
   const replaces = conclusion.implementation?.delivery ?? null;
   const box = keepDraft(
-    h('textarea', { class: 'tasks', name: 'text', 'aria-label': 'To be implemented' }),
+    h('textarea', { class: 'tasks', name: 'text', 'aria-label': listName(conclusion) }),
     `implement:${conclusion.request}:${replaces ?? ''}`,
     conclusion.draft,
   );
@@ -234,10 +241,16 @@ function implementForm(conclusion, label, tier) {
     { class: 'implement', 'data-method': 'implement', 'data-requires': label === null ? 'text' : null },
     h('input', { type: 'hidden', name: 'conclusion', value: conclusion.request }),
     replaces !== null ? h('input', { type: 'hidden', name: 'replaces', value: replaces }) : null,
-    label === null ? h('p', { class: 'eyebrow' }, 'To be implemented') : null,
+    label === null ? h('p', { class: 'eyebrow' }, listName(conclusion)) : null,
     box,
-    h('p', { class: 'hint' }, 'Implement asks the agent to implement this list, and nothing else.'),
-    h('button', { class: `button ${tier} block`, type: 'submit' }, label ?? 'Implement'),
+    h(
+      'p',
+      { class: 'hint' },
+      conclusion.posts_review
+        ? "Post review asks the agent to post this review on the change's pull request, and nothing else."
+        : 'Implement asks the agent to implement this list, and nothing else.',
+    ),
+    h('button', { class: `button ${tier} block`, type: 'submit' }, label ?? (conclusion.posts_review ? 'Post review' : 'Implement')),
   );
   grow();
   return form;

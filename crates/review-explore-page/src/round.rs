@@ -521,6 +521,8 @@ pub struct PublishedRound<'a> {
     pub design: Option<&'a Design>,
     /// How many files the round's change touches, which the design's meta line counts.
     pub changed_files: usize,
+    /// Who wrote the change: for someone else's, the conclusion's list is the review to post.
+    pub author: review_explore::ChangeAuthor,
     /// The reviewer's latest answer, while the reviewer may cancel it.
     pub cancellable: Option<&'a LatestAnswer>,
     /// Whether the round is an earlier one: a newer round of the review was saved since, by
@@ -572,6 +574,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) design: Option<Arc<Design>>,
     /// How many files the round's change touches.
     pub(crate) changed_files: usize,
+    /// Who wrote the change.
+    pub(crate) author: review_explore::ChangeAuthor,
     /// The reviewer's latest answer, while the reviewer may cancel it.
     pub(crate) cancellable: Option<LatestAnswer>,
     /// Whether the round is an earlier one, which the reviewer can only Reset.
@@ -745,6 +749,7 @@ impl RoundSnapshot {
             review_unit: round.map(|round| round.review_unit.clone()),
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             changed_files: round.map_or(0, |round| round.changed_files),
+            author: round.map(|round| round.author).unwrap_or_default(),
             cancellable: round.and_then(|round| round.cancellable.cloned()),
             earlier: round.is_some_and(|round| round.earlier),
             overview: round.map(|round| Arc::new(round.overview.clone())),

@@ -130,6 +130,12 @@ pub(crate) struct PickParams {
 pub(crate) struct StartParams {
     /// Whether the Challenger reviews the change beside the agent.
     pub(crate) challenger: bool,
+    /// Whether someone else wrote the change.
+    #[serde(default)]
+    pub(crate) others: bool,
+    /// The reviewer's name, as typed, for someone else's change.
+    #[serde(default)]
+    pub(crate) reviewer: String,
     /// The identity of the start the page offered.
     pub(crate) start: String,
 }

@@ -190,6 +190,9 @@ pub enum ExploreStartShortcut {
 /// The Explore settings that the pane changes: the next round's and the Explore page's.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreSettingShortcut {
+    /// Turn over whose change the round started from the start screen reviews: the reviewer's
+    /// or someone else's.
+    Whose,
     /// Turn over the writing style of the next round.
     WritingStyle,
     /// Change which choices run-ahead prepares: off, the recommended one, every one.

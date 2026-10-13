@@ -37,6 +37,14 @@
 .start { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; }
 .start-choice { display: grid; gap: 8px; align-content: start; }
 .start-choice .hint { margin: 0; }
+/* Whose change: across the start form, above its buttons. */
+.start-whose { grid-column: 1 / -1; display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
+.start-whose legend { padding: 0; margin-bottom: 4px; }
+.start-whose-option { display: flex; gap: 8px; align-items: center; }
+.start-name { display: grid; gap: 4px; margin-top: 4px; }
+.start-name[hidden] { display: none; }
+.start-name input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--canvas); color: inherit; max-width: 24rem; }
 /* Both start buttons have the height of the primary one, side by side. */
 .start .button { min-height: 44px; }
 @media (max-width: 40rem) {

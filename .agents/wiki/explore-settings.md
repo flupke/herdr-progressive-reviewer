@@ -15,6 +15,9 @@ Where the settings of Explore rounds and of the Explore page are saved, and when
 - No setting needs the reviewer to be reopened. Another reviewer that is already open does
   not see a change at once: it keeps its own settings, and network access as it was, until
   it is reopened or saves a change of its own; then it applies the saved settings.
+- What the reviewer asks of every round is `explore-reviewer-notes.md` beside the settings,
+  which the reviewer edits with any editor: each kickoff quotes it as the reviewer's notes, and
+  a missing or blank file adds nothing.
 - [Run-ahead](run-ahead.md) says what run-ahead costs and needs.
 - [Explore page: network and tunnel](explore-page-sharing.md) says what the network
   listener and the tunnel expose.

@@ -1,7 +1,9 @@
 //! One interview question at a time, with retained history and native evidence windows.
 use comment_editor::{CommentEditor, KeymapSetting};
 use component_core::{Component, ComponentSubscriptions, EventPublisher};
-use review_explore::{AnswerInput, Command, Exploration, Question, RoundFront};
+use review_explore::{
+    AnswerInput, ChangeAuthor, Command, Exploration, Question, RoundChoices, RoundFront,
+};
 use review_explore_page_settings::PaneStarts;
 use std::{
     cell::{Cell, RefCell},
@@ -141,6 +143,8 @@ pub struct ExploreComponent {
     reset: reset::ResetConfirmation,
     /// The round being started has a challenger.
     challenger: bool,
+    /// Who wrote the change of the round started from the start screen.
+    author: ChangeAuthor,
     /// The round being started opens its Explore page once its change is captured.
     open_page: bool,
     /// The settings of the Explore page, which the pane changes.
@@ -201,6 +205,7 @@ impl ExploreComponent {
             progress: Progress::Ready,
             reset: reset::ResetConfirmation::default(),
             challenger: false,
+            author: ChangeAuthor::Reviewer,
             open_page: false,
             page_settings: page_settings::PageSettings::default(),
             round_settings: round_settings::RoundSettings::default(),
@@ -291,7 +296,8 @@ impl ExploreComponent {
         match &event.result {
             Ok(comparison) => {
                 let mut exploration = Exploration::new(comparison.clone());
-                exploration.challenger = self.challenger;
+                // The pane takes no name: the page alone asks for it.
+                exploration.choose(RoundChoices::new(self.challenger, self.author, ""));
                 exploration.writing = self.round_settings.writing();
                 self.open_round(exploration);
                 let mut actions = self.request(None);

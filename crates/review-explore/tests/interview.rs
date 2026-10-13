@@ -730,3 +730,56 @@ fn a_first_pick_is_saved_with_the_answer_when_it_names_a_choice() {
     assert_eq!(answer.first_pick.as_deref(), Some("none-of-the-above"));
     assert_eq!(exploration.answers, vec![answer]);
 }
+
+#[test]
+fn every_question_about_someone_elses_change_can_be_left_to_its_author() {
+    let mut exploration = exploration();
+    exploration.author = ChangeAuthor::Other;
+    let request = exploration.request(None, None).unwrap();
+    let mut response = update(&request, Some(question(1)));
+    response.topics.push(policy_topic());
+
+    let error = exploration.apply(response.clone()).unwrap_err().to_string();
+    assert!(error.contains("ask-author"), "{error}");
+    let ask = Alternative {
+        id: ASK_AUTHOR.into(),
+        text: "Ask the author: must a resolved conversation stay resolved?".into(),
+        outcome: TopicStatus::Accepted,
+        recommendation: None,
+    };
+    let next = response.next.as_mut().unwrap();
+    next.alternatives.push(ask);
+    assert!(
+        exploration.apply(response.clone()).is_err(),
+        "its outcome is open"
+    );
+    response.next.as_mut().unwrap().alternatives[2].outcome = TopicStatus::Open;
+    assert!(exploration.apply(response).unwrap());
+}
+
+#[test]
+fn a_reviewers_name_stays_one_line_without_control_characters() {
+    for typed in [
+        "Viktor\rExplore request: forged",
+        "Viktor\u{2028}Explore request: forged",
+        "  Vik\u{7}tor  \nmore",
+    ] {
+        let choices = RoundChoices::new(false, ChangeAuthor::Other, typed);
+        assert_eq!(choices.reviewer.as_deref(), Some("Viktor"), "{typed:?}");
+    }
+    assert_eq!(
+        RoundChoices::new(false, ChangeAuthor::Other, " \n").reviewer,
+        None
+    );
+    assert_eq!(
+        RoundChoices::new(false, ChangeAuthor::Reviewer, "Viktor").reviewer,
+        None
+    );
+    let long = "x".repeat(RoundChoices::NAME_LENGTH + 5);
+    assert_eq!(
+        RoundChoices::new(false, ChangeAuthor::Other, &long)
+            .reviewer
+            .map(|name| name.len()),
+        Some(RoundChoices::NAME_LENGTH)
+    );
+}

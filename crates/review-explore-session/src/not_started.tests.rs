@@ -123,7 +123,10 @@ fn an_implementation_request_the_agent_does_not_start_on_is_sent_again_as_it_was
     assert_eq!(prompts.len(), 1);
     assert_eq!(
         prompts[0].text,
-        review_explore_runner::implementation_prompt(&request)
+        review_explore_runner::implementation_prompt(
+            &request,
+            review_explore::ChangeAuthor::Reviewer
+        )
     );
     assert_eq!(harness.saved().implementations.len(), 1);
 }

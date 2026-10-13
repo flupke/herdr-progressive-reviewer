@@ -214,11 +214,15 @@ impl ExploreComponent {
                 "Your answer · optional details"
             }
             EditorTarget::Answer => "Your answer",
-            EditorTarget::Implementation => "To be implemented",
+            EditorTarget::Implementation => self.list_name(),
         };
+        let implement = format!(
+            " · Ctrl-Enter {} · Tab conversation",
+            self.implement_label()
+        );
         let hint = match (editing, target) {
             (false, _) => "",
-            (true, EditorTarget::Implementation) => " · Ctrl-Enter Implement · Tab conversation",
+            (true, EditorTarget::Implementation) => implement.as_str(),
             (true, EditorTarget::Answer) => " · Ctrl-Enter Send · Tab conversation",
         };
         format!("{title}{hint}")
@@ -612,7 +616,7 @@ impl ExploreComponent {
         if matches!(self.progress, Progress::Waiting | Progress::Capturing) {
             layout.controls([("Stop waiting".into(), Control::Cancel)]);
         } else if self.offers_starts() {
-            StartButton::lay_out(self.start_block, layout, palette);
+            StartButton::lay_out(self.start_block, self.author, layout, palette);
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
         }

@@ -15,10 +15,11 @@ const storage = (() => {
  * Makes `box` keep its text under `key`: it starts with the kept text, or `initial` when none is
  * kept, and keeps each edit. The key also names the box (`data-draft`), so that the page gives
  * the focus back to it after a rebuild.
- * @param {HTMLTextAreaElement} box
+ * @template {HTMLTextAreaElement | HTMLInputElement} B
+ * @param {B} box
  * @param {string} key
  * @param {string} initial
- * @returns {HTMLTextAreaElement}
+ * @returns {B}
  */
 export function keepDraft(box, key, initial) {
   box.dataset.draft = key;

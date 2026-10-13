@@ -220,9 +220,24 @@ impl StatusCard {
         request: &str,
         offers_actions: bool,
         offers_implement: bool,
+        posts_review: bool,
     ) -> Self {
         use StatusKind::{Danger, Info, Ok, Progress, Warn};
         const ID: &str = "implementation";
+        // For someone else's change, the list is the review that Post review sends.
+        let (what, does, again) = if posts_review {
+            (
+                "review request",
+                "It posts the review; this round is done.",
+                "Select an agent in the review pane, then Post review again.",
+            )
+        } else {
+            (
+                "implementation request",
+                "It implements the list; this round is done.",
+                "Select an agent in the review pane, then Implement again.",
+            )
+        };
         let delivery = || Field::new("delivery", &implementation.delivery);
         // Sends the request again, as it was saved.
         let resend = |label| StatusAction {
@@ -237,35 +252,36 @@ impl StatusCard {
             hint: None,
         };
         match &implementation.state {
-            ImplementationState::Sending => Self::new(
-                Progress,
-                ID,
-                "Sending the implementation request to the agent…",
-            )
-            .action(offers_actions.then(|| StatusAction {
-                method: "cancel-implementation",
-                fields: vec![delivery()],
-                label: "Cancel the implementation request",
-                tier: ButtonTier::Secondary,
-                hint: Some("Cancel stops the request if it has not reached the agent yet."),
-            })),
-            ImplementationState::Sent => {
-                Self::new(Ok, ID, "The agent received the implementation request")
-                    .time("Sent at", implementation.sent_at_ms)
-                    .reason("It implements the list; this round is done.")
+            ImplementationState::Sending => {
+                Self::new(Progress, ID, format!("Sending the {what} to the agent…")).action(
+                    offers_actions.then(|| StatusAction {
+                        method: "cancel-implementation",
+                        fields: vec![delivery()],
+                        label: if posts_review {
+                            "Cancel the review request"
+                        } else {
+                            "Cancel the implementation request"
+                        },
+                        tier: ButtonTier::Secondary,
+                        hint: Some("Cancel stops the request if it has not reached the agent yet."),
+                    }),
+                )
             }
-            ImplementationState::NotStarted => Self::new(
-                Warn,
-                ID,
-                "The agent did not start on the implementation request",
-            )
-            .reason("The list may still wait in the agent's prompt box.")
-            .role(StatusRole::Alert)
-            .next_if(
-                offers_actions,
-                "Look at the agent's pane, then Retry: it sends the same request again.",
-            )
-            .action(offers_actions.then(|| resend("Retry"))),
+            ImplementationState::Sent => {
+                Self::new(Ok, ID, format!("The agent received the {what}"))
+                    .time("Sent at", implementation.sent_at_ms)
+                    .reason(does)
+            }
+            ImplementationState::NotStarted => {
+                Self::new(Warn, ID, format!("The agent did not start on the {what}"))
+                    .reason("The list may still wait in the agent's prompt box.")
+                    .role(StatusRole::Alert)
+                    .next_if(
+                        offers_actions,
+                        "Look at the agent's pane, then Retry: it sends the same request again.",
+                    )
+                    .action(offers_actions.then(|| resend("Retry")))
+            }
             ImplementationState::Paused => Self::new(Info, ID, "The request was never sent")
                 .reason("The pane closed before it went out. The list you authorized is saved.")
                 .action(offers_implement.then(|| resend("Send the saved request"))),
@@ -287,19 +303,16 @@ impl StatusCard {
                     }))
             }
             ImplementationState::NotSent(reason) => {
-                Self::new(Danger, ID, "The implementation request could not be sent")
+                Self::new(Danger, ID, format!("The {what} could not be sent"))
                     .reason(reason.as_str())
                     .code()
-                    .next_if(
-                        offers_implement,
-                        "Select an agent in the review pane, then Implement again.",
-                    )
+                    .next_if(offers_implement, again)
                     .role(StatusRole::Alert)
             }
             ImplementationState::Cancelled => Self::new(
                 Info,
                 ID,
-                "The implementation request was cancelled before it was sent",
+                format!("The {what} was cancelled before it was sent"),
             ),
         }
     }

@@ -26,7 +26,8 @@ impl ExploreSession {
         let _ = self.events.send(ui_events::ExploreImplementationSaved(
             round.implementations[&request.delivery].clone(),
         ));
-        let prompt = review_explore_runner::implementation_prompt(&request);
+        let prompt =
+            review_explore_runner::implementation_prompt(&request, round.exploration.author);
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
             rounds: self.rounds.clone(),

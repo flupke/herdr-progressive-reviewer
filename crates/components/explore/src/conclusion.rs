@@ -60,9 +60,10 @@ impl ConclusionView {
         self.delivery.can_edit()
     }
 
-    fn render_instructions(&self, layout: &mut ConversationLayout, palette: Palette) {
+    /// The list, named `name`.
+    fn render_instructions(&self, name: &str, layout: &mut ConversationLayout, palette: Palette) {
         if let Some(request) = self.delivery.submitted() {
-            layout.text("To be implemented · read-only", palette.focus, None);
+            layout.text(format!("{name} · read-only"), palette.focus, None);
             layout.text(&request.text, palette.text, None);
         } else {
             let rows = Paragraph::new(self.editor.text())
@@ -273,7 +274,7 @@ impl ExploreComponent {
             self.turn_marks(0, layout, palette);
         }
         layout.gap();
-        view.render_instructions(layout, palette);
+        view.render_instructions(self.list_name(), layout, palette);
         layout.gap();
         self.implementation_controls(layout, palette);
         layout.section("Future work", &view.content.future_work, palette);
@@ -313,22 +314,18 @@ impl ExploreComponent {
             );
             return;
         }
+        let what = self.request_name(false);
         match &view.delivery {
-            Delivery::Cancelling(_) => layout.text(
-                "Cancelling queued implementation request…",
-                palette.text,
-                None,
-            ),
+            Delivery::Cancelling(_) => {
+                layout.text(format!("Cancelling queued {what}…"), palette.text, None);
+            }
             Delivery::Pending(_) => {
-                layout.text("Sending implementation request…", palette.text, None);
-                layout.controls([(
-                    "Cancel implementation".into(),
-                    Control::CancelImplementation,
-                )]);
+                layout.text(format!("Sending {what}…"), palette.text, None);
+                layout.controls([(format!("Cancel {what}"), Control::CancelImplementation)]);
             }
             Delivery::Paused(request) => {
                 layout.text(
-                    "Saved implementation request is paused; it has not been sent.",
+                    format!("Saved {what} is paused; it has not been sent."),
                     palette.text,
                     None,
                 );
@@ -336,44 +333,32 @@ impl ExploreComponent {
                     layout.text("Send saved uses the previously authorized text. New request uses the current editor text.", palette.text, None);
                 }
                 layout.controls([
-                    (
-                        "Send saved implementation request".into(),
-                        Control::Implement,
-                    ),
-                    (
-                        "New implementation request".into(),
-                        Control::NewImplementation,
-                    ),
+                    (format!("Send saved {what}"), Control::Implement),
+                    (format!("New {what}"), Control::NewImplementation),
                 ]);
             }
             Delivery::NotStarted(_) => {
                 layout.text(
-                    "The agent did not start on the implementation request. Look at the agent's pane, then Retry.",
+                    format!("The agent did not start on the {what}. Look at the agent's pane, then Retry."),
                     palette.warning,
                     None,
                 );
                 layout.controls([
                     ("Retry".into(), Control::Implement),
-                    (
-                        "New implementation request".into(),
-                        Control::NewImplementation,
-                    ),
+                    (format!("New {what}"), Control::NewImplementation),
                 ]);
             }
             Delivery::Unknown(request) => {
                 layout.text(
-                    format!("Implementation request {}", request.delivery),
+                    format!("{} {}", self.request_name(true), request.delivery),
                     palette.dim,
                     None,
                 );
                 layout.text("Delivery outcome unknown. Check the original agent conversation before deliberately sending a new request.", palette.warning, None);
-                layout.controls([(
-                    "New implementation request".into(),
-                    Control::NewImplementation,
-                )]);
+                layout.controls([(format!("New {what}"), Control::NewImplementation)]);
             }
             Delivery::Sent(_) => layout.text(
-                "Implementation request sent to the agent.",
+                format!("{} sent to the agent.", self.request_name(true)),
                 palette.text,
                 None,
             ),
@@ -396,7 +381,43 @@ impl ExploreComponent {
                 .conclusion()
                 .is_some_and(|view| !view.editor.text().trim().is_empty())
         {
-            layout.controls([("Implement".into(), Control::Implement)]);
+            layout.controls([(self.implement_label().into(), Control::Implement)]);
+        }
+    }
+
+    /// Whether the conclusion's list is the review of someone else's change, which Post review
+    /// posts, rather than the tasks Implement implements.
+    fn posts_review(&self) -> bool {
+        self.exploration
+            .as_ref()
+            .is_some_and(|exploration| exploration.author == review_explore::ChangeAuthor::Other)
+    }
+
+    /// The name of the conclusion's list.
+    pub(super) fn list_name(&self) -> &'static str {
+        if self.posts_review() {
+            "Review to post"
+        } else {
+            "To be implemented"
+        }
+    }
+
+    /// The name of the request that sends the conclusion's list, capitalized when `start`.
+    fn request_name(&self, start: bool) -> &'static str {
+        match (self.posts_review(), start) {
+            (true, false) => "review request",
+            (true, true) => "Review request",
+            (false, false) => "implementation request",
+            (false, true) => "Implementation request",
+        }
+    }
+
+    /// The action that sends the conclusion's list.
+    pub(super) fn implement_label(&self) -> &'static str {
+        if self.posts_review() {
+            "Post review"
+        } else {
+            "Implement"
         }
     }
 }

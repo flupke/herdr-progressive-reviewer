@@ -41,7 +41,10 @@ impl Harness {
     fn start_from_page(&mut self) -> Result<(), CommandRefusal> {
         let (reply, replied) = CommandReply::channel();
         let start = self.offered_start();
-        if let Some(kickoff) = self.session.start_from_page(false, &start, reply) {
+        if let Some(kickoff) =
+            self.session
+                .start_from_page(review_explore::RoundChoices::default(), &start, reply)
+        {
             self.session
                 .handle(Input::Command(Command::Turn(Box::new(kickoff))));
         }
@@ -122,7 +125,11 @@ fn a_start_that_finds_nothing_left_to_review_sends_no_kickoff() {
         let kickoff = if from_page {
             let (reply, replied) = CommandReply::channel();
             let start = harness.offered_start();
-            let kickoff = harness.session.start_from_page(false, &start, reply);
+            let kickoff = harness.session.start_from_page(
+                review_explore::RoundChoices::default(),
+                &start,
+                reply,
+            );
             assert_eq!(replied.blocking_recv().unwrap(), Ok(()));
             kickoff.expect("the kickoff, for the worker to send")
         } else {
@@ -173,7 +180,7 @@ fn a_page_post_does_not_bypass_the_rule() {
     let (reply, replied) = CommandReply::channel();
     harness.session.handle(Input::Page {
         command: PageCommand::Start {
-            challenger: false,
+            choices: review_explore::RoundChoices::default(),
             start: harness.offered_start(),
         },
         reply,

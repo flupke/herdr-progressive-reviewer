@@ -1,15 +1,16 @@
-//! How the reviewer chooses where to follow a round: the four buttons of the start screen, and
-//! the two buttons of a round on the page, with their keys.
+//! How the reviewer starts a round: whose change it is, then where to follow the round, with the
+//! four buttons of the start screen; and the two buttons of a round on the page, with their keys.
 
-use review_explore::{RoundFront, StartBlock};
+use review_explore::{ChangeAuthor, RoundFront, StartBlock};
 use ui_controls::KeyHint;
 use ui_shortcuts::{
-    ExploreShortcut, ExploreStartShortcut, ExploreTurnShortcut, ShortcutSubscription,
+    ExploreSettingShortcut, ExploreShortcut, ExploreStartShortcut, ExploreTurnShortcut,
+    ShortcutSubscription,
 };
 use ui_theme::Palette;
 
-use super::Control;
 use super::flow::ConversationLayout;
+use super::{Control, ExploreComponent};
 
 /// How the reviewer starts a round from the start screen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,26 +146,42 @@ impl PageRoundButton {
 }
 
 impl StartButton {
-    /// The footer's hints for the buttons: none while `block` says why no round can start, as
-    /// their keys then do nothing.
+    /// The footer's hints for the buttons and for whose change it is: none while `block` says
+    /// why no round can start, as their keys then do nothing.
     pub(super) fn hints(block: Option<StartBlock>) -> Vec<KeyHint> {
         if block.is_some() {
             return Vec::new();
         }
-        Self::ALL
-            .into_iter()
-            .filter_map(|button| key_hint(ExploreTurnShortcut::Start(button.shortcut), button.hint))
-            .collect()
+        key_hint(
+            ExploreTurnShortcut::Setting(ExploreSettingShortcut::Whose),
+            "whose change",
+        )
+        .into_iter()
+        .chain(Self::ALL.into_iter().filter_map(|button| {
+            key_hint(ExploreTurnShortcut::Start(button.shortcut), button.hint)
+        }))
+        .collect()
     }
 
-    /// The start screen's buttons, then, while `block` says why no round can start, the same
-    /// buttons inactive and a line that says why.
+    /// The start screen's buttons, after the one that says whose change `author` is; then,
+    /// while `block` says why no round can start, the same buttons inactive and a line that
+    /// says why.
     pub(super) fn lay_out(
         block: Option<StartBlock>,
+        author: ChangeAuthor,
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
         let Some(block) = block else {
+            let whose = match author {
+                ChangeAuthor::Reviewer => "mine",
+                ChangeAuthor::Other => "someone else's (learn it, then review it for its author)",
+            };
+            layout.controls([(
+                format!("Whose change: {whose}"),
+                Control::Setting(ExploreSettingShortcut::Whose),
+            )]);
+            layout.gap();
             layout.controls(Self::ALL.map(|button| {
                 (
                     button.label.into(),
@@ -176,6 +193,16 @@ impl StartButton {
         layout.inactive_controls(Self::ALL.map(|button| button.label.into()));
         layout.gap();
         layout.text(block.reason(), palette.dim, None);
+    }
+}
+
+impl ExploreComponent {
+    /// Turn over whose change the next round reviews, while the start screen can start one.
+    pub(super) fn turn_over_whose(&mut self) {
+        if !self.offers_starts() || self.start_block.is_some() {
+            return;
+        }
+        self.author.toggle();
     }
 }
 

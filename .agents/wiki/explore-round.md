@@ -59,6 +59,19 @@ Related pages: what the agent's prompts and tools guarantee is in [Explore agent
   the confirmation: the reviewer checks the agent's session before sending a new
   request on purpose.
 
+## Someone else's change
+
+- Who wrote the change is the reviewer's word at Start: nothing detects it, since the
+  version control author of a change the reviewer checked out says nothing about who reviews
+  it. The round keeps it, with the reviewer's name, and only the kickoff names them.
+- The page's start cover and the pane's start screen (`a` turns over Whose change) both say
+  it; the pane keeps its choice until the reviewer turns it back, as the page keeps it for its
+  tab, and takes no name.
+- Every question offers Ask the author, which the tools enforce; what the reviewer leaves to
+  the author ends in the review the conclusion lists.
+- Post review authorizes posting the edited list on the change's pull request, and nothing
+  else: no code change, no push, no approval.
+
 ## Reset
 
 - The next round's kickoff lists none of the reset rounds' decisions and tells the agent

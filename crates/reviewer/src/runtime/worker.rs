@@ -130,10 +130,10 @@ impl Worker {
                 self.start_round(*request, messages);
             }
             explore_session::Input::Page {
-                command: PageCommand::Start { challenger, start },
+                command: PageCommand::Start { choices, start },
                 reply,
             } => {
-                if let Some(kickoff) = self.explore.start_from_page(challenger, &start, reply) {
+                if let Some(kickoff) = self.explore.start_from_page(choices, &start, reply) {
                     self.start_round(kickoff, messages);
                 }
             }

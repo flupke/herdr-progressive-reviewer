@@ -406,7 +406,7 @@ impl ExploreSession {
     /// start, and of its failure.
     pub fn start_from_page(
         &mut self,
-        challenger: bool,
+        choices: review_explore::RoundChoices,
         start: &str,
         reply: CommandReply,
     ) -> Option<TurnRequest> {
@@ -431,7 +431,7 @@ impl ExploreSession {
         let kickoff = self.capture().and_then(|comparison| {
             self.begin_start(comparison.clone());
             let mut exploration = Exploration::new(comparison);
-            exploration.challenger = challenger;
+            exploration.choose(choices);
             exploration.writing = self.rounds.next_writing()?;
             exploration.request(None, None)
         });

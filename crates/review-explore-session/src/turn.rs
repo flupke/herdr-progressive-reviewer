@@ -243,14 +243,24 @@ impl ExploreSession {
             });
         })?;
         // Only a kickoff lists them; a later turn's agent already has them.
-        let earlier = if request.is_kickoff() {
+        let (earlier, notes) = if request.is_kickoff() {
             let rounds = self
                 .rounds
                 .earlier(&request.checkpoint.review_unit, &request.instance)?;
-            EarlierDecisions::new(rounds.standing.iter().map(|round| &round.exploration))
-                .after_reset(rounds.reset_rounds)
+            let earlier =
+                EarlierDecisions::new(rounds.standing.iter().map(|round| &round.exploration))
+                    .after_reset(rounds.reset_rounds);
+            // Notes that cannot be read cost the round nothing but themselves.
+            let notes = self.rounds.reviewer_notes().unwrap_or_else(|error| {
+                let _ = self.events.send(ui_events::ToastRequested {
+                    text: format!("Explore reviewer notes left out: {error}"),
+                    kind: toasts::ToastKind::Error,
+                });
+                None
+            });
+            (earlier, notes)
         } else {
-            EarlierDecisions::default()
+            (EarlierDecisions::default(), None)
         };
         let answered = self
             .state
@@ -265,6 +275,7 @@ impl ExploreSession {
             access,
             &unreviewed,
             &earlier,
+            notes.as_deref(),
             answered,
         )
         .prompt();
@@ -331,7 +342,11 @@ impl ExploreSession {
                     .ok_or_else(|| eyre::eyre!("Start Explore first"))?,
             );
             exploration.instance.clone_from(&request.instance);
-            exploration.challenger = request.challenger;
+            exploration.choose(review_explore::RoundChoices {
+                challenger: request.challenger,
+                author: request.author,
+                reviewer: request.reviewer.clone(),
+            });
             exploration.writing = request.writing;
             let mut round = ExploreRound::new(exploration);
             round.post(request)?;

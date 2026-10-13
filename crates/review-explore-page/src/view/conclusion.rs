@@ -37,6 +37,9 @@ pub(crate) struct ConclusionView {
     /// The words that open the reply to the conclusion; `None` when the page offers no actions
     /// on the conclusion, as in an earlier round.
     reply_label: Option<&'static str>,
+    /// Whether the list is the review of someone else's change, which Post review posts, rather
+    /// than the tasks Implement implements.
+    posts_review: bool,
     /// The conclusion's quiz, when it has one.
     quiz: Option<QuizView>,
 }
@@ -146,7 +149,7 @@ impl ConclusionView {
             .as_deref()
             .map_or(&[][..], |overview| &overview.decisions[..]);
         Some(Self::new(
-            &round.stage,
+            round,
             request,
             conclusion,
             implementation.as_ref(),
@@ -156,8 +159,9 @@ impl ConclusionView {
         ))
     }
 
+    /// The conclusion `conclusion` of `round`, posted by the turn `request`.
     fn new(
-        stage: &RoundStage,
+        round: &RoundSnapshot,
         request: &str,
         conclusion: &Conclusion,
         implementation: Option<&PageImplementation>,
@@ -166,7 +170,8 @@ impl ConclusionView {
         offers_actions: bool,
     ) -> Self {
         let replaces = implementation.map(|implementation| implementation.delivery.as_str());
-        let offers_implement = offers_actions && stage.offers_implement(request, replaces);
+        let offers_implement = offers_actions && round.stage.offers_implement(request, replaces);
+        let posts_review = round.author == review_explore::ChangeAuthor::Other;
         let draft = match implementation {
             Some(implementation) if offers_implement => &implementation.text,
             _ => &conclusion.to_be_implemented,
@@ -190,6 +195,7 @@ impl ConclusionView {
                     request,
                     offers_actions,
                     offers_implement,
+                    posts_review,
                 )
             }),
             reply_label: offers_actions.then_some(match implementation.map(|i| &i.state) {
@@ -197,6 +203,7 @@ impl ConclusionView {
                 _ => "Not ready? Reply to the agent instead",
             }),
             quiz: (!conclusion.quiz.is_empty()).then(|| QuizView::new(&conclusion.quiz, quiz)),
+            posts_review,
         }
     }
 }

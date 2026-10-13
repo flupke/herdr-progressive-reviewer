@@ -59,3 +59,52 @@ mod tests {
         assert_eq!(StartBlock::of([]), None, "a change with no file");
     }
 }
+
+/// What the reviewer chose when starting a round, besides where to follow it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RoundChoices {
+    /// A challenger reviews beside the agent.
+    pub challenger: bool,
+    /// Who wrote the change.
+    pub author: crate::ChangeAuthor,
+    /// The reviewer's name, for someone else's change: the first line of what they typed,
+    /// trimmed and at most [`Self::NAME_LENGTH`] characters long, so that it stays one field of
+    /// the kickoff; `None` when they typed none.
+    pub reviewer: Option<String>,
+}
+
+impl RoundChoices {
+    /// The longest reviewer's name a round keeps, in characters.
+    pub const NAME_LENGTH: usize = 80;
+
+    /// The choices of a start of someone else's change by the reviewer who typed `name`, or of
+    /// the reviewer's own change, with `challenger`.
+    pub fn new(challenger: bool, author: crate::ChangeAuthor, name: &str) -> Self {
+        // Up to the first line break of any kind, without control characters.
+        let name: String = name
+            .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .filter(|character| !character.is_control())
+            .collect::<String>()
+            .trim()
+            .chars()
+            .take(Self::NAME_LENGTH)
+            .collect();
+        Self {
+            challenger,
+            author,
+            reviewer: (author == crate::ChangeAuthor::Other && !name.is_empty()).then_some(name),
+        }
+    }
+}
+
+impl crate::Exploration {
+    /// Starts the round with the reviewer's `choices`.
+    pub fn choose(&mut self, choices: RoundChoices) {
+        self.challenger = choices.challenger;
+        self.author = choices.author;
+        self.reviewer = choices.reviewer;
+    }
+}

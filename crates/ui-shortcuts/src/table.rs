@@ -656,6 +656,13 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Explore: turn over whose change the next round reviews"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('a'),
+            explore_setting(ExploreSettingShortcut::Whose),
+        )],
+    },
+    ShortcutDefinition {
         description: Some(
             "Explore: open the page of a round on the page / continue it in the pane",
         ),

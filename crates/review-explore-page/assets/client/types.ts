@@ -166,6 +166,11 @@ implementation_card: StatusCard | null,
  */
 reply_label: string | null, 
 /**
+ * Whether the list is the review of someone else's change, which Post review posts, rather
+ * than the tasks Implement implements.
+ */
+posts_review: boolean, 
+/**
  * The conclusion's quiz, when it has one.
  */
 quiz: QuizView | null, };
@@ -932,6 +937,14 @@ export type StartParams = {
  * Whether the Challenger reviews the change beside the agent.
  */
 challenger: boolean, 
+/**
+ * Whether someone else wrote the change.
+ */
+others: boolean, 
+/**
+ * The reviewer's name, as typed, for someone else's change.
+ */
+reviewer: string, 
 /**
  * The identity of the start the page offered.
  */

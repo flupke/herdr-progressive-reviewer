@@ -205,8 +205,13 @@ impl<R: Rounds> Actions<'_, R> {
                 Problem::Failed(block.reason().into()),
             ));
         }
+        let author = if params.others {
+            review_explore::ChangeAuthor::Other
+        } else {
+            review_explore::ChangeAuthor::Reviewer
+        };
         let command = PageCommand::Start {
-            challenger: params.challenger,
+            choices: review_explore::RoundChoices::new(params.challenger, author, &params.reviewer),
             start: params.start,
         };
         self.send(command, Action::Start).await

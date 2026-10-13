@@ -52,6 +52,11 @@ impl SavedRounds {
         Ok(self.store.explore_round_settings()?.writing)
     }
 
+    /// What the reviewer asks of every round, as they wrote it beside the settings.
+    pub(crate) fn reviewer_notes(&self) -> Result<Option<String>> {
+        self.store.explore_reviewer_notes()
+    }
+
     /// Which choices run-ahead prepares, as the reviewer's settings say now.
     pub(crate) fn run_ahead(&self) -> Result<RunAhead> {
         Ok(self.store.explore_round_settings()?.run_ahead)

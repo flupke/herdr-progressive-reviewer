@@ -33,3 +33,24 @@ test('the reviewer starts a round with the Challenger', async ({ explore, screen
   await expect(screen.getByRole('status')).toContainText('Preparing the round');
   expect(await explore.starts()).toEqual([{ challenger: true }]);
 });
+
+test("the reviewer starts a round on someone else's change, which ends in a review to post", async ({
+  explore,
+  screen,
+}) => {
+  await explore.open();
+  await explore.reset();
+
+  await screen.getByRole('radio', /^Someone else/).check();
+  await screen.getByRole('textbox', /^Your name/).fill('  Viktor  ');
+  await screen.getByRole('button', 'Start').tap();
+  await expect(screen.getByRole('status')).toContainText('Preparing the round');
+  expect(await explore.starts()).toEqual([{ challenger: false, others: true, reviewer: 'Viktor' }]);
+
+  await explore.sendKickoff();
+  await explore.askQuestion();
+  await explore.answerInPane();
+  await explore.conclude();
+  const review = screen.getByRole('region', 'Review to post');
+  await expect(review.getByRole('button', 'Post review')).toBeVisible();
+});

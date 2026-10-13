@@ -48,8 +48,8 @@ pub use conversation::{ConversationTurn, Reply};
 pub use design::{Design, DesignPart, DesignSection};
 pub use diagram::DiagramError;
 pub use interview::{
-    Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,
-    ReviewerAnswer, Topic, TopicStatus, TurnRequest,
+    ASK_AUTHOR, Alternative, AnswerInput, ChangeAuthor, Exploration, Interpretation,
+    InterviewUpdate, Question, ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
 pub use named_lines::NamedLines;
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
@@ -62,7 +62,7 @@ pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
 pub use revision::{QuestionRevision, Revision};
 pub use sections::QuestionSection;
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
-pub use start::StartBlock;
+pub use start::{RoundChoices, StartBlock};
 
 /// Work requested explicitly from Explore.
 #[derive(Clone, Debug, Eq, PartialEq)]

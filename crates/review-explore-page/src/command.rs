@@ -27,8 +27,8 @@ pub enum PageCommand {
     /// Start a round, as Start or Start with Challenger in the pane: the page showed that no
     /// round was running.
     Start {
-        /// Whether the Challenger reviews the change beside the agent.
-        challenger: bool,
+        /// The Challenger, who wrote the change and the reviewer's name.
+        choices: review_explore::RoundChoices,
         /// The identity of the start the page offered.
         start: String,
     },

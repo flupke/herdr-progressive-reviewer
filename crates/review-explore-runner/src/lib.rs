@@ -1,6 +1,6 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
 use markdown_marks::{Callout, Mark, StatusMark};
-use review_explore::{Comparison, TurnRequest};
+use review_explore::{ChangeAuthor, Comparison, TurnRequest};
 use review_explore_round_settings::WritingStyle;
 
 mod decisions;
@@ -17,8 +17,8 @@ pub struct PreparedTurn {
 
 impl PreparedTurn {
     /// The prompt for `request`, listing the unreviewed lines. A kickoff
-    /// also lists the `earlier` decisions of the review. `answered` is the
-    /// number the reviewer's screens give the question the request's answer
+    /// also lists the `earlier` decisions of the review and the reviewer's `notes`. `answered`
+    /// is the number the reviewer's screens give the question the request's answer
     /// answers.
     pub fn prepare(
         request: &TurnRequest,
@@ -26,15 +26,23 @@ impl PreparedTurn {
         access: &str,
         unreviewed: &Unreviewed,
         earlier: &EarlierDecisions,
+        notes: Option<&str>,
         answered: Option<review_types::QuestionNumber>,
     ) -> Self {
         let kickoff = request.is_kickoff().then(|| input::Kickoff {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
             decisions: earlier,
+            author: request.author,
+            reviewer: request.reviewer.as_deref(),
+            notes,
         });
-        let instructions =
-            Self::instructions(kickoff.is_some(), request.challenger, request.writing);
+        let instructions = Self::instructions(
+            kickoff.is_some(),
+            request.challenger,
+            request.author,
+            request.writing,
+        );
         let input = input::TurnInput {
             request,
             access,
@@ -49,9 +57,15 @@ impl PreparedTurn {
 
     /// The rules of a turn: the kickoff's, or a later turn's, followed by the
     /// sections every prompt states (the conclusion's quiz, then Not relevant),
-    /// by the challenger's script when the round has one, and by the rules of
+    /// by the challenger's script when the round has one, by the rules of a review of
+    /// someone else's change when `author` says it is one, and by the rules of
     /// the round's writing style when it has some.
-    fn instructions(kickoff: bool, challenger: bool, writing: WritingStyle) -> String {
+    fn instructions(
+        kickoff: bool,
+        challenger: bool,
+        author: ChangeAuthor,
+        writing: WritingStyle,
+    ) -> String {
         let turn = if kickoff {
             format!(
                 "{}\n\n{}\n\n{}",
@@ -76,6 +90,15 @@ impl PreparedTurn {
             };
             instructions.push_str("\n\n");
             instructions.push_str(script.trim_end());
+        }
+        if author == ChangeAuthor::Other {
+            let rules = if kickoff {
+                include_str!("others_change.md")
+            } else {
+                include_str!("others_change_wakeup.md")
+            };
+            instructions.push_str("\n\n");
+            instructions.push_str(rules.trim_end());
         }
         if let Some(style) = Self::writing(kickoff, writing) {
             instructions.push_str("\n\n");
@@ -136,8 +159,18 @@ impl PreparedTurn {
     }
 }
 
-/// The human's edited task list is the entire implementation scope.
-pub fn implementation_prompt(request: &review_explore::ImplementationRequest) -> String {
+/// The human's edited task list is the entire implementation scope. For someone else's change,
+/// the list is the review to post, and posting it the entire scope.
+pub fn implementation_prompt(
+    request: &review_explore::ImplementationRequest,
+    author: ChangeAuthor,
+) -> String {
+    if author == ChangeAuthor::Other {
+        return format!(
+            "The reviewer clicked Post review on the Explore conclusion of someone else's change. Post the review below on the change's pull request, with the repository's usual tool for it, such as gh: each comment on the file and line it names, the others in the review's body. This action authorizes posting these comments only: do not edit code, push, approve or request changes. If you cannot find the change's pull request, say so and stop.\n\nReview from the reviewer:\n{}",
+            request.text
+        );
+    }
     format!(
         "The reviewer clicked Implement on the Explore conclusion. Implement the edited task list below in this conversation, following the repository instructions and validating the changes. This action authorizes code edits and tests for these tasks. Summary and future-work items are not additional implementation scope. Do not submit another review question or mark files reviewed as part of this action.\n\nTasks from the reviewer:\n{}",
         request.text

@@ -87,6 +87,7 @@ impl Owner {
             review_unit: &review,
             design: None,
             changed_files: 0,
+            author: review_explore::ChangeAuthor::Reviewer,
             cancellable: latest.as_ref(),
             earlier: false,
             overview: &overview,
@@ -682,6 +683,7 @@ async fn the_socket_sends_the_round_again_when_only_its_review_marks_change() {
         earlier: false,
         overview: &overview,
         changed_files: 1,
+        author: review_explore::ChangeAuthor::Reviewer,
         earlier_citations: &[],
     };
     owner
