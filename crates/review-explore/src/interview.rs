@@ -203,6 +203,12 @@ pub struct InterviewUpdate {
     /// On the first turn, before its question: the design of the change. Null on later turns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub design: Option<crate::Design>,
+    /// The terms of this change that a reviewer new to the code may not know, each with its
+    /// definition in one plain sentence: the reviewer's screens mark every use of a term and
+    /// show its definition on demand, so the texts use the term without defining it. Send only
+    /// new terms and changed definitions; the round keeps those sent before.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub glossary: BTreeMap<String, String>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,
     pub topics: Vec<Topic>,
@@ -295,6 +301,10 @@ pub struct Exploration {
         skip_serializing_if = "WritingStyle::is_plain"
     )]
     pub writing: WritingStyle,
+    /// The terms of the change with their definitions, as the agent's turns sent them, the
+    /// latest definition of a term replacing the one before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub glossary: BTreeMap<String, String>,
     /// The diagrams of posted questions that the Explore page could not draw.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagram_errors: Vec<crate::DiagramError>,
@@ -325,6 +335,7 @@ impl Exploration {
             author: ChangeAuthor::Reviewer,
             reviewer: None,
             writing: before_writing_styles(),
+            glossary: BTreeMap::new(),
             diagram_errors: Vec::new(),
             quiz_answers: BTreeMap::new(),
         }
@@ -519,6 +530,7 @@ impl Exploration {
     /// Take an accepted agent turn, following `answer`, into the interview's
     /// topics, questions, decisions and report.
     pub(crate) fn absorb(&mut self, update: InterviewUpdate, answer: Option<&ReviewerAnswer>) {
+        self.glossary.extend(update.glossary);
         for mut topic in update.topics {
             topic.status = self.topic_status(&topic.id).unwrap_or_default();
             self.topics.insert(topic.id.clone(), topic);

@@ -113,6 +113,12 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
     assert!(update["properties"].get("inspections").is_none());
     assert!(update["properties"].get("conclusion").is_none());
     assert_eq!(update["additionalProperties"], false);
+    // Terms with their definitions, which the page marks: a map of strings.
+    assert_eq!(update["properties"]["glossary"]["type"], "object");
+    assert_eq!(
+        update["properties"]["glossary"]["additionalProperties"]["type"],
+        "string"
+    );
     // Only the interpretation of an answer changes a topic's status.
     assert!(definitions["Topic"]["properties"].get("status").is_none());
     let question = &update["properties"]["next"]["properties"];

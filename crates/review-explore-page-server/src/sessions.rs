@@ -203,6 +203,12 @@ impl Session {
         let overview = RoundOverview {
             decisions: self.decisions.clone(),
             earlier,
+            // The agent's first turn gives the glossary with the design.
+            glossary: if self.asked > 0 {
+                self.data.glossary()
+            } else {
+                std::collections::BTreeMap::new()
+            },
             ..Posted {
                 asked: self.asked,
                 concluded: self.concluded,

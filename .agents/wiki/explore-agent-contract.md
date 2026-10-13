@@ -61,6 +61,8 @@ question whose Door is not two-way.
 - A topic's status is the reviewer's: the tools leave it out of their input, and a topic the
   agent sends keeps the status recorded for it, which only the interpretation of an answer
   changes. A settled topic cannot be rewritten.
+- The glossary is the merge of every turn's `glossary`, a later definition of a term replacing
+  the earlier one; Cancel answer rebuilds it from the turns that remain.
 - A revised question (`revise_question`) is a turn of its own with no prompt behind it: it
   follows the same answer as the turn it revises, and carries that turn's reply and review
   marks, so the reviewer's answer applies those marks as it would have. Cancel answer drops

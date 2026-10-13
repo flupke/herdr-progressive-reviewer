@@ -12,6 +12,7 @@ import { Chat } from './chat.js';
 import { QuotePicker } from './chat-quote.js';
 import { ConclusionScreen } from './conclusion.js';
 import { DesignScreen } from './design.js';
+import { Glossary } from './glossary.js';
 import { earlierScreen } from './earlier.js';
 import { drawDiagrams, fitDiagrams } from './diagrams.js';
 import { Favicon } from './favicon.js';
@@ -51,6 +52,8 @@ export class Page {
       if (this.view) this.render(this.view);
     });
     this.quotes = new QuotePicker(main);
+    // The glossary's terms, marked in the screens and in the chat.
+    this.glossary = new Glossary([main, this.chat.element]);
     /** The design screen. */
     this.designScreen = h('div', { class: 'screen', hidden: true });
     /** The round's current stage. */
@@ -112,6 +115,7 @@ export class Page {
   /** @param {PageView} view */
   render(view) {
     this.view = view;
+    this.glossary.set(view.glossary);
     const cards = this.notice ? [this.notice, ...view.cards] : view.cards;
     this.cards.show(keyOf(cards), () => cards.map(statusCard));
     const start = view.start;
@@ -153,7 +157,7 @@ export class Page {
       const screen = this.design.component('design', () => new DesignScreen());
       if (screen !== this.shownDesign) this.shownDesign?.stop();
       this.shownDesign = screen;
-      screen.update(design, current, view.question);
+      screen.update(design, current, view.question, view.glossary);
     } else {
       this.shownDesign?.stop();
       this.shownDesign = null;

@@ -72,6 +72,7 @@ impl Exploration {
         self.questions.clear();
         self.limitations.clear();
         self.findings.clear();
+        self.glossary.clear();
         self.conclusion = None;
         for turn in self.conversation.clone() {
             let answer = turn

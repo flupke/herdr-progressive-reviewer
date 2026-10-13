@@ -41,6 +41,7 @@ static OVERVIEW: RoundOverview = RoundOverview {
     decisions: Vec::new(),
     earlier: Vec::new(),
     title: TabTitle::AgentWorking,
+    glossary: std::collections::BTreeMap::new(),
 };
 
 pub(crate) fn no_round() -> RoundStage {

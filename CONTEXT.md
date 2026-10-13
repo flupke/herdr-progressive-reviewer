@@ -132,6 +132,12 @@ whether each pick is correct; the reviewer may skip them. The round saves the pi
 A change with nothing at that level gets no quiz.
 _Avoid_: test, exam, check
 
+**Glossary**:
+The terms of an Explore round's change, each with a one-sentence definition, which the agent
+sends as it uses them. The Explore page marks every use of a term, in prose and inline code,
+shows its definition on hover or tap, and lists the terms at the end of the design.
+_Avoid_: dictionary, definitions, terms list
+
 **Callout**:
 A quote in the agent's Markdown that opens with a marker, such as `[!TIP]`, for a
 conclusion, a tip, a warning or an error. It shows as a block titled with its kind.

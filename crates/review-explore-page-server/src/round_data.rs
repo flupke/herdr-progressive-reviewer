@@ -32,6 +32,11 @@ pub(crate) trait RoundData: Send + Sync {
     /// question `number`, from 2.
     fn answer_response(&self, number: usize) -> TurnResponse;
 
+    /// The terms of the change with their definitions, as the agent's first turn gives them.
+    fn glossary(&self) -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::new()
+    }
+
     /// The comment of the reviewer's answers in the pane; empty for none.
     fn pane_comment(&self) -> &'static str {
         ""

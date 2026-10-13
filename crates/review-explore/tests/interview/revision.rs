@@ -13,6 +13,7 @@ fn revision(exploration: &Exploration, version: u32) -> QuestionRevision {
             text: format!("Keep resolved conversations resolved, as version {version} asks?"),
             ..question(version)
         },
+        glossary: std::collections::BTreeMap::new(),
     }
 }
 
@@ -148,4 +149,19 @@ fn cancelling_the_answer_before_a_revised_question_drops_the_revision_too() {
         round.exploration.waiting_turn().unwrap().next,
         Some(question(1))
     );
+}
+
+#[test]
+fn a_revision_adds_its_terms_and_a_retry_with_other_terms_is_refused() {
+    let (mut exploration, _) = asked_again();
+    let mut revised = revision(&exploration, 3);
+    revised.glossary = [("rebuild".to_owned(), "To make the cache again.".to_owned())].into();
+
+    assert!(exploration.revise(revised.clone()).unwrap());
+    assert_eq!(
+        exploration.glossary.get("rebuild").map(String::as_str),
+        Some("To make the cache again.")
+    );
+    revised.glossary = [("rebuild".to_owned(), "Another meaning.".to_owned())].into();
+    assert!(exploration.revise(revised).is_err());
 }

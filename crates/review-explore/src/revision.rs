@@ -19,6 +19,9 @@ pub struct QuestionRevision {
     /// The open question, in full, with its ID, a higher version and its topic: every field
     /// says what the question asks now.
     pub question: Question,
+    /// New terms of the change and changed definitions, as `submit_question` takes them.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub glossary: std::collections::BTreeMap<String, String>,
 }
 
 /// Why the agent revised the open question.
@@ -46,7 +49,10 @@ impl Exploration {
             "Revision checkpoint does not match"
         );
         let QuestionRevision {
-            revision, question, ..
+            revision,
+            question,
+            glossary,
+            ..
         } = revision;
         if let Some(previous) = self
             .conversation
@@ -54,7 +60,8 @@ impl Exploration {
             .find(|turn| turn.update.next.as_ref() == Some(&question))
         {
             eyre::ensure!(
-                previous.revision.as_ref() == Some(&revision),
+                previous.revision.as_ref() == Some(&revision)
+                    && previous.update.glossary == glossary,
                 "An accepted revision cannot be replaced; retry the identical payload"
             );
             return Ok(false);
@@ -88,6 +95,7 @@ impl Exploration {
             agenda: Vec::new(),
             topics: Vec::new(),
             next: Some(question),
+            glossary,
             ..previous.update
         };
         // The marks of the turn it follows wait for the reviewer's answer, as they did there.

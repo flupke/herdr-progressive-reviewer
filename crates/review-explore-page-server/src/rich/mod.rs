@@ -34,6 +34,21 @@ impl RoundData for Rich {
         design::design()
     }
 
+    fn glossary(&self) -> std::collections::BTreeMap<String, String> {
+        [
+            (
+                "ReplyQueue",
+                "The queue that holds the agent's replies until they go out together.",
+            ),
+            (
+                "FlushPolicy",
+                "The rule that decides when the queued replies go out.",
+            ),
+        ]
+        .map(|(term, definition)| (term.to_owned(), definition.to_owned()))
+        .into()
+    }
+
     fn question(&self, number: usize) -> (Question, QuestionMarks) {
         questions::question(number)
     }

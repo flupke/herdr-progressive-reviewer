@@ -42,8 +42,11 @@ lines and concluding. The sections below apply to every turn.
 
 Every text the reviewer reads follows these rules. Write in English. Name a commit or a change
 by its subject, as its description gives it: an ID goes only beside the subject, when the
-reviewer needs it to find the commit. Define each term of the change the first time a text uses
-it.
+reviewer needs it to find the commit. Give each term of the change that a reviewer new to the
+code may not know, a name from the code included, a one-sentence definition in `glossary`, on the
+first turn or on the turn that first uses it, and a new definition when its meaning changes. Then
+use the term as it is in every text, without defining it there: the reviewer's screens mark each
+use and show its definition.
 
 ## Design
 

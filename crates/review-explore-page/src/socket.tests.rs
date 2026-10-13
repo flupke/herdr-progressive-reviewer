@@ -68,6 +68,7 @@ impl Owner {
                 decisions: Vec::new(),
                 earlier: Vec::new(),
                 title: TabTitle::AgentWorking,
+                glossary: std::collections::BTreeMap::new(),
             })),
             book: Arc::new(Mutex::new(ReviewThreads::new(REVIEW.into()))),
             threads: Arc::default(),
@@ -526,6 +527,7 @@ fn at_question_2(working: bool) -> RoundOverview {
         decisions: Vec::new(),
         earlier: Vec::new(),
         title: TabTitle::YourTurn { question: 2 },
+        glossary: std::collections::BTreeMap::new(),
     }
 }
 
@@ -715,6 +717,7 @@ async fn a_clarified_question_keeps_the_number_of_its_step_on_the_rail() {
         decisions: Vec::new(),
         earlier: Vec::new(),
         title: TabTitle::YourTurn { question: 2 },
+        glossary: std::collections::BTreeMap::new(),
     };
     // The round's third version of a question: a clarification of question 2.
     let RoundStage::Question {

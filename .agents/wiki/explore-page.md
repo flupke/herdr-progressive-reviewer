@@ -69,6 +69,12 @@ The page follows the reviewer's design handoff in
 specification, `screenshots/` the reference captures, and `design-review.md` the detailed
 findings.
 
+The glossary of the round (`PageView::glossary`) is marked by `assets/client/glossary.js`
+alone: a mutation observer on the main screens and the chat marks the terms in whatever a render
+adds, so no screen calls it, and a new glossary marks the page again. It leaves code blocks,
+diagrams, the citations' code, controls and links alone; the design screen lists the terms at its
+end.
+
 A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
 browser with Mermaid, every diagram of the page the same way (design review, finding 30):
 whole, as the project owner asked, shrunk to fit and never enlarged. Its nodes classed

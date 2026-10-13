@@ -161,6 +161,7 @@ impl ExploreUi {
             reopened: Vec::new(),
             not_relevant: Vec::new(),
             challenger_proposals: Vec::new(),
+            glossary: std::collections::BTreeMap::new(),
             design: request.is_kickoff().then(|| {
                 let none = || review_explore::DesignPart::new("None.", "None.");
                 review_explore::Design::new(

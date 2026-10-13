@@ -572,6 +572,7 @@ mod explore_page {
             decisions: Vec::new(),
             earlier: Vec::new(),
             title: review_explore::TabTitle::AgentWorking,
+            glossary: std::collections::BTreeMap::new(),
         };
         round.publish(
             Some(review_explore_page::PublishedRound {

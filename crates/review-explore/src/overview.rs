@@ -33,6 +33,9 @@ pub struct RoundOverview {
     pub earlier: Vec<EarlierQuestion>,
     /// What the browser tab's title says before the review's name.
     pub title: TabTitle,
+    /// The terms of the change with their definitions, which the page marks wherever they
+    /// appear.
+    pub glossary: std::collections::BTreeMap<String, String>,
 }
 
 impl RoundOverview {
@@ -57,6 +60,7 @@ impl RoundOverview {
                 .map(|step| EarlierQuestion::of(round, step))
                 .collect(),
             title: TabTitle::of(&position),
+            glossary: exploration.glossary.clone(),
         }
     }
 }
@@ -115,6 +119,7 @@ impl RoundStanding<'_> {
             decisions: Vec::new(),
             earlier: Vec::new(),
             title: TabTitle::of(&position),
+            glossary: std::collections::BTreeMap::new(),
         }
     }
 }

@@ -54,6 +54,9 @@ pub struct ConclusionSubmission {
     /// proposed on this turn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub challenger_proposals: Vec<crate::ChallengerProposal>,
+    /// New terms of the change and changed definitions, as `submit_question` takes them.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub glossary: std::collections::BTreeMap<String, String>,
     #[serde(flatten)]
     pub conclusion: Conclusion,
 }
@@ -71,6 +74,7 @@ impl ConclusionSubmission {
             challenger_proposals: self.challenger_proposals,
             reply: None,
             design: None,
+            glossary: self.glossary,
             agenda: vec![],
             topics: vec![],
             next: None,

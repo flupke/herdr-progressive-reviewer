@@ -12,6 +12,7 @@ fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
         reopened: Vec::new(),
         not_relevant: Vec::new(),
         challenger_proposals: Vec::new(),
+        glossary: std::collections::BTreeMap::new(),
         interpretation: request
             .answer
             .as_ref()

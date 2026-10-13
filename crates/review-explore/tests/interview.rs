@@ -86,6 +86,7 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
         interpretation: None,
         topics: vec![],
         design: (request.is_kickoff() && next.is_some()).then(design),
+        glossary: std::collections::BTreeMap::new(),
         conclusion: next
             .is_none()
             .then(|| conclusion("Further human file inspection remains required")),
@@ -782,4 +783,158 @@ fn a_reviewers_name_stays_one_line_without_control_characters() {
             .map(|name| name.len()),
         Some(RoundChoices::NAME_LENGTH)
     );
+}
+
+#[test]
+fn the_glossary_gathers_the_terms_of_every_turn_and_forgets_a_cancelled_turns() {
+    let mut exploration = exploration();
+    let request = exploration.request(None, None).unwrap();
+    let mut response = update(&request, Some(question(1)));
+    response.topics.push(policy_topic());
+    response.glossary = [
+        (
+            "resolution".to_owned(),
+            "Whether a conversation is done.".to_owned(),
+        ),
+        (
+            "reopen".to_owned(),
+            "To mark a done conversation open.".to_owned(),
+        ),
+    ]
+    .into();
+    assert!(exploration.apply(response).unwrap());
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                text: "Go on.".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&question(1)),
+        )
+        .unwrap();
+    let mut response = update(&request, Some(question(2)));
+    response.glossary = [
+        (
+            "reopen".to_owned(),
+            "To make a done conversation open again.".to_owned(),
+        ),
+        (
+            "policy".to_owned(),
+            "The rule that decides a resolution.".to_owned(),
+        ),
+    ]
+    .into();
+    assert!(exploration.apply(response).unwrap());
+
+    assert_eq!(
+        exploration.glossary,
+        [
+            (
+                "policy".to_owned(),
+                "The rule that decides a resolution.".to_owned()
+            ),
+            (
+                "reopen".to_owned(),
+                "To make a done conversation open again.".to_owned()
+            ),
+            (
+                "resolution".to_owned(),
+                "Whether a conversation is done.".to_owned()
+            ),
+        ]
+        .into()
+    );
+    let mut round = ExploreRound::new(exploration);
+    round
+        .cancel_answer(&request.answer.as_ref().unwrap().id)
+        .unwrap();
+    assert_eq!(
+        round.exploration.glossary,
+        [
+            (
+                "reopen".to_owned(),
+                "To mark a done conversation open.".to_owned()
+            ),
+            (
+                "resolution".to_owned(),
+                "Whether a conversation is done.".to_owned()
+            ),
+        ]
+        .into()
+    );
+}
+
+#[test]
+fn a_glossary_term_is_a_short_phrase_on_one_line_with_a_sentence() {
+    for (term, definition) in [
+        ("", "Empty."),
+        (" spaced", "Spaced."),
+        ("two\nlines", "Two lines."),
+        ("term", " "),
+    ] {
+        let mut exploration = exploration();
+        let request = exploration.request(None, None).unwrap();
+        let mut response = update(&request, Some(question(1)));
+        response.topics.push(policy_topic());
+        response.glossary = [(term.to_owned(), definition.to_owned())].into();
+
+        let error = exploration.apply(response).unwrap_err().to_string();
+
+        assert!(
+            error.contains("Glossary term") || error.contains("glossary term"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn two_terms_that_differ_only_by_case_or_a_one_letter_term_are_refused() {
+    for glossary in [
+        vec![("Policy", "The rule."), ("policy", "The same rule.")],
+        vec![("a", "A letter.")],
+    ] {
+        let mut exploration = exploration();
+        let request = exploration.request(None, None).unwrap();
+        let mut response = update(&request, Some(question(1)));
+        response.topics.push(policy_topic());
+        response.glossary = glossary
+            .into_iter()
+            .map(|(term, definition)| (term.to_owned(), definition.to_owned()))
+            .collect();
+
+        let error = exploration.apply(response).unwrap_err().to_string();
+
+        assert!(error.contains("Glossary term"), "{error}");
+    }
+}
+
+#[test]
+fn a_term_like_one_of_an_earlier_turn_and_a_glossary_past_its_limit_are_refused() {
+    let mut exploration = exploration();
+    let request = exploration.request(None, None).unwrap();
+    let mut response = update(&request, Some(question(1)));
+    response.topics.push(policy_topic());
+    response.glossary = [("flush policy".to_owned(), "The rule.".to_owned())].into();
+    assert!(exploration.apply(response).unwrap());
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                text: "Go on.".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&question(1)),
+        )
+        .unwrap();
+    let mut response = update(&request, Some(question(2)));
+
+    response.glossary = [("Flush  Policy".to_owned(), "The same rule.".to_owned())].into();
+    let error = exploration.apply(response.clone()).unwrap_err().to_string();
+    assert!(error.contains("only by case or spaces"), "{error}");
+    response.glossary = (0..100)
+        .map(|index| (format!("term {index}"), "A term.".to_owned()))
+        .collect();
+    let error = exploration.apply(response.clone()).unwrap_err().to_string();
+    assert!(error.contains("101 terms"), "{error}");
+    response.glossary.pop_last();
+    assert!(exploration.apply(response).unwrap());
 }

@@ -1,0 +1,35 @@
+/* The glossary (client/glossary.js): each use of a term, marked so that the reviewer sees at a
+   glance that it has a definition; the definition beside it; the list at the end of the design. */
+.term {
+  text-decoration: underline dotted var(--accent) 2px;
+  text-underline-offset: 3px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 3px;
+  cursor: help;
+}
+.term:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.term-tip {
+  position: fixed;
+  /* Above the chat, whose sheet covers the page on a phone. */
+  z-index: calc(var(--layer-chat) + 1);
+  max-width: min(22rem, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.term-tip[hidden] { display: none; }
+
+.glossary { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--line); }
+.glossary dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 0; }
+.glossary dt { font-weight: 650; }
+.glossary dd { margin: 0; color: var(--ink); }
+@media (max-width: 599px) {
+  .glossary dl { grid-template-columns: 1fr; gap: 2px; }
+  .glossary dd { margin-bottom: 8px; }
+}

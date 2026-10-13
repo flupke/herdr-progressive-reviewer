@@ -64,6 +64,7 @@ impl Exploration {
                 );
             }
         }
+        self.validate_glossary(&update.glossary)?;
         self.validate_agenda(update, comparison)?;
         self.validate_marks(update, comparison)?;
         self.validate_challenger_proposals(update)?;
@@ -328,4 +329,77 @@ impl Exploration {
                 .then_some(TopicStatus::Open)
         })
     }
+}
+
+/// The shortest glossary term, in characters: shorter ones would mark common words.
+const TERM_SHORTEST: usize = 2;
+/// The longest glossary term, in characters: a term is a word or a short phrase of the change.
+const TERM_LENGTH: usize = 60;
+/// The longest definition, in characters: one plain sentence.
+const DEFINITION_LENGTH: usize = 300;
+/// The most terms a round's glossary holds.
+const TERMS: usize = 100;
+
+impl Exploration {
+    /// Each term is a short phrase on one line, with a definition of one sentence, and no two
+    /// terms of the round differ only by case or spaces: the page takes them for one term.
+    fn validate_glossary(
+        &self,
+        glossary: &std::collections::BTreeMap<String, String>,
+    ) -> eyre::Result<()> {
+        for (term, definition) in glossary {
+            validate_term(term, definition)?;
+            let same = self
+                .glossary
+                .keys()
+                .chain(glossary.keys())
+                .find(|other| same_term(other, term) && *other != term);
+            if let Some(same) = same {
+                eyre::bail!(
+                    "Glossary term {term:?} differs from {same:?} only by case or spaces: send one \
+                     of them, as the page marks a term whatever its case and spaces"
+                );
+            }
+        }
+        let terms = self
+            .glossary
+            .keys()
+            .chain(glossary.keys())
+            .collect::<HashSet<_>>()
+            .len();
+        eyre::ensure!(
+            terms <= TERMS,
+            "The glossary would hold {terms} terms, above {TERMS}: keep the terms a reviewer new \
+             to the code needs"
+        );
+        Ok(())
+    }
+}
+
+/// Whether the page would take `a` and `b` for one term: the same words whatever their case and
+/// the spaces between them.
+fn same_term(a: &str, b: &str) -> bool {
+    let words = |term: &str| {
+        term.split_whitespace()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>()
+    };
+    words(a) == words(b)
+}
+
+/// `term` is a short phrase on one line, and `definition` one sentence.
+fn validate_term(term: &str, definition: &str) -> eyre::Result<()> {
+    eyre::ensure!(
+        term.trim() == term
+            && (TERM_SHORTEST..=TERM_LENGTH).contains(&term.chars().count())
+            && !term.chars().any(char::is_control),
+        "Glossary term {term:?} must be a word or a short phrase on one line, without spaces \
+         around it, of {TERM_SHORTEST} to {TERM_LENGTH} characters"
+    );
+    eyre::ensure!(
+        !definition.trim().is_empty() && definition.chars().count() <= DEFINITION_LENGTH,
+        "The definition of glossary term {term:?} must be one plain sentence of at most \
+         {DEFINITION_LENGTH} characters"
+    );
+    Ok(())
 }

@@ -1,7 +1,8 @@
 // The design screen: the design of the change as a screen of its own, which opens the round and
 // which the reviewer opens again from any later stage (route.js has its addresses). The reading
-// column holds the change's thesis and its four parts, each led by its thesis; the panel, the
-// design map, marks the part in view and ends on the way back to the round. On a phone the map
+// column holds the change's thesis and its four parts, each led by its thesis, then the glossary
+// of the change, for reference; the panel, the design map, marks the part in view and ends on
+// the way back to the round. On a phone the map
 // sits under the thesis, each part's header stays at the top of the screen while the part
 // scrolls, and a bar pinned to the bottom of the screen holds the way back.
 
@@ -9,6 +10,7 @@
 
 import { DOORS, doorChip } from './chips.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
+import { glossaryList } from './glossary.js';
 import { designPart, STAGE } from './route.js';
 
 /**
@@ -23,6 +25,7 @@ export class DesignScreen {
     this.head = new Region(this.element, 'head');
     this.map = new Region(this.element, 'map');
     this.parts = new Region(this.element, 'parts');
+    this.glossary = new Region(this.element, 'glossary');
     this.bar = new Region(this.element, 'bar');
     this.spy = new PartSpy(this.element);
   }
@@ -31,8 +34,9 @@ export class DesignScreen {
    * @param {DesignView} design
    * @param {Current | null} current
    * @param {QuestionView | null} question the question the round waits for, if any
+   * @param {{ [term in string]?: string }} glossary the terms of the change with their definitions
    */
-  update(design, current, question) {
+  update(design, current, question, glossary) {
     const asked = current?.kind === 'question' && question !== null ? question : null;
     const before = current?.kind === 'question' ? current.number : null;
     this.head.show(keyOf([design.thesis_html, design.parts.length, design.minutes, design.changed_files, before]), () =>
@@ -45,6 +49,7 @@ export class DesignScreen {
       ...design.parts.map(partSection),
       h('span', { class: 'design-end', 'aria-hidden': 'true' }),
     ]);
+    this.glossary.show(keyOf(glossary), () => glossaryList(glossary));
     const door = asked?.door ?? null;
     this.bar.show(keyOf([current, door]), () => (current ? bar(current, door) : null));
     if (map || parts) this.spy.watch();

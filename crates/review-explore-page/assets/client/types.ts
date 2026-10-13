@@ -653,7 +653,12 @@ sent: SentView | null,
  * The round's conversation with the agent; `None` when no round is running, and when the
  * page offers no conversation.
  */
-conversation: ConversationView | null, };
+conversation: ConversationView | null, 
+/**
+ * The terms of the change with their definitions, which the page marks wherever they
+ * appear, and lists at the end of the design; empty when no round is running.
+ */
+glossary: { [key in string]: string }, };
 /**
  * The open lines that answering the question the round waits for marks.
  */

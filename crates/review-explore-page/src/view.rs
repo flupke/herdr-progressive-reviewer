@@ -69,6 +69,9 @@ pub(crate) struct PageView {
     /// The round's conversation with the agent; `None` when no round is running, and when the
     /// page offers no conversation.
     conversation: Option<ConversationView>,
+    /// The terms of the change with their definitions, which the page marks wherever they
+    /// appear, and lists at the end of the design; empty when no round is running.
+    glossary: std::collections::BTreeMap<String, String>,
 }
 
 /// The start cover, when no round is running.
@@ -198,6 +201,11 @@ impl PageView {
             tally: round.tally.as_deref().cloned(),
             sent: SentView::of(round, offers_actions),
             conversation: threads.and_then(|threads| ConversationView::of(round, threads)),
+            glossary: round
+                .overview
+                .as_ref()
+                .map(|overview| overview.glossary.clone())
+                .unwrap_or_default(),
         }
     }
 }

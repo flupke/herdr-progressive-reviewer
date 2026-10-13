@@ -34,6 +34,22 @@ impl RoundData for Short {
         design::design()
     }
 
+    fn glossary(&self) -> std::collections::BTreeMap<String, String> {
+        [
+            (
+                "draft",
+                "The text the reviewer typed in the answer box and has not sent yet.",
+            ),
+            (
+                "reopen()",
+                "The pane's call that rebuilds a round from what was saved when the pane opens \
+                 again.",
+            ),
+        ]
+        .map(|(term, definition)| (term.to_owned(), definition.to_owned()))
+        .into()
+    }
+
     fn question(&self, number: usize) -> (Question, QuestionMarks) {
         question::question(number)
     }
