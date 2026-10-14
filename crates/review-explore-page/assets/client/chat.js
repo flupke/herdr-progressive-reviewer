@@ -17,6 +17,7 @@
 
 import { ChatWidth } from './chat-width.js';
 import { DESK } from './desk.js';
+import { DIAGRAMS_RESIZED, drawDiagrams, fitDiagrams } from './diagrams.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
 import { clockTime, statusCard } from './status.js';
@@ -94,6 +95,14 @@ export class Chat {
     );
     this.log = h('div', { class: 'chat-log', role: 'log', 'aria-label': 'Messages' });
     this.element.append(this.log);
+    /** Whether the log shows its end, which it keeps showing as its diagrams change size. */
+    this.atEnd = true;
+    this.log.addEventListener('scroll', () => {
+      this.atEnd = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 2;
+    });
+    document.addEventListener(DIAGRAMS_RESIZED, () => {
+      if (this.open && this.atEnd) this.scrollToEnd();
+    });
     this.width = new ChatWidth(this.element, this.log);
     this.messages = new Region(this.log, 'messages');
     this.pending = new Region(this.log, 'pending');
@@ -166,9 +175,15 @@ export class Chat {
     this.card.show(keyOf(conversation.card), () => (conversation.card ? statusCard(conversation.card) : null));
     this.form = this.composer.component(`${conversation.round}:${conversation.writable}`, () => new Composer(conversation));
     this.form.place(place);
-    if (rebuilt && this.open) {
-      this.width.fit();
-      this.scrollToEnd();
+    if (rebuilt) {
+      // A diagram drawn later changes the width the messages need.
+      drawDiagrams(this.log).then(() => {
+        if (this.open) this.width.fit();
+      });
+      if (this.open) {
+        this.width.fit();
+        this.scrollToEnd();
+      }
     }
     this.markRead();
     this.showUnread();
@@ -193,7 +208,11 @@ export class Chat {
     this.open = true;
     this.element.hidden = false;
     if (!RISES) this.rise();
-    if (opened) this.width.fit();
+    if (opened) {
+      this.width.fit();
+      // Its diagrams were drawn while it was hidden, with no width to fit.
+      fitDiagrams();
+    }
     this.scrim.hidden = false;
     this.bubble.setAttribute('aria-expanded', 'true');
     // The next frame, so that the drawer slides in from where it was drawn closed.

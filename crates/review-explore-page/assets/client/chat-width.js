@@ -6,6 +6,7 @@
 // module only says what the chat wants (`--chat-want`).
 
 import { DESK } from './desk.js';
+import { DIAGRAM_SOURCE, roomOf, wholeWidth } from './diagrams.js';
 import { h } from './dom.js';
 
 /** Where the browser keeps the width the reviewer set, for every round. */
@@ -45,17 +46,24 @@ export class ChatWidth {
 
   /**
    * Measures the width the widest message needs: its tables and blocks of code at the width of
-   * their content, with the room the chat keeps around them. Prose wraps, and needs none.
+   * their content, and its diagrams whole, with the room the chat keeps around them. Prose wraps,
+   * and needs none; the source of a diagram not drawn yet counts once drawn, or once it failed.
    * @returns {boolean} whether it measured: not while the chat is hidden or a sheet
    */
   fit() {
     if (this.chat.hidden || !DESK.matches) return false;
-    const wide = [...this.log.querySelectorAll('.chat-message :is(.table-frame, pre)')];
+    // Mermaid's message under a failed diagram is folded away, and needs no width.
+    const wide = [...this.log.querySelectorAll(`.chat-message :is(.table-frame, pre:not(${DIAGRAM_SOURCE}, .diagram-error), .diagram.failed > pre)`)];
+    const figures = /** @type {HTMLElement[]} */ ([...this.log.querySelectorAll('.chat-message figure.diagram:not(.failed)')]);
     const width = this.chat.getBoundingClientRect().width;
-    const around = wide.map((element) => width - (element.parentElement?.clientWidth ?? width));
+    /** @param {Element} element */
+    const around = (element) => width - (element.parentElement ? roomOf(element.parentElement) : width);
+    const drawn = figures.map((figure) => wholeWidth(figure) + around(figure));
+    const arounds = wide.map(around);
     this.chat.classList.add('measuring');
-    const needs = wide.map((element, index) => element.getBoundingClientRect().width + (around[index] ?? 0));
+    const needs = wide.map((element, index) => element.getBoundingClientRect().width + (arounds[index] ?? 0));
     this.chat.classList.remove('measuring');
+    needs.push(...drawn);
     this.fitted = Math.ceil(Math.max(0, ...needs));
     this.apply();
     return true;

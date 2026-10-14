@@ -171,6 +171,8 @@ export interface Session {
    * narrowest: a table of five columns and a block of code with long lines.
    */
   agentRepliesWide(): Promise<void>;
+  /** The agent replies as with `agentReplies`, with a reply that holds a sequence diagram. */
+  agentRepliesWithDiagram(): Promise<void>;
   /** The wakeup for the reviewer's waiting messages did not reach the agent. */
   messagesNotDelivered(): Promise<void>;
   /** The messages the reviewer sent from the chat, in order. */
@@ -257,6 +259,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     reviewerBack: () => step('back'),
     agentReplies: () => step('agent-replies'),
     agentRepliesWide: () => step('agent-replies-wide'),
+    agentRepliesWithDiagram: () => step('agent-replies-with-diagram'),
     messagesNotDelivered: () => step('messages-not-delivered'),
     messages: () => read<SentMessage[]>('messages'),
   };

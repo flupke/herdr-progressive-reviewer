@@ -76,8 +76,10 @@ diagrams, the citations' code, controls and links alone; the design screen lists
 end.
 
 A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
-browser with Mermaid, every diagram of the page the same way (design review, finding 30):
-whole, as the project owner asked, shrunk to fit and never enlarged. Its nodes classed
+browser with Mermaid, every diagram of the page the same way (design review, finding 30),
+the chat's too: whole, as the project owner asked, shrunk to fit and never enlarged. The
+chat builds all its messages again with each new one, which is why the module keeps what
+each source drew. Its nodes classed
 `new` or `changed` are drawn in green and amber; the kickoff's diagram rules
 (`crates/review-explore-runner/src/diagrams.md`) name that vocabulary. Mermaid is
 vendored, pinned and gzipped at build time in
@@ -85,8 +87,8 @@ vendored, pinned and gzipped at build time in
 move to another version); the page serves it itself, loads it only when it
 shows a diagram, and lets the browser keep it, since its address names its
 version. The tool cannot check a diagram when the agent submits it: when Mermaid
-cannot parse one, the page shows its source and sends the error over the socket
-(`diagram-failed`), and the session (`ExploreSession`) saves it with the question
+cannot parse one, the page shows its source and, for a question's, sends the error over
+the socket (`diagram-failed`), and the session (`ExploreSession`) saves it with the question
 (`Exploration::diagram_errors`).
 
 In the reviewer, the session (`ExploreSession`) publishes the stage of its round after

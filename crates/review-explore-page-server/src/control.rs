@@ -60,6 +60,8 @@
 //!   reply, to the reviewer's latest message in the conversation of the session's latest round.
 //! - `POST /test/sessions/{token}/agent-replies-wide`: the agent replies as with `agent-replies`,
 //!   with a reply wider than the chat at its narrowest: a table and a block of long lines.
+//! - `POST /test/sessions/{token}/agent-replies-with-diagram`: the agent replies as with
+//!   `agent-replies`, with a reply that holds a sequence diagram of five participants.
 //! - `POST /test/sessions/{token}/messages-not-delivered`: the wakeup for the reviewer's waiting
 //!   messages did not reach the agent.
 //! - `GET /test/sessions/{token}/messages` lists the messages the reviewer sent from the page's
@@ -124,6 +126,10 @@ pub(crate) fn router(sessions: Sessions) -> Router {
         .route(
             "/test/sessions/{token}/agent-replies-wide",
             post(agent_replies_wide),
+        )
+        .route(
+            "/test/sessions/{token}/agent-replies-with-diagram",
+            post(agent_replies_with_diagram),
         )
         .route(
             "/test/sessions/{token}/messages-not-delivered",
@@ -296,6 +302,13 @@ async fn agent_replies_wide(
     Path(token): Path<String>,
 ) -> StatusCode {
     found(sessions.agent_replies_wide(&token))
+}
+
+async fn agent_replies_with_diagram(
+    State(sessions): State<Sessions>,
+    Path(token): Path<String>,
+) -> StatusCode {
+    found(sessions.agent_replies_with_diagram(&token))
 }
 
 async fn messages_not_delivered(

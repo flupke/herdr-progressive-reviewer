@@ -581,6 +581,19 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'question-2-chat-diagram',
+    about:
+      "The agent's reply holds a sequence diagram, drawn as the page's are: beside the page (here 1440 and 2000) the chat widens to show it at its natural size, up to what leaves the reading column its narrowest width beside the panel; narrower, it shrinks to fit the message, with Open large, and on a phone it scrolls sideways.",
+    extraWidths: [1440, 2000],
+    async reach(session, page) {
+      await question(session, page, 2);
+      await chatTo(page, 'What if the pane closes while a reply waits?');
+      await session.agentRepliesWithDiagram();
+      await page.getByRole('article', { name: 'Reply from the agent' }).locator('figure.diagram svg').waitFor();
+      await chatSettled(page);
+    },
+  },
+  {
     name: 'question-2-chat-select',
     about: 'A passage of the question selected: the one option above it, Add to chat.',
     extraWidths: [1440, 2000],

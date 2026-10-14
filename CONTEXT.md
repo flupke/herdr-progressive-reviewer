@@ -145,8 +145,8 @@ _Avoid_: alert, admonition
 
 **Diagram**:
 A fenced `mermaid` block in the agent's Markdown, which the Explore page draws
-with Mermaid. A diagram Mermaid cannot parse shows as its source, and its error
-is saved with the question.
+with Mermaid. A diagram Mermaid cannot parse shows as its source, and the error
+of a question's diagram is saved with the question.
 _Avoid_: chart, figure
 
 **Status mark**:

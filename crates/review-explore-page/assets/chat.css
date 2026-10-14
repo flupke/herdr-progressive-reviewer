@@ -204,6 +204,9 @@ body:has(> .chat.open.resizing) main, body:has(> .chat.open.resizing) .masthead 
 .chat-message .markdown > :first-child { margin-top: 0; }
 .chat-message .markdown > :last-child { margin-bottom: 0; }
 .chat-message.mine .chat-text-shown { font-weight: 600; }
+/* A diagram stays inside its message on a phone too, where the reading column's runs from edge
+   to edge (diagrams.css). */
+.chat-message .markdown .diagram { margin-inline: 0; padding-inline: 12px; border-width: 1px; border-radius: var(--radius); }
 .chat-message.agent {
   gap: 4px;
   padding: 10px 12px;

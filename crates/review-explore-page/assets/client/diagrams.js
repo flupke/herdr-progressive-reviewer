@@ -1,13 +1,16 @@
 // Draws each fenced diagram block of the agent's Markdown with Mermaid, in the browser, whenever
-// the page builds a region that holds one. Mermaid comes from the tool, and loads only once the
-// page shows a diagram. A diagram Mermaid cannot parse keeps its source as code, with Mermaid's
-// message under it, and the page tells the tool, which saves the error with the question.
+// the page builds a region that holds one: the reading column's, or the chat's. Mermaid comes
+// from the tool, and loads only once the page shows a diagram. A region the page builds again
+// shows at once what a source already drew, so that the chat, which builds its messages again
+// with each new one, does not flash their sources. A diagram Mermaid cannot parse keeps its
+// source as code, with Mermaid's message under it; for a question's, the page tells the tool,
+// which saves the error with the question.
 //
-// Every diagram of the page, the design's and a question's, is drawn the same way (design
-// review, finding 30, with the project owner's rule that a diagram shows whole): in the page's
-// theme and font, whose colours are read from its tokens at each draw and again when the page
-// turns dark or light; at its natural size when it fits its frame, and otherwise shrunk to fit,
-// never above its natural size. When shrinking to the figure's width would take its 14-pixel
+// Every diagram of the page, the design's, a question's and the chat's, is drawn the same way
+// (design review, finding 30, with the project owner's rule that a diagram shows whole): in the
+// page's theme and font, whose colours are read from its tokens at each draw and again when the
+// page turns dark or light; at its natural size when it fits its frame, and otherwise shrunk to
+// fit, never above its natural size. When shrinking to the figure's width would take its 14-pixel
 // text under 11 pixels, the figure first widens to the whole reading column; past that, a
 // desktop still shows it whole, and a phone keeps its natural size in a frame that scrolls
 // sideways. A shrunk or scrolling diagram offers "Open large", which shows it at its natural
@@ -32,6 +35,10 @@ import { disclosure } from './disclosure.js';
 import { h, setDiagramDrawing } from './dom.js';
 
 const FENCE = 'mermaid';
+/** A diagram's source as the agent's Markdown has it, before it is drawn. */
+export const DIAGRAM_SOURCE = `pre:has(> code.language-${FENCE})`;
+/** The event the document gets once drawings changed size: drawn, or fitted again. */
+export const DIAGRAMS_RESIZED = 'explore:diagrams-resized';
 const dark = matchMedia('(prefers-color-scheme: dark)');
 /** The smallest scale that keeps a diagram readable: its 14-pixel text stays at 11 pixels or
  * more. */
@@ -46,6 +53,15 @@ const PARTICIPANT = /^\s*(?:participant|actor)\s/gm;
 
 /** Every diagram the page found, in the order it found them. @type {Diagram[]} */
 const diagrams = [];
+/**
+ * What became of each source in the page's theme: Mermaid's last drawing of it, with the element
+ * ID it gives the drawing, which its styles and arrowheads name, and the direction and width of
+ * a flowchart; or Mermaid's message when it could not parse it.
+ * @type {Map<string, { svg: string, id: string, turned: boolean, wide: number } | { message: string }>}
+ */
+const drawings = new Map();
+/** Counts the page's changes of theme, which outdate the drawings of a draw under way. */
+let themes = 0;
 /** @type {Promise<Mermaid> | null} */
 let library = null;
 /** Each draw gets its own element ID; draws run one after the other. */
@@ -67,10 +83,13 @@ export function configureDiagrams(address, reporter) {
 }
 
 /**
- * Draws the diagrams under `root` that are not drawn yet.
+ * Draws the diagrams under `root` that are not drawn yet, and fits them again whenever the width
+ * of `root` changes.
  * @param {Element} root
+ * @returns {Promise<void>} settles once no draw is queued
  */
 export function drawDiagrams(root) {
+  watch(root);
   // Forget the diagrams of regions the page rebuilt since.
   for (let index = diagrams.length - 1; index >= 0; index--) {
     const { block, figure } = /** @type {Diagram} */ (diagrams[index]);
@@ -87,10 +106,27 @@ export function drawDiagrams(root) {
     figure.className = 'diagram';
     const diagram = { source: code.textContent ?? '', block, figure, failed: false, turned: false, wide: 0 };
     diagrams.push(diagram);
-    found.push(diagram);
+    const drawn = drawings.get(diagram.source);
+    if (drawn && 'message' in drawn) fail(diagram, drawn.message);
+    // A drawing shown elsewhere on the page keeps its element ID: another copy draws anew.
+    else if (drawn && !document.getElementById(drawn.id)) {
+      diagram.turned = drawn.turned;
+      diagram.wide = drawn.wide;
+      show(diagram, drawn.svg);
+    } else found.push(diagram);
   }
-  if (found.length === 0) return;
-  queue(found);
+  number();
+  if (found.length > 0) queue(found);
+  return settled();
+}
+
+/** Settles once no draw is queued, counting the draws queued meanwhile. */
+async function settled() {
+  let last;
+  do {
+    last = draws;
+    await last;
+  } while (last !== draws);
 }
 
 /**
@@ -100,6 +136,7 @@ export function drawDiagrams(root) {
 export function fitDiagrams() {
   const turning = diagrams.filter((diagram) => !fit(diagram));
   if (turning.length > 0) queue(turning);
+  document.dispatchEvent(new Event(DIAGRAMS_RESIZED));
 }
 
 /** How many queued draws have not finished. */
@@ -124,24 +161,33 @@ function queue(some) {
     })
     .finally(() => {
       if (--pending === 0) delete document.body.dataset.diagrams;
+      document.dispatchEvent(new Event(DIAGRAMS_RESIZED));
     });
 }
 
-// The diagrams fit again once the page's column has a new width: the window resized, or the
-// open chat made room beside the page (layout.css), over a short transition.
-/** How long the column's width stays the same before the diagrams fit it, in milliseconds. */
+// The diagrams fit again once a region that holds them has a new width: the window resized, the
+// open chat made room beside the page (layout.css), over a short transition, or the chat opened
+// or the reviewer dragged its edge.
+/** How long a region's width stays the same before the diagrams fit it, in milliseconds. */
 const REFIT_DELAY = 100;
 let resizing = 0;
-let columnWidth = 0;
-const column = document.querySelector('main');
-if (column) {
-  new ResizeObserver(([entry]) => {
-    // Only the width counts: the column grows taller with every part the page draws.
-    if (entry.contentRect.width === columnWidth) return;
-    columnWidth = entry.contentRect.width;
-    clearTimeout(resizing);
-    resizing = setTimeout(fitDiagrams, REFIT_DELAY);
-  }).observe(column);
+/** The width of each region watched. @type {WeakMap<Element, number>} */
+const widths = new WeakMap();
+const resized = new ResizeObserver((entries) => {
+  // Only the width counts: a region grows taller with every part the page draws.
+  const changed = entries.filter((entry) => entry.contentRect.width !== widths.get(entry.target));
+  if (changed.length === 0) return;
+  for (const entry of changed) widths.set(entry.target, entry.contentRect.width);
+  clearTimeout(resizing);
+  resizing = setTimeout(fitDiagrams, REFIT_DELAY);
+});
+
+/** Fits the diagrams again whenever the width of `region` changes. @param {Element} region */
+function watch(region) {
+  if (widths.has(region)) return;
+  // Its first width fits the diagrams again, as any other.
+  widths.set(region, 0);
+  resized.observe(region);
 }
 
 /** Mermaid, loaded once; it redraws every diagram when the page's theme changes. */
@@ -150,7 +196,11 @@ function load() {
     const element = document.createElement('script');
     element.src = script;
     element.onload = () => {
-      dark.addEventListener('change', () => queue([...diagrams]));
+      dark.addEventListener('change', () => {
+        themes++;
+        drawings.clear();
+        queue([...diagrams]);
+      });
       resolve(/** @type {{ mermaid: Mermaid }} */ (/** @type {unknown} */ (window)).mermaid);
     };
     element.onerror = () => reject(new Error('Mermaid did not load'));
@@ -165,14 +215,20 @@ function load() {
  */
 async function draw(mermaid, diagram) {
   if (diagram.failed || !(diagram.block.isConnected || diagram.figure.isConnected)) return;
+  const { turned } = diagram;
+  const source = turned ? diagram.source.replace(SIDEWAYS, '$1TD') : diagram.source;
+  const theme = themes;
   mermaid.initialize(configuration());
   try {
     await mermaid.parse(diagram.source);
-    const source = diagram.turned ? diagram.source.replace(SIDEWAYS, '$1TD') : diagram.source;
-    const { svg } = await mermaid.render(`diagram-${++renders}`, source);
+    const id = `diagram-${++renders}`;
+    const { svg } = await mermaid.render(id, source);
     show(diagram, svg);
+    if (theme === themes) drawings.set(diagram.source, { svg, id, turned, wide: diagram.wide });
   } catch (error) {
-    fail(diagram, error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    if (theme === themes) drawings.set(diagram.source, { message });
+    fail(diagram, message);
   }
   number();
 }
@@ -299,7 +355,7 @@ function show(diagram, svg) {
   );
   diagram.figure.replaceChildren(drawing, caption);
   if (diagram.block.isConnected) diagram.block.replaceWith(diagram.figure);
-  const width = natural(diagram);
+  const width = naturalWidth(diagram.figure);
   if (!diagram.turned && SIDEWAYS.test(diagram.source)) diagram.wide = width;
   if (!fit(diagram)) queue([diagram]);
 }
@@ -310,9 +366,20 @@ function scrollHint(source) {
   return participants > 0 ? `Scroll sideways · ${participants} participants` : 'Scroll sideways';
 }
 
-/** The width Mermaid laid the drawing out at. @param {Diagram} diagram */
-function natural(diagram) {
-  const drawing = diagram.figure.querySelector('.drawing > svg');
+/**
+ * The width a diagram's figure needs to show its drawing whole: its natural size in its frame.
+ * @param {HTMLElement} figure
+ */
+export function wholeWidth(figure) {
+  return figure.offsetWidth - roomOf(figure) + naturalWidth(figure);
+}
+
+/**
+ * The width Mermaid laid out the drawing of a diagram's figure at, or 0 before it is drawn.
+ * @param {Element} figure
+ */
+function naturalWidth(figure) {
+  const drawing = figure.querySelector('.drawing > svg');
   return drawing instanceof SVGSVGElement ? (drawing.viewBox.baseVal?.width ?? 0) : 0;
 }
 
@@ -342,7 +409,7 @@ function fit(diagram) {
       return false;
     }
   }
-  const width = natural(diagram);
+  const width = naturalWidth(diagram.figure);
   if (width <= 0) return true;
   const readable = width * SMALLEST <= room;
   const widens = !readable && width > room && column > room;
@@ -357,10 +424,10 @@ function fit(diagram) {
   return true;
 }
 
-/** The width a figure gives its drawing. @param {HTMLElement} figure */
-function roomOf(figure) {
-  const style = getComputedStyle(figure);
-  return figure.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+/** The width an element gives its content, such as a figure its drawing. @param {HTMLElement} element */
+export function roomOf(element) {
+  const style = getComputedStyle(element);
+  return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 }
 
 /** The dialog that shows a diagram at its natural size. @type {HTMLDialogElement | null} */
@@ -384,7 +451,7 @@ function openLarge(diagram) {
   dialog = shown;
   const home = drawing.parentElement;
   const width = drawing.style.width;
-  drawing.style.width = `${natural(diagram)}px`;
+  drawing.style.width = `${naturalWidth(diagram.figure)}px`;
   frame.append(drawing);
   diagram.figure.classList.add('large');
   close.addEventListener('click', () => shown.close());

@@ -779,6 +779,28 @@ if self.policy.is_idle(now.duration_since(last)) && !self.waiting.is_empty() { s
 
 A reply is saved to its thread before any of them runs, so a crash loses the notification only.";
 
+/// A reply of the agent that holds a sequence diagram of five participants, wider than the chat
+/// at its narrowest, between paragraphs of prose.
+const DIAGRAM_CHAT_REPLY: &str = "What happens when a reply arrives while the pane is closing:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Thread as Review thread
+  participant Queue as Reply queue
+  participant Tick as Idle tick
+  participant Pane
+  participant Herdr
+  Thread->>Queue: push reply
+  Queue->>Queue: save to the thread
+  Pane->>Queue: close_threads
+  Queue->>Herdr: flush (Closing)
+  Herdr-->>Pane: notification
+  Note over Tick: stopped with the pane
+```
+
+The tick never runs after the pane closes: `close_threads` sends whatever waits.";
+
 impl Session {
     /// Takes one of the page's actions that recover or close the round, as the review tool
     /// would. The page already refused one its round no longer offers.
@@ -1253,6 +1275,11 @@ impl Sessions {
     /// The agent replies, as `agent_replies` does, with `WIDE_CHAT_REPLY`.
     pub(crate) fn agent_replies_wide(&self, token: &str) -> bool {
         self.reply_with(token, |_| WIDE_CHAT_REPLY)
+    }
+
+    /// The agent replies, as `agent_replies` does, with `DIAGRAM_CHAT_REPLY`.
+    pub(crate) fn agent_replies_with_diagram(&self, token: &str) -> bool {
+        self.reply_with(token, |_| DIAGRAM_CHAT_REPLY)
     }
 
     /// The agent replies with the text `reply` gives for the session behind `token`.
