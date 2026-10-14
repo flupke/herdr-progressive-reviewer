@@ -10,6 +10,11 @@ use syntect::highlighting::Theme;
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
+/// Extensions the bundled syntaxes leave out, each with the extension of a syntax that reads
+/// it: JavaScript's lists only `js`, and no syntax lists `jsx`. The syntax that lists them,
+/// JavaScript (Babel), needs Oniguruma, which the pure-Rust regex build leaves out.
+const READ_AS: &[(&str, &str)] = &[("mjs", "js"), ("cjs", "js"), ("jsx", "tsx")];
+
 /// One syntax-colored part of a source line.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Token {
@@ -182,9 +187,16 @@ impl SyntaxHighlighter {
         let set = Self::syntaxes();
         set.find_syntax_by_extension(file_name)
             .or_else(|| {
-                path.extension()
+                // A code block's language, such as `jsx`, is a name with no extension.
+                let extension = path
+                    .extension()
                     .and_then(|extension| extension.to_str())
-                    .and_then(|extension| set.find_syntax_by_extension(extension))
+                    .unwrap_or(file_name);
+                let extension = READ_AS
+                    .iter()
+                    .find(|(missing, _)| missing.eq_ignore_ascii_case(extension))
+                    .map_or(extension, |(_, known)| known);
+                set.find_syntax_by_extension(extension)
             })
             .or_else(|| set.find_syntax_by_token(file_name))
     }
@@ -255,3 +267,7 @@ impl SyntaxHighlighter {
         )]
     }
 }
+
+#[cfg(test)]
+#[path = "lib.tests.rs"]
+mod tests;
