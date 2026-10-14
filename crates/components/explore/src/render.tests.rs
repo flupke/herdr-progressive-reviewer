@@ -61,6 +61,7 @@ fn answer() -> ReviewerAnswer {
         text: "Keep it.".into(),
         author: "reviewer".into(),
         first_pick: None,
+        drawing_board: false,
     }
 }
 
@@ -390,5 +391,30 @@ fn a_revised_question_says_why_the_agent_revised_it_instead_of_repeating_the_rep
     assert!(
         !rows.iter().any(|row| row.contains("I checked the cache")),
         "{rows:#?}"
+    );
+}
+
+#[test]
+fn an_answer_that_sent_the_agent_back_to_the_drawing_board_says_so() {
+    let mut bus = ComponentEventBus::<Action>::new();
+    let target = bus.mount(|events| {
+        ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
+    });
+    let component = bus.get_mut::<ExploreComponent>(target).unwrap();
+    component.exploration = Some(exploration());
+    let sent_back = ReviewerAnswer {
+        text: String::new(),
+        drawing_board: true,
+        ..answer()
+    };
+    let mut layout = ConversationLayout::new(Rect::new(0, 0, 80, 40));
+
+    component.recorded_answer(&sent_back, &mut layout, ui_theme::Theme::default().palette);
+
+    let rows = rows(&layout);
+    assert!(
+        rows.iter()
+            .any(|row| row == "You: Back to the drawing board"),
+        "{rows:?}"
     );
 }

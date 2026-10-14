@@ -1,7 +1,7 @@
 use super::*;
 
 /// An item whose correct option is the second, proven by the first two lines of the base.
-fn item(question: &str) -> QuizItem {
+pub(super) fn item(question: &str) -> QuizItem {
     QuizItem {
         question: question.into(),
         answers: vec![

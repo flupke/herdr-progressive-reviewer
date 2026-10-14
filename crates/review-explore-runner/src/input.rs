@@ -132,6 +132,12 @@ impl TurnInput<'_> {
         } else {
             writeln!(output, "Reply to conclusion: {}", answer.in_reply_to)?;
         }
+        if answer.drawing_board {
+            writeln!(
+                output,
+                "\nBack to the drawing board: see `drawing-board.md`."
+            )?;
+        }
         if let Some(option) = &answer.option {
             writeln!(
                 output,

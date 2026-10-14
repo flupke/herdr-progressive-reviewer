@@ -117,6 +117,7 @@ fn round(
             text: String::new(),
             author: "reviewer".into(),
             first_pick: None,
+            drawing_board: false,
         })
         .collect();
     ExploreRound {

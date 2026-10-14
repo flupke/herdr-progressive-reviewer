@@ -52,12 +52,13 @@
 }
 
 /* Controlling the round, as in the reviewer's Explore tab: Cancel answer in the previous turn
-   (turn.css) and the saved implementation request; Reset is in the masthead's menu. Stop
+   (turn.css), the saved implementation request, and Back to the drawing board under the answer
+   and on the design screen; Reset is in the masthead's menu, with Back to the drawing board. Stop
    waiting, Retry and the cancel of an implementation request sit in the actions of their
    status card. */
-.cancel-answer, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
-.cancel-answer .hint { margin: 0; }
-.cancel-answer button, .resend-implementation button { justify-self: start; }
+.cancel-answer, .resend-implementation, .drawing-board { display: grid; gap: 12px; margin: 12px 0; }
+.cancel-answer .hint, .drawing-board .hint { margin: 0; }
+.cancel-answer button, .resend-implementation button, .drawing-board button { justify-self: start; }
 
 /* The quiet line that says when the page cannot reach the review tool, and the line that says
    the page needs JavaScript. */

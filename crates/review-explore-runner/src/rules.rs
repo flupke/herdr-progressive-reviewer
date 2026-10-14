@@ -84,11 +84,18 @@ pub(super) fn files(
 
 /// The rule files of the turn `request` beside its index: only those its round's setup needs.
 fn rules(request: &TurnRequest) -> Vec<Rule> {
+    let drawing_board = request.at_drawing_board();
     let mut rules = vec![if request.is_kickoff() {
         Rule::new(
             "first-turn.md",
             include_str!("rules/first-turn.md"),
             When::Now("the steps of this turn"),
+        )
+    } else if drawing_board {
+        Rule::new(
+            "drawing-board.md",
+            include_str!("rules/drawing-board.md"),
+            When::Now("the steps of this turn, which ends the round"),
         )
     } else {
         Rule::new(
@@ -104,30 +111,32 @@ fn rules(request: &TurnRequest) -> Vec<Rule> {
             When::Now("how a review of someone else's change differs, which overrides the rest"),
         ));
     }
-    if request.challenger {
+    // At the drawing board, the agent concludes alone.
+    if request.challenger && !drawing_board {
         rules.push(Rule::new(
             "challenger.md",
             include_str!("rules/challenger.md"),
             When::Now("how you and the challenger share each turn"),
         ));
     }
-    rules.extend([
-        Rule::new(
-            "diagrams.md",
-            diagrams(),
-            When::On("before you draw a diagram"),
-        ),
-        Rule::new(
+    rules.push(Rule::new(
+        "diagrams.md",
+        diagrams(),
+        When::On("before you draw a diagram"),
+    ));
+    // At the drawing board, its own file says how to conclude.
+    if !drawing_board {
+        rules.push(Rule::new(
             "conclusion.md",
             include_str!("rules/conclusion.md"),
             When::On("before you conclude"),
-        ),
-        Rule::new(
-            "conversation.md",
-            include_str!("rules/conversation.md"),
-            When::On("when a review comments wakeup names this round"),
-        ),
-    ]);
+        ));
+    }
+    rules.push(Rule::new(
+        "conversation.md",
+        include_str!("rules/conversation.md"),
+        When::On("when a review comments wakeup names this round"),
+    ));
     rules
 }
 

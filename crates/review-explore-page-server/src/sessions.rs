@@ -6,8 +6,9 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::{
-    AgentRecord, CancelFrom, Decision, DiagramError, EarlierQuestion, KeptAnswer, MarkCounts,
-    Question, QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
+    AgentRecord, Alternative, CancelFrom, Decision, DiagramError, EarlierQuestion, KeptAnswer,
+    MarkCounts, Question, QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock,
+    TurnMarks,
 };
 use review_explore_citations::Citation;
 use review_explore_page::{
@@ -159,6 +160,9 @@ pub(crate) struct PostedAnswer {
     /// The choice picked first on a blind question; left out when there was none.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_pick: Option<String>,
+    /// Whether it sent the agent back to the drawing board; left out when not.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    drawing_board: bool,
 }
 
 /// A round the reviewer started from the page, as a test reads it back.
@@ -307,40 +311,25 @@ impl Session {
             ),
             _ => (&[][..], None),
         };
-        let (picked, comment, first_pick) = match answer {
-            AnswerTaken::InPane => (
-                alternatives.first(),
-                self.data.pane_comment().to_owned(),
-                None,
-            ),
-            AnswerTaken::AfterFirstPick => {
-                let kept = alternatives
-                    .iter()
-                    .find(|alternative| alternative.recommendation.is_some())
-                    .or(alternatives.first());
-                let first = alternatives.iter().find(|alternative| {
-                    Some(alternative.id.as_str()) != kept.map(|kept| kept.id.as_str())
-                });
-                (kept, String::new(), first.map(|first| first.id.as_str()))
-            }
+        let drawing_board = matches!(
+            answer,
             AnswerTaken::FromPage {
-                choice,
-                comment,
-                first_pick,
-            } => (
-                alternatives
-                    .iter()
-                    .find(|alternative| Some(alternative.id.as_str()) == choice),
-                comment.to_owned(),
-                first_pick,
-            ),
-        };
-        let kept = KeptAnswer::new(picked, &comment, first_pick);
+                drawing_board: true,
+                ..
+            }
+        );
+        let (picked, comment, first_pick) = answer.kept(alternatives, self.data.pane_comment());
+        let mut kept = KeptAnswer::new(picked, &comment, first_pick);
+        if drawing_board {
+            kept = kept.into_drawing_board();
+        }
         let mut turn_answer = SentAnswer {
             question: None,
             kept: kept.clone(),
             marked: MarkCounts::default(),
         };
+        // The drawing board applies no marks: the code will change.
+        let no_marks = QuestionMarks::default();
         if let Some(RoundStage::Question {
             question,
             citations,
@@ -348,6 +337,7 @@ impl Session {
             ..
         }) = &self.latest_question
         {
+            let marks = if drawing_board { &no_marks } else { marks };
             let number = self.decisions.len() + 1;
             self.decisions.push(Decision {
                 number,
@@ -380,12 +370,12 @@ impl Session {
             turn_answer.marked = marks.counts();
         }
         self.answer_marks.push(match &self.latest_question {
-            Some(RoundStage::Question { marks, .. }) => marks.clone(),
+            Some(RoundStage::Question { marks, .. }) if !drawing_board => marks.clone(),
             _ => QuestionMarks::default(),
         });
         self.answered.push(LatestAnswer {
             id: format!("answer-{}", self.answered.len() + 1),
-            choice: picked.map(|alternative| alternative.text.clone()),
+            choice: turn_answer.kept.choice.clone(),
             comment,
             answered: Answered {
                 question,
@@ -702,13 +692,50 @@ enum AnswerTaken<'a> {
     InPane,
     /// The recommended choice, after a first pick of another, with no comment.
     AfterFirstPick,
-    /// From the page: the choice picked, by ID, if any, the comment, and the choice picked
-    /// first on a blind question.
+    /// From the page: the choice picked, by ID, if any, the comment, the choice picked first on
+    /// a blind question, and whether it sent the agent back to the drawing board instead.
     FromPage {
         choice: Option<&'a str>,
         comment: &'a str,
         first_pick: Option<&'a str>,
+        drawing_board: bool,
     },
+}
+
+impl<'a> AnswerTaken<'a> {
+    /// The choice kept among `alternatives`, if any, the comment, and the choice picked first;
+    /// an answer in the pane has the comment `pane_comment`.
+    fn kept(
+        self,
+        alternatives: &'a [Alternative],
+        pane_comment: &str,
+    ) -> (Option<&'a Alternative>, String, Option<&'a str>) {
+        match self {
+            Self::InPane => (alternatives.first(), pane_comment.to_owned(), None),
+            Self::AfterFirstPick => {
+                let kept = alternatives
+                    .iter()
+                    .find(|alternative| alternative.recommendation.is_some())
+                    .or(alternatives.first());
+                let first = alternatives.iter().find(|alternative| {
+                    Some(alternative.id.as_str()) != kept.map(|kept| kept.id.as_str())
+                });
+                (kept, String::new(), first.map(|first| first.id.as_str()))
+            }
+            Self::FromPage {
+                choice,
+                comment,
+                first_pick,
+                ..
+            } => (
+                alternatives
+                    .iter()
+                    .find(|alternative| Some(alternative.id.as_str()) == choice),
+                comment.to_owned(),
+                first_pick,
+            ),
+        }
+    }
 }
 
 /// How a prompt the session sends ends without the agent working on it.
@@ -858,6 +885,7 @@ impl Session {
                     choice: answer.input.option.as_deref(),
                     comment: &answer.input.text,
                     first_pick: answer.input.first_pick.as_deref(),
+                    drawing_board: answer.input.drawing_board,
                 });
                 self.answers.push(PostedAnswer {
                     question: answer.question,
@@ -865,6 +893,7 @@ impl Session {
                     choice: answer.input.option,
                     comment: answer.input.text,
                     first_pick: answer.input.first_pick,
+                    drawing_board: answer.input.drawing_board,
                 });
                 let stage = self.new_turn(Some(sent));
                 self.publish(stage);

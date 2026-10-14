@@ -95,3 +95,15 @@ Submitting a conclusion does not start implementation. Only `to_be_implemented` 
 editable task box, and the reviewer's **Implement** action sends the edited box contents,
 authorizing those tasks and their validation. Delivery confirmation means the request was
 sent, not that implementation has finished.
+
+Back to the drawing board ([ADR 0008](../adr/0008-send-a-design-disagreement-back-to-the-drawing-board.md))
+is an answer to the question that waits, with `drawing_board` set and no choice: its turn gets
+`drawing-board.md` in place of `next-turn.md` and `conclusion.md`, and the tool takes only a
+conclusion with a list to implement, an empty quiz, no interpretation and no review marks. A
+Reply to that conclusion, from the pane, stays at the drawing board under the same rules. The
+answer applies none of the marks its question waited for, since the code will change, and
+run-ahead's forks go unused (`PlainReason::DrawingBoard`). Implementing that conclusion, or
+posting it as a review of someone else's change, reopens every line the round's turns marked,
+and gives back none they took over
+(`ExploreSession::reopen_round_marks`): only then, since Cancel answer is offered until a
+request is made, and before the request is saved, so that a failure refuses Implement.

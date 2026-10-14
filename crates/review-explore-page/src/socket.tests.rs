@@ -44,6 +44,8 @@ struct Owner {
     command_arrived: Arc<tokio::sync::Notify>,
     open: Arc<Mutex<bool>>,
     latest: Arc<Mutex<Option<LatestAnswer>>>,
+    /// The answers the page sent, in order.
+    answers: Arc<Mutex<Vec<review_explore::AnswerInput>>>,
     /// The round's overview, which most tests leave empty.
     overview: Arc<Mutex<RoundOverview>>,
     /// The review's threads, which hold the round's conversation, as their owner keeps them.
@@ -63,6 +65,7 @@ impl Owner {
             command_arrived: Arc::default(),
             open: Arc::new(Mutex::new(true)),
             latest: Arc::default(),
+            answers: Arc::default(),
             overview: Arc::new(Mutex::new(RoundOverview {
                 rail: Vec::new(),
                 decisions: Vec::new(),
@@ -113,6 +116,7 @@ impl Owner {
         let stage = self.publisher.subscribe().stage();
         let (kind, next) = match command {
             PageCommand::Answer(answer) => {
+                lock(&self.answers).push(answer.input.clone());
                 *lock(&self.latest) = Some(LatestAnswer {
                     id: "answer-1".into(),
                     choice: None,
@@ -984,6 +988,49 @@ async fn a_blind_questions_first_pick_shows_its_recommendation_and_is_kept_once(
     .await;
     assert_eq!(next(&mut socket).await["result"]["applied"], false);
     assert_eq!(owner.commands(), ["pick"]);
+}
+
+#[tokio::test]
+async fn back_to_the_drawing_board_keeps_no_first_pick_and_is_sent_once() {
+    let owner = Owner::new(asking(question("q1", "one_way")));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+    next(&mut socket).await;
+    let pick = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "discard" });
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "pick", "params": pick }),
+    )
+    .await;
+    next(&mut socket).await;
+    assert_eq!(next(&mut socket).await["result"]["applied"], true);
+    let sent_back = json!({
+        "round": ROUND, "question": "q1", "version": 1, "choice": null, "comment": "",
+        "drawing_board": true
+    });
+
+    request(
+        &mut socket,
+        json!({ "id": 2, "method": "answer", "params": sent_back }),
+    )
+    .await;
+    next(&mut socket).await;
+    assert_eq!(next(&mut socket).await["result"]["applied"], true);
+    request(
+        &mut socket,
+        json!({ "id": 3, "method": "answer", "params": sent_back }),
+    )
+    .await;
+
+    assert_eq!(
+        next(&mut socket).await["result"]["applied"],
+        false,
+        "a repeat sends nothing"
+    );
+    let answers = lock(&owner.answers).clone();
+    assert_eq!(answers.len(), 1);
+    assert!(answers[0].drawing_board);
+    assert_eq!(answers[0].first_pick, None);
 }
 
 #[tokio::test]

@@ -2,8 +2,8 @@
 // the chat's bubble at its left on a desktop, the product's name, the review's revision and
 // title, the round rail, and the ⋯ menu, with the bubble beside it below the desk's two
 // columns. "Design ▾" on the rail opens the design map in place; the menu copies the round's
-// link, opens the agent's conversation (chat.js), and holds Reset, behind its confirmation,
-// which the page offers nowhere else. The masthead's bottom hairline is an element of its
+// link, opens the agent's conversation (chat.js), and holds Back to the drawing board while a
+// question waits (drawing-board.js) and Reset, each behind its confirmation. The masthead's bottom hairline is an element of its
 // own, which the meter draws on. On a phone the rail shows chips: the design, the current
 // step, the screen in view and the screens beside it, and the review's title moves into the menu
 // (masthead.css, swipe.css). The browser tab's title says whose turn it is, after the count of
@@ -24,6 +24,7 @@
 import { requestChat } from './chat.js';
 import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
+import { drawingBoardConfirmation } from './drawing-board.js';
 import { revisionCode, revisionText } from './revision.js';
 import { earlierQuestion, quizItem, STAGE } from './route.js';
 
@@ -61,10 +62,14 @@ export class Masthead {
     header.append(h('div', { class: 'masthead-line', id: 'masthead-line' }));
     /** @type {Open} */
     this.open = null;
-    /** Whether the menu shows Reset's confirmation in place of its entries. */
-    this.confirming = false;
+    /** The confirmation the menu shows in place of its entries: Reset's, Back to the drawing
+     * board's, or none. @type {'reset' | 'drawing-board' | null} */
+    this.confirming = null;
     /** The round Reset closes, as the latest view offers it. @type {string | null} */
     this.resets = null;
+    /** The key of the question Back to the drawing board answers, by ID and version, as the
+     * latest view offers it. @type {string | null} */
+    this.boardFor = null;
     /** The steps of the screens beside the one the page shows, whose chips a phone shows.
      * @type {Set<string | undefined>} */
     this.near = new Set();
@@ -102,7 +107,18 @@ export class Masthead {
     this.markChips();
     if (view.reset !== this.resets) {
       this.resets = view.reset;
-      this.confirming = false;
+      this.confirming = null;
+    }
+    // Back to the drawing board answers the question that waits: once it no longer waits, as when
+    // the confirmation went through, the menu closes.
+    const boardFor = view.question?.answerable ? keyOf([view.question.id, view.question.version]) : null;
+    if (boardFor !== this.boardFor) {
+      this.boardFor = boardFor;
+      if (this.confirming === 'drawing-board') {
+        // The menu is drawn below, closed.
+        this.confirming = null;
+        if (this.open === 'menu') this.open = null;
+      }
     }
     this.drawMenu(view);
     this.showOpen();
@@ -115,7 +131,13 @@ export class Masthead {
     const round = view.reset;
     const chat = view.conversation !== null;
     const notify = this.notifier.state();
-    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat, notify]), () =>
+    const asked = view.question?.answerable ? view.question : null;
+    const confirmation = () => {
+      if (round !== null && this.confirming === 'reset') return resetConfirmation(round);
+      if (asked !== null && this.confirming === 'drawing-board') return drawingBoardConfirmation(asked);
+      return null;
+    };
+    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat, notify, this.boardFor]), () =>
       h(
         'div',
         { class: 'menu' },
@@ -135,9 +157,7 @@ export class Masthead {
           'div',
           { class: 'menu-popover', id: 'round-menu', hidden: true },
           view.review ? h('p', { class: 'menu-review' }, reviewParts(view.review)) : null,
-          round !== null && this.confirming
-            ? resetConfirmation(round)
-            : [
+          confirmation() ?? [
                 copyLink(view.rail.length > 0 ? "Copy the round's link" : "Copy the page's link"),
                 chat
                   ? h(
@@ -154,16 +174,22 @@ export class Masthead {
                     )
                   : null,
                 notifyItem(notify, () => this.toggleNotify()),
+                round !== null || asked !== null ? h('hr', {}) : null,
+                asked !== null
+                  ? h(
+                      'button',
+                      { class: 'menu-item', type: 'button', onclick: () => this.confirm('drawing-board') },
+                      'Back to the drawing board…',
+                      h('span', { class: 'menu-note' }, 'ends the questions'),
+                    )
+                  : null,
                 round !== null
-                  ? [
-                      h('hr', {}),
-                      h(
-                        'button',
-                        { class: 'menu-item', type: 'button', onclick: () => this.confirmReset() },
-                        'Reset this round…',
-                        h('span', { class: 'menu-note' }, 'closes it for good'),
-                      ),
-                    ]
+                  ? h(
+                      'button',
+                      { class: 'menu-item', type: 'button', onclick: () => this.confirm('reset') },
+                      'Reset this round…',
+                      h('span', { class: 'menu-note' }, 'closes it for good'),
+                    )
                   : null,
               ],
         ),
@@ -229,11 +255,12 @@ export class Masthead {
     if (entry instanceof HTMLElement) entry.focus({ preventScroll: true });
   }
 
-  /** Replaces the menu's entries with Reset's hint and its Confirm reset. */
-  confirmReset() {
-    this.confirming = true;
+  /** Replaces the menu's entries with the hint and the confirm button of `what`.
+   * @param {'reset' | 'drawing-board'} what */
+  confirm(what) {
+    this.confirming = what;
     this.redraw();
-    const confirm = this.header.querySelector('#round-menu .button.danger');
+    const confirm = this.header.querySelector('#round-menu button[type="submit"]');
     if (confirm instanceof HTMLElement) confirm.focus();
   }
 
@@ -254,7 +281,7 @@ export class Masthead {
     const was = this.open;
     this.open = null;
     if (this.confirming) {
-      this.confirming = false;
+      this.confirming = null;
       this.redraw();
     }
     this.showOpen();

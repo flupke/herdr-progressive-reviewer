@@ -9,6 +9,10 @@ round: string | null, question: string, version: number,
  */
 choice: string | null, comment: string, 
 /**
+ * Whether the reviewer sends the agent back to the drawing board instead, with no choice.
+ */
+drawing_board: boolean, 
+/**
  * The question's number on the rail, as the page showed it, which a refusal names.
  */
 number: number | null, };
@@ -423,7 +427,8 @@ export type InterpretationView = { recap_html: string | null, follow_ups: Array<
  */
 export type KeptAnswer = { 
 /**
- * The text of the choice the reviewer sent; `None` for a comment-only answer.
+ * The text of the choice the reviewer sent, or [`DRAWING_BOARD`] for an answer that sent
+ * the agent back to the drawing board; `None` for a comment-only answer.
  */
 choice: string | null, 
 /**
@@ -434,7 +439,12 @@ comment: string,
  * Each tag that applies, in the order of [`DecisionTag`]: none, one, or both when the
  * reviewer moved to the recommendation after a first pick of another choice.
  */
-tags: Array<DecisionTag>, };
+tags: Array<DecisionTag>, 
+/**
+ * Whether the answer sent the agent back to the drawing board, which `choice` says, in
+ * place of any of the question's choices.
+ */
+drawing_board: boolean, };
 /**
  * The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
  */

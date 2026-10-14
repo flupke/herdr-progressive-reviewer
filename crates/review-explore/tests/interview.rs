@@ -415,6 +415,8 @@ mod adaptive;
 mod cancel;
 #[path = "interview/challenger.rs"]
 mod challenger;
+#[path = "interview/drawing_board.rs"]
+mod drawing_board;
 #[path = "interview/not_relevant.rs"]
 mod not_relevant;
 #[path = "interview/revision.rs"]

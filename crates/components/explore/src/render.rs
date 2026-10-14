@@ -378,10 +378,9 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("question exploration");
-        let selected = answer
-            .option
-            .as_ref()
-            .map_or("", |option| option.text.as_str());
+        // The choice, or Back to the drawing board in its place.
+        let kept = review_explore::KeptAnswer::of(answer);
+        let selected = kept.choice.as_deref().unwrap_or_default();
         layout.gap();
         layout.text(
             format!(

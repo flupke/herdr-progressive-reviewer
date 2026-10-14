@@ -143,6 +143,10 @@ pub struct ReviewerAnswer {
     /// recommendation until then; the agent's prompt leaves it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_pick: Option<String>,
+    /// The reviewer sent the agent back to the drawing board in place of answering the
+    /// question: the agent concludes with the changes the design needs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub drawing_board: bool,
 }
 
 impl ReviewerAnswer {
@@ -159,6 +163,8 @@ pub struct AnswerInput {
     pub in_reply_to: Option<String>,
     /// The choice, by ID, that the reviewer picked before the recommendation showed.
     pub first_pick: Option<String>,
+    /// Back to the drawing board, in place of an answer to the question.
+    pub drawing_board: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
@@ -261,6 +267,13 @@ impl TurnRequest {
     /// Whether the request opens its round: it carries no answer.
     pub fn is_kickoff(&self) -> bool {
         self.answer.is_none()
+    }
+
+    /// Whether the request sends the agent back to the drawing board.
+    pub fn at_drawing_board(&self) -> bool {
+        self.answer
+            .as_ref()
+            .is_some_and(|answer| answer.drawing_board)
     }
 }
 
@@ -433,14 +446,29 @@ impl Exploration {
             })
             .ok_or_else(|| eyre::eyre!("Unknown question or conversation context"))?;
         let in_reply_to = context.update.request.clone();
+        // A reply to a conclusion at the drawing board stays there: the code is still to change.
+        let replies_at_drawing_board = question.is_none()
+            && context.answer.as_ref().is_some_and(|answer| {
+                self.answers
+                    .iter()
+                    .any(|earlier| &earlier.id == answer && earlier.drawing_board)
+            });
         eyre::ensure!(
             question.is_some() || input.option.is_none(),
             "A conversation reply has no policy choices"
         );
-        eyre::ensure!(
-            input.option.is_some() || !input.text.trim().is_empty(),
-            "Write an answer or choose an option"
-        );
+        if input.drawing_board {
+            eyre::ensure!(
+                question.is_some() && input.option.is_none(),
+                "Back to the drawing board takes the place of an answer to the question, with \
+                 no choice"
+            );
+        } else {
+            eyre::ensure!(
+                input.option.is_some() || !input.text.trim().is_empty(),
+                "Write an answer or choose an option"
+            );
+        }
         let option = input
             .option
             .as_ref()
@@ -473,6 +501,7 @@ impl Exploration {
             text: input.text,
             author: "reviewer".into(),
             first_pick: input.first_pick,
+            drawing_board: input.drawing_board || replies_at_drawing_board,
         };
         self.answers.push(answer.clone());
         Ok(answer)

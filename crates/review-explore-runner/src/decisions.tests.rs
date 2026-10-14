@@ -38,6 +38,7 @@ fn round(answers: &[(&str, Option<&str>, &str)]) -> Exploration {
                 text: (*comment).into(),
                 author: "reviewer".into(),
                 first_pick: None,
+                drawing_board: false,
             }
         })
         .collect();

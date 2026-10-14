@@ -110,6 +110,9 @@ pub(crate) struct AnswerParams {
     /// The picked choice's ID; `None` when the reviewer picked none.
     pub(crate) choice: Option<String>,
     pub(crate) comment: String,
+    /// Whether the reviewer sends the agent back to the drawing board instead, with no choice.
+    #[serde(default)]
+    pub(crate) drawing_board: bool,
     /// The question's number on the rail, as the page showed it, which a refusal names.
     #[serde(default)]
     pub(crate) number: Option<usize>,

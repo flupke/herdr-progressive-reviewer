@@ -400,6 +400,7 @@ fn fork_turn(
                 text: String::new(),
                 in_reply_to: None,
                 first_pick: None,
+                drawing_board: false,
             }),
             Some(question),
         )

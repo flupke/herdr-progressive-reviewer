@@ -317,3 +317,62 @@ fn the_page_hears_the_mark_tally_as_marks_change_during_a_round() {
     );
     assert_eq!(harness.page.tally().and_then(|tally| tally.gain), None);
 }
+
+#[test]
+fn implementing_at_the_drawing_board_reopens_every_line_the_round_marked_and_gives_none_back() {
+    let mut harness = Harness::three_lines();
+    harness.mark_lines(&[1], &MarkAuthor::Reviewer);
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, first_question(&first))));
+    let (answered, access) = harness.answer("Keep it.");
+    // The second answer takes over the second line, which the reviewer marked by hand.
+    let Operation::SubmitQuestion(mut takes_over) = second_question(&answered) else {
+        unreachable!("a question");
+    };
+    takes_over.reopened = takes_over.reviewed.clone();
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(takes_over))
+    ));
+    let (answered, access) = harness.answer("Keep it.");
+    assert!(applied(harness.submit(&access, question(&answered, 3))));
+    let request = harness.request(Some(AnswerInput {
+        drawing_board: true,
+        ..AnswerInput::default()
+    }));
+    let access = harness.turn(&request);
+    let request = harness.exploration().retry_request().unwrap().clone();
+    assert!(applied(
+        harness.submit(&access, drawing_board_conclusion(&request))
+    ));
+    // Until Implement, Cancel answer may still take the drawing board back: the marks stay.
+    assert_eq!(harness.session.mark_tally().change.left, 1);
+    let conclusion = harness.conclusion_request();
+
+    let implemented = harness.implement_on_page(&conclusion, None, "One queue per conversation.");
+
+    assert_eq!(implemented, Ok(()));
+    let tally = harness.session.mark_tally();
+    assert_eq!(tally.change.marked, MarkedLines::default());
+    assert_eq!(tally.change.left, 3);
+}
+
+#[test]
+fn implementing_any_other_conclusion_keeps_the_round_s_marks() {
+    let mut harness = Harness::three_lines();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, first_question(&first))));
+    let (answered, access) = harness.answer("Keep it.");
+    assert!(applied(
+        harness.submit(&access, conclusion(&answered, CONCLUSION))
+    ));
+    let conclusion = harness.conclusion_request();
+
+    let implemented = harness.implement_on_page(&conclusion, None, "Add a regression test.");
+
+    assert_eq!(implemented, Ok(()));
+    assert_eq!(harness.session.mark_tally().change.marked.not_relevant, 1);
+}

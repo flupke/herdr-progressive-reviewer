@@ -396,6 +396,19 @@ impl MarkCounts {
 }
 
 impl TurnMarks {
+    /// Who holds the lines these marks applied for the turn `request`: the answer that applied
+    /// them, or the turn itself for a conclusion that opens the round.
+    pub fn author(&self, request: &str) -> review_types::MarkAuthor {
+        match &self.answer {
+            Some(answer) => review_types::MarkAuthor::Explore {
+                answer: answer.clone(),
+            },
+            None => review_types::MarkAuthor::ExploreRead {
+                request: request.to_owned(),
+            },
+        }
+    }
+
     pub fn counts(&self) -> MarkCounts {
         MarkCounts::count(
             &self.reviewed,
@@ -495,6 +508,7 @@ impl ExploreRound {
             text: answer.text.clone(),
             in_reply_to: Some(answer.in_reply_to.clone()),
             first_pick: answer.first_pick.clone(),
+            drawing_board: answer.drawing_board,
         });
         let validated = candidate.request(
             input,

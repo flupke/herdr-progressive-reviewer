@@ -66,8 +66,11 @@ impl ExploreSession {
         let cancelled = round.clone().cancel_answers_from(answer)?;
         let mut problems = std::collections::BTreeSet::new();
         for cancelled in &cancelled {
+            let author = review_types::MarkAuthor::Explore {
+                answer: cancelled.answer.id.clone(),
+            };
             for marks in &cancelled.marks {
-                problems.extend(self.unmark(&round, &cancelled.answer.id, marks)?);
+                problems.extend(self.unmark(&round, &author, marks)?);
             }
         }
         for problem in problems {

@@ -252,9 +252,9 @@
   color: var(--ink);
   font: 13px var(--mono);
 }
-.menu-popover .reset { display: grid; gap: 12px; padding: 10px; }
-.menu-popover .reset .hint { margin: 0; }
-.menu-popover .reset .button { justify-self: start; }
+.menu-popover .reset, .menu-popover .drawing-board { display: grid; gap: 12px; margin: 0; padding: 10px; }
+.menu-popover .reset .hint, .menu-popover .drawing-board .hint { margin: 0; }
+.menu-popover .reset .button, .menu-popover .drawing-board .button { justify-self: start; }
 /* The review's title, in the menu on a phone only. */
 .menu-review { display: none; }
 

@@ -76,35 +76,56 @@ impl ExploreSession {
             .loaded_unit
             .clone()
             .ok_or_else(|| eyre::eyre!("No Explore round"))?;
-        // A request this process sends, or one the agent received, holds the conclusion: a
-        // second front end that did not see it yet must not start another implementation. A
-        // request an earlier process left paused or unknown leaves the reviewer the choice.
         let sending = self.state.implementation.is_some();
+        // Refuse against the saved round before touching review marks.
+        let saved = self
+            .rounds
+            .round(&unit, &request.instance)?
+            .ok_or_else(|| eyre::eyre!("Saved Explore round is missing"))?;
+        admit(&mut saved.clone(), request, sending).map_err(|error| eyre::eyre!(error))?;
+        // At the drawing board, the code is about to change for another design: what the round's
+        // answers settled goes back to review, for Implement as for Post review. Only now, since
+        // Cancel answer, which would have to mark the lines again, is offered until a request is
+        // made; and before the request is saved, so that a failure refuses Implement, which the
+        // reviewer tries again.
+        if saved.exploration.concluded_at_drawing_board() {
+            self.reopen_round_marks(&saved)?;
+        }
         let ((), round) = self.rounds.update(&unit, &request.instance, |round| {
-            let held = round
-                .latest_implementation(&request.conclusion)
-                .filter(|latest| latest.request.delivery != request.delivery)
-                .is_some_and(|latest| match latest.state {
-                    DispatchState::Delivered => true,
-                    DispatchState::Queued | DispatchState::Attempting => sending,
-                    _ => false,
-                });
-            if held {
-                return Err(
-                    "An implementation request for this conclusion was sent already".into(),
-                );
-            }
-            round
-                .authorize(request)
-                .map_err(|error| error.to_string())?;
-            round
-                .implementations
-                .get_mut(&request.delivery)
-                .expect("authorized")
-                .state = DispatchState::Queued;
-            Ok(())
+            admit(round, request, sending)
         })?;
         self.state.round = Some(round.clone());
         Ok((agent, round))
     }
+}
+
+/// Authorizes `request` in `round`, queued, unless another request holds its conclusion: one this
+/// process sends (`sending`), or one the agent received, since a second front end that did not see
+/// it yet must not start another implementation. A request an earlier process left paused or
+/// unknown leaves the reviewer the choice.
+fn admit(
+    round: &mut review_explore::ExploreRound,
+    request: &ImplementationRequest,
+    sending: bool,
+) -> Result<(), String> {
+    let held = round
+        .latest_implementation(&request.conclusion)
+        .filter(|latest| latest.request.delivery != request.delivery)
+        .is_some_and(|latest| match latest.state {
+            DispatchState::Delivered => true,
+            DispatchState::Queued | DispatchState::Attempting => sending,
+            _ => false,
+        });
+    if held {
+        return Err("An implementation request for this conclusion was sent already".into());
+    }
+    round
+        .authorize(request)
+        .map_err(|error| error.to_string())?;
+    round
+        .implementations
+        .get_mut(&request.delivery)
+        .expect("authorized")
+        .state = DispatchState::Queued;
+    Ok(())
 }

@@ -13,13 +13,17 @@ use crate::{Alternative, Exploration, ReviewerAnswer};
 /// had made a first pick.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct KeptAnswer {
-    /// The text of the choice the reviewer sent; `None` for a comment-only answer.
+    /// The text of the choice the reviewer sent, or [`DRAWING_BOARD`] for an answer that sent
+    /// the agent back to the drawing board; `None` for a comment-only answer.
     pub choice: Option<String>,
     /// The reviewer's comment; empty when there is none.
     pub comment: String,
     /// Each tag that applies, in the order of [`DecisionTag`]: none, one, or both when the
     /// reviewer moved to the recommendation after a first pick of another choice.
     pub tags: Vec<DecisionTag>,
+    /// Whether the answer sent the agent back to the drawing board, which `choice` says, in
+    /// place of any of the question's choices.
+    pub drawing_board: bool,
 }
 
 /// How the kept choice relates to the reviewer's first pick and to the agent's recommendation.
@@ -33,13 +37,33 @@ pub enum DecisionTag {
     AsRecommended,
 }
 
+/// What the reviewer's screens show in place of a choice for an answer that sent the agent back
+/// to the drawing board.
+const DRAWING_BOARD: &str = "Back to the drawing board";
+
 impl KeptAnswer {
-    pub(super) fn of(answer: &ReviewerAnswer) -> Self {
-        Self::new(
+    /// `answer`, as the reviewer's screens show it.
+    pub fn of(answer: &ReviewerAnswer) -> Self {
+        let kept = Self::new(
             answer.option.as_ref(),
             &answer.text,
             answer.first_pick.as_deref(),
-        )
+        );
+        if answer.drawing_board {
+            return kept.into_drawing_board();
+        }
+        kept
+    }
+
+    /// The answer, with no choice, that sent the agent back to the drawing board.
+    #[must_use]
+    pub fn into_drawing_board(self) -> Self {
+        Self {
+            choice: Some(DRAWING_BOARD.to_owned()),
+            tags: Vec::new(),
+            drawing_board: true,
+            ..self
+        }
     }
 
     /// The answer that kept the choice `kept`, if any, with the comment `comment`, after the
@@ -58,6 +82,7 @@ impl KeptAnswer {
             .into_iter()
             .flatten()
             .collect(),
+            drawing_board: false,
         }
     }
 }

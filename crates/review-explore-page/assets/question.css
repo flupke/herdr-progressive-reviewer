@@ -28,7 +28,10 @@
 .assessment > .disclosure-body { margin: 0; padding: 0 0 14px 22px; max-width: var(--measure); }
 .assessment > .disclosure-body:empty { padding: 0; }
 
-/* The panel: the reviewer's answer. */
+/* The panel: the reviewer's answer, then Back to the drawing board, below the reach of the sticky
+   Send answer's shadow. */
+.answer { display: grid; gap: 14px; }
+.answer-panel > .drawing-board { margin-top: 14px; }
 .answer > .hint { margin: 0; }
 
 /* The line that reveals the agent's recommendation after the first Send of a blind question:
@@ -99,5 +102,5 @@
 
 /* On a narrower window the answer panel follows the reading: space it from the last hairline. */
 @media not all and (min-width: 70rem) {
-  .question > .answer.panel { margin-top: 18px; }
+  .question > .answer-panel { margin-top: 18px; }
 }

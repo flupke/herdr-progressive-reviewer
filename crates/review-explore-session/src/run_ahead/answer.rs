@@ -4,7 +4,7 @@
 //! without run-ahead. Either way the other forks are discarded, and the path is recorded with
 //! its reason.
 
-use review_explore::TurnRequest;
+use review_explore::{Alternative, TurnRequest};
 use review_explore_runner::Unreviewed;
 use review_run_ahead::{AnswerRecord, DiscardReason, PlainReason, TurnPath};
 
@@ -112,28 +112,7 @@ impl ExploreSession {
     /// The fork of `armed`, by index, that the answer `request` continues as, or why the answer
     /// goes to the pane's agent.
     fn fork_for(&self, armed: &Armed, request: &TurnRequest) -> Result<usize, PlainReason> {
-        let answer = request.answer.as_ref().expect("an answer");
-        // First, whatever the answer: run-ahead stays off for that agent until it restarts.
-        if self
-            .agents
-            .get_agent(&armed.asked.pane)
-            .ok()
-            .flatten()
-            .is_some_and(|agent| self.run_ahead.host.unhooked(&agent))
-        {
-            return Err(PlainReason::NoHooks);
-        }
-        let choice = answer
-            .option
-            .as_ref()
-            .filter(|choice| !choice.is_none_of_the_above())
-            .ok_or(PlainReason::NoneOfTheAbove)?;
-        if !answer.text.trim().is_empty() {
-            return Err(PlainReason::Comment);
-        }
-        if armed.talk.is_some() {
-            return Err(PlainReason::ChatMessage);
-        }
+        let choice = self.forked_choice(armed, request)?;
         let taken = armed.taken.as_ref().ok_or_else(|| PlainReason::NoForks {
             why: armed.refusal.clone(),
         })?;
@@ -183,6 +162,41 @@ impl ExploreSession {
             return Err(PlainReason::SessionMoved);
         }
         Ok(index)
+    }
+
+    /// The choice of the answer `request` that a fork may have taken, or why the answer goes to
+    /// the pane's agent whatever the forks did.
+    fn forked_choice<'a>(
+        &self,
+        armed: &Armed,
+        request: &'a TurnRequest,
+    ) -> Result<&'a Alternative, PlainReason> {
+        let answer = request.answer.as_ref().expect("an answer");
+        // First, whatever the answer: run-ahead stays off for that agent until it restarts.
+        if self
+            .agents
+            .get_agent(&armed.asked.pane)
+            .ok()
+            .flatten()
+            .is_some_and(|agent| self.run_ahead.host.unhooked(&agent))
+        {
+            return Err(PlainReason::NoHooks);
+        }
+        if answer.drawing_board {
+            return Err(PlainReason::DrawingBoard);
+        }
+        let choice = answer
+            .option
+            .as_ref()
+            .filter(|choice| !choice.is_none_of_the_above())
+            .ok_or(PlainReason::NoneOfTheAbove)?;
+        if !answer.text.trim().is_empty() {
+            return Err(PlainReason::Comment);
+        }
+        if armed.talk.is_some() {
+            return Err(PlainReason::ChatMessage);
+        }
+        Ok(choice)
     }
 
     /// Whether the agent's turn for the answer of `switching` would list the same unreviewed

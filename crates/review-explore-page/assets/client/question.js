@@ -27,6 +27,7 @@ import { citationsSection } from './citations.js';
 import { disclosure } from './disclosure.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
+import { answerFields, drawingBoard } from './drawing-board.js';
 import { turnStrip } from './turn.js';
 
 export class QuestionScreen {
@@ -70,7 +71,7 @@ export class QuestionScreen {
         question.gain,
         door,
       ]),
-      () => (question.answerable ? panel(question) : null),
+      () => (question.answerable ? h('div', { class: 'answer-panel panel' }, panel(question), drawingBoard(question)) : null),
     );
     this.citations.show(keyOf(question.citations), () => citationsSection(question.citations, question.number));
   }
@@ -161,6 +162,7 @@ function assessment(section) {
 
 /** The reviewer's answer: the choices, an optional comment, what the answer marks, and Send
  * answer; Confirm answer once the first Send of a blind question revealed the recommendation.
+ * Back to the drawing board follows it in the panel.
  * @param {QuestionView} question */
 function panel(question) {
   const picking = question.recommendation === 'hidden_until_pick';
@@ -178,17 +180,13 @@ function panel(question) {
   return h(
     'form',
     {
-      class: 'answer panel',
+      class: 'answer',
       id: 'answer',
       'aria-label': `Your answer to question ${question.number}`,
       'data-method': picking ? 'pick' : 'answer',
       'data-requires': picking ? 'choice' : 'choice-or-comment',
     },
-    question.round !== null ? h('input', { type: 'hidden', name: 'round', value: question.round }) : null,
-    h('input', { type: 'hidden', name: 'question', value: question.id }),
-    h('input', { type: 'hidden', name: 'version', value: question.version }),
-    // The number a refusal names the question by.
-    question.number > 0 ? h('input', { type: 'hidden', name: 'number', value: question.number }) : null,
+    answerFields(question),
     picking
       ? h(
           'p',

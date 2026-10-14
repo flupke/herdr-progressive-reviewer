@@ -100,7 +100,8 @@ impl RoundSample {
                     .iter()
                     .any(|alternative| alternative.recommendation.is_some())
             });
-            if recommends {
+            // Back to the drawing board picks no choice: it declines no recommendation.
+            if recommends && !answer.drawing_board {
                 share.add(
                     answer
                         .option

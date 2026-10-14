@@ -71,6 +71,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/diagrams.js", "text/javascript"),
     asset!("client/dom.js", "text/javascript"),
     asset!("client/drafts.js", "text/javascript"),
+    asset!("client/drawing-board.js", "text/javascript"),
     asset!("client/earlier.js", "text/javascript"),
     asset!("client/favicon.js", "text/javascript"),
     asset!("client/favicon-ticker.js", "text/javascript"),

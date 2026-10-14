@@ -13,10 +13,12 @@ export const NOTHING_ANSWERED = 'No choice, no comment';
 
 /** The answer the reviewer sent or kept: the choice, unless the choices show beside it
  * (`withChoice`), the comment, and how the choice relates to the first pick and to the agent's
- * recommendation; `null` when nothing is left to show.
+ * recommendation; `null` when nothing is left to show. Back to the drawing board takes the
+ * place of the choices, so it always shows.
  * @param {KeptAnswer} answer
  * @param {{ withChoice?: boolean }} [options] */
 export function answerCard(answer, { withChoice = true } = {}) {
+  withChoice ||= answer.drawing_board;
   if (!withChoice && answer.choice !== null && !answer.comment && answer.tags.length === 0) return null;
   return h(
     'div',

@@ -128,10 +128,11 @@ impl<R: Rounds> Actions<'_, R> {
             return repeat(shown.repeats(&answered, &comment), action);
         }
         // A question answered before, whose recommendation the reviewer has seen, keeps no first
-        // pick.
+        // pick, nor does the drawing board, which keeps no choice.
         let first_pick = shown
             .stage
             .blind()
+            .filter(|_| !params.drawing_board)
             .zip(shown.round.as_deref())
             .and_then(|(_, round)| self.page.picks.of(round, &params.question, params.version));
         let answer = PageAnswer {
@@ -142,6 +143,7 @@ impl<R: Rounds> Actions<'_, R> {
                 text: comment,
                 in_reply_to: None,
                 first_pick,
+                drawing_board: params.drawing_board,
             },
         };
         self.send(PageCommand::Answer(answer), action).await

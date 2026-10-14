@@ -54,6 +54,7 @@ fn kept(choice: Option<&str>, comment: &str, tags: &[DecisionTag]) -> KeptAnswer
         choice: choice.map(Into::into),
         comment: comment.into(),
         tags: tags.to_vec(),
+        drawing_board: false,
     }
 }
 

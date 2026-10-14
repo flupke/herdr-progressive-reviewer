@@ -93,6 +93,7 @@ fn answer(request: &TurnRequest) -> ReviewerAnswer {
             .into(),
         author: "reviewer".into(),
         first_pick: None,
+        drawing_board: false,
     }
 }
 
@@ -754,7 +755,8 @@ fn the_diagram_rules_name_the_fence_and_the_mermaid_version_the_page_draws_with(
 }
 
 #[test]
-fn every_turn_has_the_rules_to_conclude_and_they_name_every_field_a_quiz_item_takes() {
+fn every_turn_that_may_quiz_has_the_rules_to_conclude_and_they_name_every_field_a_quiz_item_takes()
+{
     let conclusion =
         serde_json::to_value(schemars::schema_for!(review_explore::ConclusionSubmission)).unwrap();
     let quiz = ["quiz", "quiz_empty_reason"];
@@ -879,15 +881,73 @@ fn every_turn_carries_the_reviewers_notes_quoted() {
     }
 }
 
+/// The turn after the reviewer sent the agent of a round on `comparison` that `setup` sets up
+/// back to the drawing board.
+fn at_drawing_board(
+    comparison: &Comparison,
+    setup: impl FnOnce(&mut Exploration),
+) -> TurnInstructions {
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    setup(&mut exploration);
+    let mut request = exploration.request(None, None).unwrap();
+    request.answer = Some(ReviewerAnswer {
+        option: None,
+        text: String::new(),
+        drawing_board: true,
+        ..answer(&request)
+    });
+    prepared(&request, comparison)
+}
+
+#[test]
+fn a_turn_at_the_drawing_board_has_its_own_steps_in_place_of_the_next_turns_and_the_quizs() {
+    let comparison = comparison();
+    // The agent concludes alone, even in a round with a challenger.
+    let turn = at_drawing_board(&comparison, |round| round.challenger = true);
+    let index = file(&turn, INDEX).unwrap();
+    let steps = index.find("- `drawing-board.md`:").expect(index);
+
+    assert!(steps < index.find(rules::READ_LATER).unwrap(), "{index}");
+    for name in ["next-turn.md", "conclusion.md", "challenger.md"] {
+        assert!(!names(&turn).contains(&name), "{name}");
+    }
+    let data = file(&turn, "turn.md").unwrap();
+    assert!(data.contains("Back to the drawing board"), "{data}");
+    assert!(!data.contains("Selected option"), "{data}");
+    let rules = file(&turn, "drawing-board.md").unwrap();
+    // The fields the tool refuses a turn at the drawing board on, as the tool names them.
+    let conclusion =
+        serde_json::to_value(schemars::schema_for!(review_explore::ConclusionSubmission)).unwrap();
+    for field in [
+        "summary",
+        "to_be_implemented",
+        "future_work",
+        "quiz",
+        "quiz_empty_reason",
+        "interpretation",
+        "reviewed",
+        "reopened",
+        "not_relevant",
+    ] {
+        assert!(conclusion["properties"].get(field).is_some(), "{field}");
+        assert!(rules.contains(&format!("`{field}`")), "{field}");
+    }
+}
+
 #[test]
 fn every_file_a_turn_names_is_a_file_of_that_turn() {
     let comparison = comparison();
-    for kickoff in [true, false] {
+    for kickoff in [Some(true), Some(false), None] {
         for (challenger, author) in [(false, ChangeAuthor::Reviewer), (true, ChangeAuthor::Other)] {
-            let turn = turn_of(&comparison, kickoff, |round| {
+            let setup = |round: &mut Exploration| {
                 round.challenger = challenger;
                 round.author = author;
-            });
+            };
+            // No kickoff: the turn at the drawing board.
+            let turn = match kickoff {
+                Some(kickoff) => turn_of(&comparison, kickoff, setup),
+                None => at_drawing_board(&comparison, setup),
+            };
             let names = names(&turn);
             for file in turn.files() {
                 for named in file.text.split('`').filter(|word| {
@@ -897,7 +957,7 @@ fn every_file_a_turn_names_is_a_file_of_that_turn() {
                 }) {
                     assert!(
                         names.contains(&named),
-                        "{} names {named}, kickoff: {kickoff}, challenger: {challenger}",
+                        "{} names {named}, kickoff: {kickoff:?}, challenger: {challenger}",
                         file.name
                     );
                 }

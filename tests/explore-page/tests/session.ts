@@ -10,6 +10,8 @@ export interface SentAnswer {
   comment: string;
   /** The reviewer's first pick, by choice ID, when the question hid its recommendation. */
   first_pick?: string;
+  /** Whether it sent the agent back to the drawing board instead. */
+  drawing_board?: boolean;
 }
 
 /** A round the reviewer started from the page, as the session received it. */

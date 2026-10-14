@@ -1,6 +1,7 @@
 //! Giving back the review marks of a cancelled turn: the lines its answer's
 //! author still holds reopen, and the lines it reopened return to whoever
-//! had marked them.
+//! had marked them. A round implemented at the drawing board reopens the
+//! lines of every turn, and gives none back.
 
 use std::collections::BTreeMap;
 
@@ -127,28 +128,48 @@ fn held_by(lines: &FileLines, author: &MarkAuthor) -> LineSelection {
 }
 
 impl ExploreSession {
-    /// Give back the review marks a cancelled turn changed, file by file,
-    /// failing when any file failed so the cancel can be tried again. Lines
-    /// it reopened stay open when the code changed since the round started;
-    /// the returned problem says so.
+    /// Reopen every line the turns of `round` marked, as Implement does for a
+    /// round concluded at the drawing board: the code will change, and a new
+    /// round reviews it. Lines a turn took over from another author stay open
+    /// too, since the decisions they hold were made for the rejected design.
+    /// Every turn is tried; the error says which files kept lines reviewed.
+    pub(crate) fn reopen_round_marks(&mut self, round: &ExploreRound) -> eyre::Result<()> {
+        let mut failed = Vec::new();
+        for (request, marks) in &round.marks {
+            // With no lines reopened to give back, only what the turn holds reopens.
+            let held = TurnMarks {
+                reopened: Vec::new(),
+                ..marks.clone()
+            };
+            if let Err(error) = self.unmark(round, &marks.author(request), &held) {
+                failed.push(error.to_string());
+            }
+        }
+        if !failed.is_empty() {
+            eyre::bail!("some lines stayed reviewed: {}", failed.join("; "));
+        }
+        Ok(())
+    }
+
+    /// Give back the review marks a cancelled turn changed as `author`, file
+    /// by file, failing when any file failed so the cancel can be tried again.
+    /// Lines it reopened stay open when the code changed since the round
+    /// started; the returned problem says so.
     pub(crate) fn unmark(
         &mut self,
         round: &ExploreRound,
-        answer: &str,
+        author: &MarkAuthor,
         marks: &TurnMarks,
     ) -> eyre::Result<Option<String>> {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
             eyre::bail!("the repository is not ready; try again");
         };
         let unchanged = round.is_at(&snapshot.identity);
-        let author = MarkAuthor::Explore {
-            answer: answer.to_owned(),
-        };
         let mut kept_open = false;
         let mut failed = None;
         for file in FileUnmark::group(&snapshot, marks) {
             let path = file.file.review_path().display();
-            match file.apply(&self.tracker, &snapshot, &author, unchanged) {
+            match file.apply(&self.tracker, &snapshot, author, unchanged) {
                 Ok(open) => kept_open |= open,
                 Err(error) => {
                     failed.get_or_insert(format!("{path}: {error}"));

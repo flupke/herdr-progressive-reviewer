@@ -156,6 +156,11 @@ impl ExploreSession {
         request: &TurnRequest,
         round: &ExploreRound,
     ) -> Option<ExploreRound> {
+        // The code changes at the drawing board: the question's lines wait for its new version,
+        // and Implement reopens those of the earlier answers.
+        if request.at_drawing_board() {
+            return None;
+        }
         let answer = request.answer.as_ref()?;
         if round.marks.contains_key(&answer.in_reply_to) {
             return None;
@@ -261,18 +266,11 @@ impl ExploreSession {
         update: &InterviewUpdate,
         answer: Option<String>,
     ) -> TurnMarks {
-        let author = match &answer {
-            Some(answer) => MarkAuthor::Explore {
-                answer: answer.clone(),
-            },
-            None => MarkAuthor::ExploreRead {
-                request: update.request.clone(),
-            },
-        };
         let mut marks = TurnMarks {
             answer,
             ..TurnMarks::default()
         };
+        let author = marks.author(&update.request);
         for step in MarkStep::of(snapshot, update) {
             let change = self.apply(snapshot, &step.request, &author, &mut marks);
             match step.not_relevant {

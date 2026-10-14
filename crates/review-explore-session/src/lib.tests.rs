@@ -538,6 +538,21 @@ fn conclusion_with_quiz(
     Operation::SubmitConclusion(Box::new(serde_json::from_value(submission).unwrap()))
 }
 
+/// The agent's conclusion at the drawing board for the turn `request`: the changes the design
+/// needs, and nothing it would decide or mark.
+fn drawing_board_conclusion(request: &TurnRequest) -> Operation {
+    Operation::SubmitConclusion(Box::new(
+        serde_json::from_value(serde_json::json!({
+            "review": "", "instance": request.instance, "request": request.request,
+            "checkpoint": request.checkpoint, "interpretation": null,
+            "summary": "One queue per conversation.",
+            "to_be_implemented": "Keep one queue per conversation.", "future_work": "",
+            "quiz": [], "quiz_empty_reason": "The quiz waits for the new design."
+        }))
+        .unwrap(),
+    ))
+}
+
 fn applied(result: Result<Response, String>) -> bool {
     match result {
         Ok(Response::Explore { applied, .. }) => applied,
@@ -890,6 +905,53 @@ fn a_questions_marks_wait_for_its_answer() {
     assert_eq!(
         marked(&harness),
         Some(review_types::MarkAuthor::Explore { answer })
+    );
+}
+
+#[test]
+fn back_at_the_drawing_board_the_question_s_marks_wait_and_the_agent_concludes_with_changes() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.not_relevant = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null, "reason": "follows_code"
+        }))
+        .unwrap(),
+    ];
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    let request = harness.request(Some(AnswerInput {
+        drawing_board: true,
+        ..AnswerInput::default()
+    }));
+
+    let access = harness.turn(&request);
+
+    assert!(harness.saved().marks.is_empty());
+    assert!(matches!(
+        harness.store.load(&harness.unit, b"reviewed.rs").unwrap(),
+        review_store::LoadResult::Unreviewed
+    ));
+    let request = harness.exploration().retry_request().unwrap().clone();
+    let asks = harness.submit(&access, question(&request, 2)).unwrap_err();
+    assert!(asks.contains("back to the drawing board"), "{asks}");
+    assert!(applied(
+        harness.submit(&access, drawing_board_conclusion(&request))
+    ));
+    assert_eq!(
+        harness
+            .saved()
+            .exploration
+            .conclusion
+            .unwrap()
+            .to_be_implemented,
+        "Keep one queue per conversation."
     );
 }
 

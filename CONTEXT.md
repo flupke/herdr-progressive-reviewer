@@ -185,6 +185,16 @@ they led to. The pane offers it on the latest answer; the Explore page also on a
 earlier question.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 
+**Back to the drawing board**:
+The reviewer's answer, in place of a choice or a comment, when they disagree with the
+change's design itself: the agent stops asking and concludes at once, with the changes
+the design needs as the list to implement, no quiz and no review marks. Implement
+reopens the lines the round marked reviewed, and once those changes are in, a new round
+reviews the new code. The Explore page offers it while a question
+waits: on the design screen, under the answer and in the masthead's menu. Cancel answer
+takes it back.
+_Avoid_: redesign, reject, start over (which is Reset)
+
 **Explore page**:
 A browser page, served by the open review pane, that shows the current state of
 its Explore round: no round, a round starting or failing to start, the agent

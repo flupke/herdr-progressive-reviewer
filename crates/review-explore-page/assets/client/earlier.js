@@ -49,7 +49,9 @@ function panel(question, current) {
     'section',
     { class: 'earlier-panel panel', 'aria-labelledby': title },
     h('p', { class: 'eyebrow', id: title }, `Your answer to question ${question.number}`),
-    choiceCards(question.choices, { name: `earlier-${question.number}-choice`, answered: true }),
+    question.answer?.drawing_board
+      ? null
+      : choiceCards(question.choices, { name: `earlier-${question.number}-choice`, answered: true }),
     question.answer
       ? answerCard(question.answer, { withChoice: false })
       : h('p', { class: 'hint' }, 'The round left this question unanswered.'),

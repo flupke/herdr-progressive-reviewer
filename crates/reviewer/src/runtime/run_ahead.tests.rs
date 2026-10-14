@@ -466,6 +466,7 @@ fn forks_of_the_agent_take_each_answer_s_turn_which_is_kept_and_an_answer_stops_
             text: "Keep it, with a regression test.".into(),
             in_reply_to: None,
             first_pick: None,
+            ..AnswerInput::default()
         }),
         2,
     );
@@ -518,6 +519,7 @@ impl RunAheadFlow {
                     text: String::new(),
                     in_reply_to: None,
                     first_pick: None,
+                    ..AnswerInput::default()
                 }),
                 question.as_ref(),
             )
@@ -610,6 +612,7 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
             text: "Reopen them, and say so.".into(),
             in_reply_to: None,
             first_pick: None,
+            ..AnswerInput::default()
         }),
         3,
     );
@@ -838,6 +841,7 @@ fn cancelling_the_answer_stops_the_forks_of_the_question_it_led_to() {
             text: "Keep it, with a regression test.".into(),
             in_reply_to: None,
             first_pick: None,
+            ..AnswerInput::default()
         }),
         2,
     );
@@ -1219,6 +1223,7 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
                 text: "Yes, and write down why.".into(),
                 in_reply_to: None,
                 first_pick: None,
+                ..AnswerInput::default()
             }),
             Some(&question),
         )

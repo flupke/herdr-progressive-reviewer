@@ -144,7 +144,7 @@ impl ExploreSession {
         let answer = round.exploration.answers.last()?;
         Some(LatestAnswer {
             id: answer.id.clone(),
-            choice: answer.option.as_ref().map(|option| option.text.clone()),
+            choice: KeptAnswer::of(answer).choice,
             comment: answer.text.clone(),
             answered: answered(answer),
         })
@@ -398,11 +398,7 @@ fn sent_answer(
             question: Box::new(question.clone()),
             picked_blind: answer.first_pick.is_some(),
         }),
-        kept: KeptAnswer::new(
-            answer.option.as_ref(),
-            &answer.text,
-            answer.first_pick.as_deref(),
-        ),
+        kept: KeptAnswer::of(answer),
         // The marks of the turn that asked the question, which the answer applied.
         marked: round
             .marks

@@ -15,6 +15,7 @@ impl Exploration {
             update.next.is_some() != update.conclusion.is_some(),
             "Return one question or an explicit closing state"
         );
+        self.validate_drawing_board(update)?;
         self.validate_interpretation(update)?;
         if let Some(conclusion) = &update.conclusion {
             eyre::ensure!(

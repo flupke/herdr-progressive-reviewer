@@ -27,6 +27,8 @@ pub enum PlainReason {
     Comment,
     /// The answer is None of the above.
     NoneOfTheAbove,
+    /// The reviewer sent the agent back to the drawing board in place of an answer.
+    DrawingBoard,
     /// No fork was taken for the question: the agent was not idle yet, or forking failed, for
     /// `why` when known.
     NoForks { why: Option<String> },
@@ -83,6 +85,7 @@ impl PlainReason {
             }
             Self::Comment => "Not prepared: you added a comment",
             Self::NoneOfTheAbove => "Not prepared: you answered None of the above",
+            Self::DrawingBoard => "Not prepared: you sent the agent back to the drawing board",
             Self::ChatMessage => "Not prepared: you wrote in the chat",
             Self::AgentBusy => "Not prepared: the agent was working",
             Self::SessionMoved => "Not prepared: the agent's conversation moved on",
@@ -113,6 +116,7 @@ impl PlainReason {
             | Self::NoHooks
             | Self::Comment
             | Self::NoneOfTheAbove
+            | Self::DrawingBoard
             | Self::ChatMessage
             | Self::AgentBusy
             | Self::SessionMoved

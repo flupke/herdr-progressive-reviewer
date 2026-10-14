@@ -1150,6 +1150,31 @@ fn an_answer_none_of_the_above_goes_to_the_agent() {
 }
 
 #[test]
+fn back_to_the_drawing_board_goes_to_the_agent_and_discards_the_forks() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    harness.fork_submits("keep");
+    let request = harness.request(Some(AnswerInput {
+        drawing_board: true,
+        ..AnswerInput::default()
+    }));
+
+    let request = harness.post_turn(&request);
+
+    let path = TurnPath::Plain {
+        reason: PlainReason::DrawingBoard,
+    };
+    assert_eq!(harness.latest_path(), path);
+    assert_eq!(harness.forks.discarded().len(), 2);
+    let prompt = harness.delivered_prompt();
+    assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
+    let access = fork_line(&prompt, "Explore review access: ");
+    assert!(applied(
+        harness.submit(&access, drawing_board_conclusion(&request))
+    ));
+}
+
+#[test]
 fn an_answer_whose_fork_still_works_goes_to_the_agent() {
     an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
         &PlainReason::StillWorking,

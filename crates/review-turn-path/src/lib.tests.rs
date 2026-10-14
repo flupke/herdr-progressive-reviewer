@@ -15,6 +15,7 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
         plain(PlainReason::NoHooks),
         plain(PlainReason::Comment),
         plain(PlainReason::NoneOfTheAbove),
+        plain(PlainReason::DrawingBoard),
         plain(PlainReason::NoForks { why: None }),
         plain(PlainReason::NoForks {
             why: Some("the agent is Working".into()),

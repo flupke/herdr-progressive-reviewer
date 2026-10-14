@@ -25,6 +25,7 @@ mod consequence;
 mod conversation;
 mod design;
 mod diagram;
+mod drawing_board;
 mod interview;
 mod named_lines;
 mod not_relevant;

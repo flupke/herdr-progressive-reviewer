@@ -209,3 +209,24 @@ fn proposals_count_once_at_their_latest_result_in_rounds_with_a_challenger() {
     assert_eq!(columns.all.proposals, counts);
     assert_eq!(columns.without_challenger.proposals, None);
 }
+
+#[test]
+fn back_to_the_drawing_board_declines_no_recommendation() {
+    let mut stored: serde_json::Value = serde_json::from_str(ANSWERED).unwrap();
+    // The first answer declined the recommended choice: it sends the agent back instead.
+    let answer = &mut stored["value"]["exploration"]["answers"][0];
+    answer["option"] = serde_json::Value::Null;
+    answer["drawing_board"] = true.into();
+    let round = saved(&stored.to_string(), SystemTime::UNIX_EPOCH);
+    let rounds = SavedRounds {
+        rounds: vec![round],
+        unreadable: 0,
+    };
+
+    let report = Report::new(&rounds, None);
+
+    assert_eq!(
+        report.all_time.all.declined_recommendations,
+        Share { part: 0, whole: 0 }
+    );
+}

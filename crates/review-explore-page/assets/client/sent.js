@@ -71,7 +71,7 @@ function panel(sent, cancellable) {
     'section',
     { class: 'sent-answer panel', 'aria-labelledby': 'sent-answer-title' },
     h('p', { class: 'eyebrow', id: 'sent-answer-title' }, title),
-    sent.question
+    sent.question && !sent.answer.drawing_board
       ? choiceCards(sent.question.choices, { name: 'sent-choice', answered: true })
       : null,
     answerCard(sent.answer, { withChoice: !sent.question }),

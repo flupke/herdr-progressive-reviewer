@@ -4,10 +4,11 @@
 //! change: the reviewer's worker calls [`ExploreSession::marks_changed`] after each repository
 //! refresh (which the repository watcher starts on filesystem events, and which follows each
 //! run of Jev), after each mark by hand and once a round ends; and the session reads them again
-//! itself after it applies an answer's marks and after it gives back the marks of a cancelled
-//! answer. The round and the question it waits for come from the session's state, so the
-//! tally is right for the stage the page shows. The page hears the tally with each stage the
-//! session publishes and each time the marks change.
+//! itself after it applies an answer's marks, after it gives back the marks of a cancelled
+//! answer and after Implement reopens the marks of a round concluded at the drawing board. The
+//! round and the question it waits for come from the session's state, so the tally is right for
+//! the stage the page shows. The page hears the tally with each stage the session publishes and
+//! each time the marks change.
 
 use review_explore_tally::MarkTally;
 use review_repository::repository::Snapshot;

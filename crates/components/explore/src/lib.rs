@@ -562,6 +562,7 @@ impl ExploreComponent {
                 .flatten(),
             // The pane shows the recommendation at once: no pick is blind.
             first_pick: None,
+            drawing_board: false,
         }))
     }
 

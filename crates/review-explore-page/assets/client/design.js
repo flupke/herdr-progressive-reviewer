@@ -10,6 +10,7 @@
 
 import { DOORS, doorChip } from './chips.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
+import { drawingBoard } from './drawing-board.js';
 import { glossaryList } from './glossary.js';
 import { designPart, STAGE } from './route.js';
 
@@ -42,7 +43,9 @@ export class DesignScreen {
     this.head.show(keyOf([design.thesis_html, design.parts.length, design.minutes, design.changed_files, before]), () =>
       head(design, before),
     );
-    const map = this.map.show(keyOf([design.parts, current, asked?.text_html, asked?.door]), () =>
+    const map = this.map.show(
+      keyOf([design.parts, current, asked?.text_html, asked?.door, asked?.version, asked?.answerable]),
+      () =>
       designMap(design.parts, current, asked),
     );
     const parts = this.parts.show(keyOf(design.parts), () => [
@@ -132,6 +135,8 @@ function next(current, question) {
     question ? markdown(question.text_html, 'next-text') : null,
     question ? h('p', { class: 'hint' }, 'Its choices and evidence open on the next screen.') : null,
     goTo(current),
+    // A design that is wrong from the start needs no answer to its first question.
+    question?.answerable ? drawingBoard(question) : null,
   );
 }
 
