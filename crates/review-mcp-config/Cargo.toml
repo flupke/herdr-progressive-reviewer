@@ -9,6 +9,7 @@ license.workspace = true
 fs2.workspace = true
 review-mcp = { path = "../review-mcp" }
 review-repository = { path = "../review-repository" }
+review-types = { path = "../review-types" }
 serde_json.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true

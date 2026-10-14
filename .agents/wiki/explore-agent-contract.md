@@ -7,7 +7,10 @@ What the agent's Explore prompts and the two Explore tools guarantee across file
 - The tools advertise their full input schemas, derived from the shared submission types.
   The kickoff explains the review behavior without duplicating schema examples.
 - Each turn's instructions are files, not the prompt ([ADR 0007](../adr/0007-explore-instructions-on-disk.md)):
-  the prompt names the round, the turn's `index.md` and the submit tools. The index lists the
+  the prompt names the round, the turn's `index.md` and the submit tools, with their MCP
+  server: the clients show a tool only under a name that holds its server's
+  (`mcp__herdr_reviewer__submit_question` in Claude Code, a name ending in
+  `herdr_reviewer__submit_question` in Codex). The index lists the
   turn's data (`turn.md`: the identity, the access, the answer), the round's (`round.md`: the
   change, its author, reset rounds, earlier decisions, reviewer notes, the same on every turn)
   and only the rule files the round's setup needs, the ones to read now and when to read each

@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The name the reviewer's MCP server is registered under, which a client puts in the name
+/// of each of its tools: `mcp__herdr_reviewer__submit_question` in Claude Code.
+pub const MCP_SERVER: &str = "herdr_reviewer";
+
 /// The stable identity of one logical review.
 #[derive(
     Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, schemars::JsonSchema,

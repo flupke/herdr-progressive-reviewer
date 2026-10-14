@@ -69,13 +69,15 @@ impl TurnInstructions {
         &self.files
     }
 
-    /// The prompt of the turn whose files are written in `directory`.
+    /// The prompt of the turn whose files are written in `directory`. It names the tools with
+    /// their MCP server, since a client shows them only under names that hold it.
     pub fn prompt(&self, directory: &Path) -> String {
         format!(
-            "Explore round {}: read {} and follow it. The turn ends in one call to the reviewer's \
-             MCP tool submit_question or submit_conclusion.\n",
+            "Explore round {}: read {} and follow it. The turn ends in one call to submit_question \
+             or submit_conclusion, tools of the {} MCP server.\n",
             self.instance,
-            directory.join(INDEX).display()
+            directory.join(INDEX).display(),
+            review_types::MCP_SERVER,
         )
     }
 }

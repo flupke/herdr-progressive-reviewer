@@ -590,7 +590,7 @@ fn the_index_names_every_other_file_once_and_sends_the_turns_data_and_steps_firs
 }
 
 #[test]
-fn the_prompt_names_the_round_its_index_and_the_tools_that_end_the_turn() {
+fn the_prompt_names_the_round_its_index_and_the_tools_that_end_the_turn_with_their_server() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
@@ -603,6 +603,7 @@ fn the_prompt_names_the_round_its_index_and_the_tools_that_end_the_turn() {
     for tool in ["submit_question", "submit_conclusion"] {
         assert!(prompt.contains(tool), "{prompt}");
     }
+    assert!(prompt.contains(review_types::MCP_SERVER), "{prompt}");
     assert!(!prompt.contains("fresh-access"), "the access is in turn.md");
 }
 

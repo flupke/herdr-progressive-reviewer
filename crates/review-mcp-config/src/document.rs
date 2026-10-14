@@ -3,9 +3,9 @@ use std::path::Path;
 use serde_json::{Value, json};
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, value};
 
-use crate::Client;
+use review_types::MCP_SERVER;
 
-const SERVER: &str = "herdr_reviewer";
+use crate::Client;
 
 pub(super) struct Configuration<'a> {
     client: Client,
@@ -39,7 +39,7 @@ impl<'a> Configuration<'a> {
             .as_table_like_mut()
             .ok_or("mcp_servers must be a table; configuration was left unchanged")?;
         let server = servers
-            .entry(SERVER)
+            .entry(MCP_SERVER)
             .or_insert(Item::Table(Table::new()))
             .as_table_like_mut()
             .ok_or("herdr_reviewer must be a table")?;
@@ -91,7 +91,7 @@ impl<'a> Configuration<'a> {
             .or_insert_with(|| json!({}))
             .as_object_mut()
             .ok_or("mcpServers must be an object; configuration was left unchanged")?;
-        if let Some(server) = servers.get(SERVER) {
+        if let Some(server) = servers.get(MCP_SERVER) {
             if server.get("command").and_then(Value::as_str) == Some(self.command)
                 && server.get("args") == Some(&json!([]))
                 && server.get("type").and_then(Value::as_str) == Some("stdio")
@@ -102,7 +102,7 @@ impl<'a> Configuration<'a> {
             return Err(Self::conflict());
         }
         servers.insert(
-            SERVER.into(),
+            MCP_SERVER.into(),
             json!({"type": "stdio", "command": self.command, "args": []}),
         );
         Ok(Some(format!(

@@ -4288,6 +4288,7 @@ dependencies = [
  "review-mcp",
  "review-repository",
  "review-test-support",
+ "review-types",
  "serde_json",
  "tempfile",
  "test-case",
