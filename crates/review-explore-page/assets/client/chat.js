@@ -20,6 +20,7 @@ import { DESK } from './desk.js';
 import { DIAGRAMS_RESIZED, drawDiagrams, fitDiagrams } from './diagrams.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
+import { SEND_KEYS_LABEL, sendsOnKeys } from './send-keys.js';
 import { clockTime, statusCard } from './status.js';
 
 /** The event that asks the chat to open, with an optional quote (`requestChat`). */
@@ -299,22 +300,18 @@ class Composer {
       this.quoteText,
       h('button', { class: 'chat-quote-remove', type: 'button', 'aria-label': 'Remove the quote', onclick: () => this.quote(null) }, '×'),
     );
-    this.box = keepDraft(
-      h('textarea', {
-        class: 'chat-text',
-        name: 'text',
-        'aria-label': 'Message to the agent',
-        placeholder: 'Ask, challenge, or add context…',
-      }),
-      `chat:${round}`,
-      '',
+    this.box = sendsOnKeys(
+      keepDraft(
+        h('textarea', {
+          class: 'chat-text',
+          name: 'text',
+          'aria-label': 'Message to the agent',
+          placeholder: 'Ask, challenge, or add context…',
+        }),
+        `chat:${round}`,
+        '',
+      ),
     );
-    this.box.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        this.element.requestSubmit();
-      }
-    });
     this.hint = h('span', { class: 'hint' });
     this.element = h(
       'form',
@@ -347,8 +344,7 @@ class Composer {
     this.question.value = askedUnder?.stage === 'question' ? askedUnder.question : '';
     this.version.value = askedUnder?.stage === 'question' ? String(askedUnder.version) : '';
     this.conclusion.value = askedUnder?.stage === 'conclusion' ? askedUnder.conclusion : '';
-    const keys = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘↵' : 'Ctrl+↵';
-    this.hint.textContent = question ? `The question stays open. ${keys}` : keys;
+    this.hint.textContent = question ? `The question stays open. ${SEND_KEYS_LABEL}` : SEND_KEYS_LABEL;
   }
 
   /** Quotes `text` in the message, or drops the quote with `null`.

@@ -82,6 +82,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/question.js", "text/javascript"),
     asset!("client/quiz.js", "text/javascript"),
     asset!("client/route.js", "text/javascript"),
+    asset!("client/send-keys.js", "text/javascript"),
     asset!("client/socket.js", "text/javascript"),
     asset!("client/start.js", "text/javascript"),
     asset!("client/status.js", "text/javascript"),

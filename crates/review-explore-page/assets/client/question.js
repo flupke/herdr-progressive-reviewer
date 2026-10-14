@@ -28,6 +28,7 @@ import { disclosure } from './disclosure.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
 import { answerFields, drawingBoard } from './drawing-board.js';
+import { SEND_KEYS_LABEL, sendsOnKeys } from './send-keys.js';
 import { turnStrip } from './turn.js';
 
 export class QuestionScreen {
@@ -168,13 +169,20 @@ function panel(question) {
   const picking = question.recommendation === 'hidden_until_pick';
   const revealed = question.recommendation === 'shown_after_pick';
   const door = question.door ? DOORS[question.door].name : 'This question';
+  const sendLabel = revealed ? 'Confirm answer' : 'Send answer';
   const draft = draftKey(question, question.version);
   // A revised question keeps the comment typed for the version it replaced, under its own key,
   // so that a second revision keeps it too.
   const from = question.revision ? draftKey(question, question.revision.replaced_version) : null;
   const replaced = from === null ? null : kept(from);
   if (replaced !== null && kept(draft) === null) keep(draft, replaced);
-  const box = keepDraft(h('textarea', { class: 'comment', id: 'comment', name: 'comment', rows: 3 }), draft, '');
+  const box = sendsOnKeys(
+    keepDraft(
+      h('textarea', { class: 'comment', id: 'comment', name: 'comment', rows: 3, placeholder: `${sendLabel}: ${SEND_KEYS_LABEL}` }),
+      draft,
+      '',
+    ),
+  );
   // The reviewer typing in the replaced version's box keeps the focus in this one.
   if (from !== null) box.dataset.draftFrom = from;
   return h(
@@ -204,7 +212,7 @@ function panel(question) {
     ),
     box,
     question.marks ? gainLine(question.marks, question.gain) : null,
-    h('button', { class: 'button primary block', type: 'submit' }, revealed ? 'Confirm answer' : 'Send answer'),
+    h('button', { class: 'button primary block', type: 'submit' }, sendLabel),
   );
 }
 

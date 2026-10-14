@@ -32,14 +32,15 @@ test('the reviewer answers on the page, then sees the agent work and its next qu
   await expect(screen.getByRole('region', 'Question 2')).toBeVisible();
 });
 
-test('a comment without a choice is sent as the answer', async ({ explore, screen }) => {
+test('a comment without a choice is sent as the answer, with Ctrl+Enter', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
   await screen.getByRole('link', 'Go to question 1').tap();
   const question = screen.getByRole('region', 'Question 1');
 
-  await question.getByRole('textbox', 'Comment · optional').fill('Keep it for a week instead.');
-  await question.getByRole('button', 'Send answer').tap();
+  const comment = question.getByRole('textbox', 'Comment · optional');
+  await comment.fill('Keep it for a week instead.');
+  await comment.press('Control+Enter');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.answers()).toEqual([
     { question: 'keep-draft', version: 1, choice: null, comment: 'Keep it for a week instead.' },
