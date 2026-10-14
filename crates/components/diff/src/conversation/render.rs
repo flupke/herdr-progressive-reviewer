@@ -1,4 +1,5 @@
 use std::cell::Ref;
+use std::ops::Range;
 
 use diff_rendering::{DiffFrame, FrameOverlay, FrameOverlayRow, FrameRule};
 use ratatui::{
@@ -11,6 +12,7 @@ use ratatui::{
 use review_threads::{ReviewThread, ThreadId};
 use ui_controls::NavigationLink;
 use ui_frame::Frame;
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 use super::{ConversationAction, ConversationAnchor};
@@ -24,6 +26,8 @@ struct ConversationRows {
     frame: DiffFrame,
     width: u16,
     rows: Vec<CommentRow>,
+    /// The rows of the thread's original code.
+    code: Range<usize>,
 }
 
 /// A thread laid out for a width, which a frame and a scroll step reuse until the width, the
@@ -34,12 +38,16 @@ pub(super) struct LaidOutThread {
     /// The thread whose original code the rows show.
     original: Option<ThreadId>,
     rows: Vec<CommentRow>,
+    /// The rows of the thread's original code.
+    code: Range<usize>,
 }
 
 /// The rows of the shown thread: its code and messages, laid out once, then the reply under them,
 /// laid out at each frame as the reviewer edits it.
 struct ConversationViewport<'a> {
     thread: Ref<'a, [CommentRow]>,
+    /// The rows of `thread` that hold its original code.
+    code: Range<usize>,
     reply: Vec<CommentRow>,
     /// Where the editor starts in `reply`: the view keeps it at its bottom.
     editor_start: usize,
@@ -48,7 +56,12 @@ struct ConversationViewport<'a> {
 }
 
 impl<'a> ConversationViewport<'a> {
-    fn new(thread: Ref<'a, [CommentRow]>, reply: Vec<CommentRow>, height: usize) -> Self {
+    fn new(
+        thread: Ref<'a, [CommentRow]>,
+        code: Range<usize>,
+        reply: Vec<CommentRow>,
+        height: usize,
+    ) -> Self {
         let editor_start = reply
             .iter()
             .position(|row| row.editor)
@@ -58,6 +71,7 @@ impl<'a> ConversationViewport<'a> {
         Self {
             content_height: content.min(height.saturating_sub(editor)),
             thread,
+            code,
             reply,
             editor_start,
             height,
@@ -77,6 +91,17 @@ impl<'a> ConversationViewport<'a> {
             .saturating_sub(self.content_height)
     }
 
+    /// The visible rows, from the top of the view, that show the thread's original code.
+    fn code_rows(&self, scroll: usize) -> impl Iterator<Item = usize> + '_ {
+        let scroll = scroll.min(self.scroll_limit());
+        let shown = self
+            .thread
+            .len()
+            .saturating_sub(scroll)
+            .min(self.content_height);
+        (0..shown).filter(move |row| self.code.contains(&(scroll + row)))
+    }
+
     fn visible(&self, scroll: usize) -> impl Iterator<Item = &CommentRow> {
         let scroll = scroll.min(self.scroll_limit());
         self.content()
@@ -93,6 +118,7 @@ impl ConversationRows {
             frame: DiffFrame::new(width, number_width, Style::default().fg(palette.focus)),
             width,
             rows: Vec::new(),
+            code: 0..0,
         }
     }
 
@@ -161,7 +187,7 @@ impl DiffComponent {
         buffer: &mut Buffer,
         palette: Palette,
         focused: bool,
-    ) {
+    ) -> TextRegion {
         let block = Frame::Pane { focused }.block(palette, "Review thread");
         let body = block.inner(area);
         block.render(area, buffer);
@@ -188,6 +214,47 @@ impl DiffComponent {
         }
         FrameOverlay::new(body, overlay).render(buffer);
         self.conversation.targets.replace(targets);
+        let code_rows = viewport.code_rows(scroll).collect::<Vec<_>>();
+        self.conversation_text(body, &code_rows, buffer)
+    }
+
+    /// The text of the view: the thread's original code from where code starts, each row a
+    /// line, at the visible `code_rows`; the rest is prose read inside the frame's padding.
+    fn conversation_text(&self, body: Rect, code_rows: &[usize], buffer: &Buffer) -> TextRegion {
+        let number_width = self
+            .conversation
+            .original
+            .as_ref()
+            .map_or(0, |code| code.number_width);
+        let frame = DiffFrame::new(body.width, number_width, Style::default());
+        let code_column =
+            u16::try_from(crate::render::code_column(number_width)).unwrap_or(u16::MAX);
+        let mut text = TextRegion::new(body);
+        let mut prose_start = body.top();
+        for &row in code_rows {
+            let y = body
+                .top()
+                .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+            crate::render::push_framed_prose(&mut text, frame, body, prose_start..y, buffer);
+            text.push_screen(
+                Rect::new(
+                    body.x.saturating_add(code_column),
+                    y,
+                    body.width.saturating_sub(code_column.saturating_add(1)),
+                    1,
+                ),
+                buffer,
+            );
+            prose_start = y.saturating_add(1);
+        }
+        crate::render::push_framed_prose(
+            &mut text,
+            frame,
+            body,
+            prose_start..body.bottom(),
+            buffer,
+        );
+        text
     }
 
     fn conversation_viewport(
@@ -209,21 +276,28 @@ impl DiffComponent {
                     && laid_out.original.as_ref() == original
             });
         if !fresh {
-            let rows = self.lay_out_thread(width, palette);
+            let (rows, code) = self.lay_out_thread(width, palette);
             self.conversation.laid_out.replace(Some(LaidOutThread {
                 width,
                 thread: thread.cloned(),
                 original: original.cloned(),
                 rows,
+                code,
             }));
         }
+        let code = self
+            .conversation
+            .laid_out
+            .borrow()
+            .as_ref()
+            .map_or(0..0, |laid_out| laid_out.code.clone());
         let rows = Ref::map(self.conversation.laid_out.borrow(), |laid_out| {
             laid_out
                 .as_ref()
                 .map_or(&[][..], |laid_out| laid_out.rows.as_slice())
         });
         let reply = self.conversation_reply(width, palette);
-        ConversationViewport::new(rows, reply, usize::from(height))
+        ConversationViewport::new(rows, code, reply, usize::from(height))
     }
 
     fn new_conversation_rows(&self, width: u16, palette: Palette) -> ConversationRows {
@@ -236,14 +310,14 @@ impl DiffComponent {
     }
 
     /// The shown thread's code, its unread notice and its messages.
-    fn lay_out_thread(&self, width: u16, palette: Palette) -> Vec<CommentRow> {
+    fn lay_out_thread(&self, width: u16, palette: Palette) -> (Vec<CommentRow>, Range<usize>) {
         let mut output = self.new_conversation_rows(width, palette);
         let Some(thread) = self.conversation_thread() else {
             output.text(
                 "Select a thread to read its conversation.",
                 Style::default().fg(palette.dim),
             );
-            return output.rows;
+            return (output.rows, 0..0);
         };
         output.rule(FrameRule::Top(None));
         self.context_rows(thread, palette, &mut output);
@@ -265,7 +339,8 @@ impl DiffComponent {
             output.frame,
             palette,
         ));
-        output.enclosed()
+        let code = output.code.clone();
+        (output.enclosed(), code)
     }
 
     fn conversation_reply(&self, width: u16, palette: Palette) -> Vec<CommentRow> {
@@ -341,6 +416,7 @@ impl DiffComponent {
         let Some(code) = &self.conversation.original else {
             return;
         };
+        let start = output.rows.len();
         output
             .rows
             .extend(crate::render::DiffRenderer::original_context_rows(
@@ -349,5 +425,6 @@ impl DiffComponent {
                 code.number_width,
                 palette,
             ));
+        output.code = start..output.rows.len();
     }
 }

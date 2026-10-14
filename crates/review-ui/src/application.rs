@@ -25,6 +25,7 @@ use ui_events::{
 
 use crate::layout::{Body, NavigationTabs, PaneLayout, ScreenLayout, Viewport};
 use crate::navigation::{Modal, Navigation, NavigationRequests, OpenModals, PaneComponent};
+use crate::text_selection::{ScreenText, TextInput};
 use crate::{Action, ApplicationFrame, SettingsAction, TerminalAction, Theme, UserInput};
 use ui_theme::Palette;
 
@@ -50,6 +51,7 @@ pub struct ReviewApplication {
     file_pane_resize: Option<FilePaneResize>,
     editor_keymap: KeymapSetting,
     saved_editor_keymap: EditorKeymap,
+    screen_text: ScreenText,
     #[cfg(test)]
     focused_for_test: Option<ComponentTarget>,
 }
@@ -145,6 +147,7 @@ impl ReviewApplication {
             file_pane_resize: None,
             saved_editor_keymap: editor_keymap.get(),
             editor_keymap,
+            screen_text: ScreenText::default(),
             #[cfg(test)]
             focused_for_test: None,
         }
@@ -159,14 +162,19 @@ impl ReviewApplication {
     /// Deliver one terminal input through the component registry.
     #[allow(clippy::needless_pass_by_value)]
     pub fn update(&mut self, message: UserInput) -> Vec<Action> {
+        let mut actions = match self.screen_text.input(&message) {
+            TextInput::Taken(actions) => return actions,
+            TextInput::Passed(actions) => actions,
+        };
         self.record_viewport_size(&message);
         self.synchronize();
         let Ok(results) = self.dispatch_primary_message(&message) else {
             debug_assert!(false, "the mounted component must match its subscription");
-            return Vec::new();
+            return actions;
         };
         self.synchronize();
-        self.collect_actions(results)
+        actions.extend(self.collect_actions(results));
+        actions
     }
 
     /// Publish one typed application event to its subscribed components.
@@ -388,6 +396,7 @@ impl ReviewApplication {
                 .event_bus
                 .get::<RevisionComponent>(self.revision_component)
                 .expect("the revision component must stay mounted"),
+            screen_text: &self.screen_text,
         }
     }
 
@@ -674,6 +683,7 @@ fn pointer_position(message: &UserInput) -> Option<(u16, u16)> {
         UserInput::MouseScroll { column, row, .. }
         | UserInput::MouseClick { column, row, .. }
         | UserInput::MouseControlClick { column, row }
+        | UserInput::MouseAltClick { column, row }
         | UserInput::MouseDoubleClick { column, row }
         | UserInput::MouseRightClick { column, row }
         | UserInput::MouseDrag { column, row } => Some((*column, *row)),
@@ -693,7 +703,10 @@ fn pointer_kind(message: &UserInput) -> Option<PointerInputKind> {
         UserInput::MouseRightClick { .. } => Some(PointerInputKind::RightClick),
         UserInput::MouseDrag { .. } => Some(PointerInputKind::Drag),
         UserInput::MouseRelease => Some(PointerInputKind::Release),
-        UserInput::Resize { .. } | UserInput::Key(_) | UserInput::Paste(_) => None,
+        UserInput::MouseAltClick { .. }
+        | UserInput::Resize { .. }
+        | UserInput::Key(_)
+        | UserInput::Paste(_) => None,
     }
 }
 

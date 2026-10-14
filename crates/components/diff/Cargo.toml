@@ -33,6 +33,7 @@ ui-actions = { path = "../../ui-actions" }
 ui-controls = { path = "../../ui-controls" }
 ui-events = { path = "../../ui-events" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
+ui-text-selection = { path = "../../ui-text-selection" }
 ui-theme = { path = "../../ui-theme" }
 unicode-segmentation.workspace = true
 unicode-width.workspace = true

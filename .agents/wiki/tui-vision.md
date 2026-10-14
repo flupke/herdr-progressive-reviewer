@@ -58,6 +58,16 @@ each frame.
   its guard. Quit the editor through its own keys before acting on the reviewer again.
 - On the Explore tab, `Start` runs the round on the Explore page and `Start in the pane`
   in the pane.
+- A `drag` copies a text selection (over code in the diff or an Explore evidence viewer, only
+  with `alt`), and Herdr hands the copy to the clipboard of the user's own terminal: save it
+  first and put it back. The clipboard may hold no text at all (a browser's `text/html`), so
+  save it by type (`wl-paste --list-types`, `wl-paste -t <type>`) and restore it with
+  `wl-copy -t <type>`. Each client of the server ends its session when it leaves, so drive a
+  whole check, and read the clipboard between steps, from one client.
+- Herdr shows a run of blank cells that ends a row in the style of the cell before it once
+  that cell is redrawn, though the reviewer never writes them: a text selection that ends
+  before trailing spaces looks highlighted to the end of the line's padding. The selected
+  cells are right; ratatui sends no erase sequence (inferred: Herdr's grid).
 - The stand-in agent reports its state to Herdr itself, as Claude's hooks do: the user's
   Herdr may not read its working state from its titles.
 - The stand-in agent reports no session and runs no hook of the reviewer's Claude Code plugin,

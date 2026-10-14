@@ -84,6 +84,16 @@ impl Cell {
         let (x, y) = (u32::from(self.x) + 1, u32::from(self.y) + 1);
         format!("\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m")
     }
+
+    /// A drag with the left button from this cell to `to`, Alt held when `alt`, as a terminal
+    /// with SGR mouse reporting sends it: a press, one move with the button down, a release.
+    pub(crate) fn left_drag(self, to: Cell, alt: bool) -> String {
+        let (x, y) = (u32::from(self.x) + 1, u32::from(self.y) + 1);
+        let (to_x, to_y) = (u32::from(to.x) + 1, u32::from(to.y) + 1);
+        let button = if alt { 8 } else { 0 };
+        let moved = button + 32;
+        format!("\x1b[<{button};{x};{y}M\x1b[<{moved};{to_x};{to_y}M\x1b[<{button};{to_x};{to_y}m")
+    }
 }
 
 #[cfg(test)]

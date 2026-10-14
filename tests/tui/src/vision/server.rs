@@ -102,6 +102,26 @@ struct ClickInput {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct DragInput {
+    /// The cell the drag starts on: zero-based `[x, y]`, or a text whose first cell it is.
+    from: CellInput,
+    /// The cell the drag ends on: zero-based `[x, y]`, or a text whose last cell it is.
+    to: CellInput,
+    /// Hold Alt through the drag, which the reviewer's diff needs to select text rather than
+    /// comment on lines.
+    #[serde(default)]
+    alt: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+enum CellInput {
+    Cell([u16; 2]),
+    Text(String),
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct WaitInput {
     /// The text to wait for.
     text: String,
@@ -471,6 +491,44 @@ impl Server {
                 _ => bail!("click takes either x and y, or text"),
             };
             Ok(Outcome::reaction("reacted", session.act(&Input::Click(cell))?).with("cell", cell))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Drag with the left button from one cell of the reviewer to another, Alt held with alt. Each end is [x, y] (zero-based column and row), or a text: the drag starts on its first cell and ends on its last. Returns both cells and the rows that changed once the reviewer has painted its reaction."
+    )]
+    async fn drag(
+        &self,
+        Parameters(input): Parameters<DragInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("drag", json!(input), move |_, session| {
+            let session = running(session)?;
+            let screen = session.screen(false)?;
+            let from = match input.from {
+                CellInput::Cell([x, y]) => Cell { x, y },
+                CellInput::Text(text) => screen.locate(&text)?,
+            };
+            let to = match input.to {
+                CellInput::Cell([x, y]) => Cell { x, y },
+                CellInput::Text(text) => {
+                    let start = screen.locate(&text)?;
+                    let width = u16::try_from(unicode_width::UnicodeWidthStr::width(text.as_str()))
+                        .unwrap_or(1);
+                    Cell {
+                        x: start.x + width.saturating_sub(1),
+                        y: start.y,
+                    }
+                }
+            };
+            let input = Input::Drag {
+                from,
+                to,
+                alt: input.alt,
+            };
+            Ok(Outcome::reaction("reacted", session.act(&input)?)
+                .with("from", from)
+                .with("to", to))
         })
         .await
     }

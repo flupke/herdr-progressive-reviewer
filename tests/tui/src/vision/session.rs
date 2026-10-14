@@ -45,6 +45,8 @@ pub(crate) enum Input<'a> {
     Text(&'a str),
     /// A left click on a cell.
     Click(Cell),
+    /// A drag with the left button between two cells, Alt held when `alt`.
+    Drag { from: Cell, to: Cell, alt: bool },
 }
 
 pub(crate) struct Session {
@@ -195,6 +197,12 @@ impl Session {
             Input::Click(cell) => {
                 self.screen(false)?.contains(*cell)?;
                 self.send_text(&pane, &cell.left_click())?;
+            }
+            Input::Drag { from, to, alt } => {
+                let screen = self.screen(false)?;
+                screen.contains(*from)?;
+                screen.contains(*to)?;
+                self.send_text(&pane, &from.left_drag(*to, *alt))?;
             }
         }
         self.settle()

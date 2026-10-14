@@ -26,6 +26,7 @@ use ui_shortcuts::{
     ApplicationShortcut, ConversationCommand, ConversationShortcut, DiffGlobalShortcut,
     DiffPaneCommand, Key, ShortcutMatcher, ShortcutSubscription,
 };
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 use crate::conversation::{ConversationView, SourcePeek};
@@ -83,24 +84,33 @@ impl DiffComponent {
         self.document_viewer().has_pending_load()
     }
 
-    /// Draw what the pane shows, and note which reply rows it drew.
-    pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
-        let viewer = if let Some(viewer) = self.shown_explore_viewer() {
-            viewer.render(area, buffer, palette, focused).render(buffer);
-            viewer
+    /// Draw what the pane shows, note which reply rows it drew, and return its text, later
+    /// regions on top.
+    pub fn render(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        palette: Palette,
+        focused: bool,
+    ) -> Vec<TextRegion> {
+        let (viewer, text) = if let Some(viewer) = self.shown_explore_viewer() {
+            (viewer, viewer.render(area, buffer, palette, focused))
         } else if let Some(peek) = &self.conversation.peek {
-            peek.render(area, buffer, palette, focused);
-            peek.viewer()
+            (peek.viewer(), peek.render(area, buffer, palette, focused))
         } else if self.conversation.active {
-            self.render_conversation(area, buffer, palette, focused);
-            &self.files
+            (
+                &self.files,
+                // A drag means nothing in the thread conversation view.
+                vec![self.render_conversation(area, buffer, palette, focused)],
+            )
         } else {
-            self.files
-                .render(area, buffer, palette, focused)
-                .render(buffer);
-            &self.files
+            (
+                &self.files,
+                self.files.render(area, buffer, palette, focused),
+            )
         };
         viewer.capture_replies(buffer);
+        text
     }
 
     /// Borrow the viewer retained for an opened evidence block.

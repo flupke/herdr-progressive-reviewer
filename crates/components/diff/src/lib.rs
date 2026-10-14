@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use component_core::EventPublisher;
-use diff_rendering::FrameOverlay;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_source::ReviewCheckpoint;
@@ -59,14 +58,14 @@ use document::LoadedDocument;
 use history::{LocationHistory, LocationHistoryDirection};
 pub use pane::DiffComponent;
 use presentation::{DiffPresentation, PresentedRow};
-use render::{DiffPointerViewport, DiffRenderer, DiffViewport, TAB_DISPLAY_WIDTH};
+use render::{DiffPointerViewport, DiffRenderer, DiffViewport};
 use std::ops::RangeInclusive;
 pub use syntax_highlighting::SyntaxHighlighter;
 use syntax_highlighting::Token;
 use title_controls::TitleControls;
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct DiffPointerPosition {
@@ -236,22 +235,30 @@ impl SourceViewer {
         })
     }
 
-    /// Draw the selected diff document and return its positioned frame layer.
+    /// Draw the selected diff document with its frames, and return the text it drew, later
+    /// regions on top.
     fn render(
         &self,
         area: Rect,
         buffer: &mut Buffer,
         palette: Palette,
         focused: bool,
-    ) -> FrameOverlay {
+    ) -> Vec<TextRegion> {
         let result = self.renderer(palette, focused).render(
             area,
             buffer,
             &mut self.reply_visibility.borrow_mut(),
         );
+        result.frame_overlay.render(buffer);
+        let text = match (&result.pointer_viewport, self.displayed_document()) {
+            (Some(viewport), Some(file)) => {
+                viewport.text_regions(result.area, &file.document.diff, buffer)
+            }
+            _ => vec![TextRegion::screen(result.area, buffer).needing_alt()],
+        };
         self.rendered_pointer_viewport
             .replace(result.pointer_viewport);
-        result.frame_overlay
+        text
     }
 
     /// Map one pointer position through the same visual layout as rendering.
@@ -1967,11 +1974,7 @@ fn previous_word_column(line: &str, column: usize) -> usize {
 fn display_column_to_byte(line: &str, display_column: usize) -> usize {
     let mut display = 0_usize;
     for (byte, grapheme) in line.grapheme_indices(true) {
-        let width = if grapheme == "\t" {
-            TAB_DISPLAY_WIDTH
-        } else {
-            grapheme.width()
-        };
+        let width = render::grapheme_display_width(grapheme);
         if display.saturating_add(width) > display_column {
             return byte;
         }

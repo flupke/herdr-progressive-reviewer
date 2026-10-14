@@ -13,6 +13,7 @@ use ratatui::{
 use review_explore::{InterviewUpdate, MarkTense, Question};
 use ui_events::ExploreViewports;
 use ui_frame::Frame;
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 fn format_elapsed(milliseconds: u64) -> String {
@@ -45,6 +46,12 @@ fn draw_editor(
             );
     }
     viewport.draw(&editor, buffer);
+}
+
+/// The text the conversation drew, and the evidence lists and viewers that lie over it.
+struct DrawnText {
+    conversation: TextRegion,
+    evidence: Vec<TextRegion>,
 }
 
 impl ExploreComponent {
@@ -99,6 +106,8 @@ impl ExploreComponent {
         layout
     }
 
+    /// Draw the pane, and return the text it drew: the conversation's prose first, then
+    /// each evidence list and viewer, which lie over it.
     pub fn render(
         &self,
         area: Rect,
@@ -106,10 +115,10 @@ impl ExploreComponent {
         palette: Palette,
         focused: bool,
         diff: &DiffComponent,
-    ) {
+    ) -> Vec<TextRegion> {
         let block = Frame::Pane { focused }.block(palette, "");
         block.render(area, buffer);
-        self.render_conversation(area, buffer, palette, focused, diff);
+        self.render_conversation(area, buffer, palette, focused, diff)
     }
 
     fn render_conversation(
@@ -119,9 +128,13 @@ impl ExploreComponent {
         palette: Palette,
         focused: bool,
         diff: &DiffComponent,
-    ) {
+    ) -> Vec<TextRegion> {
         let layout = self.conversation_layout(area, diff, palette);
         layout.navigation.render(buffer, palette);
+        let mut text = DrawnText {
+            conversation: TextRegion::new(layout.area),
+            evidence: Vec::new(),
+        };
         for item in &layout.items {
             let Some((visible, skipped)) = layout.visible(item) else {
                 continue;
@@ -136,10 +149,15 @@ impl ExploreComponent {
                 palette,
                 focused,
                 diff,
+                &mut text,
             );
         }
+        let mut regions = vec![text.conversation];
+        regions.append(&mut text.evidence);
+        regions
     }
 
+    /// Draw one item, and add its text to `text`.
     fn render_conversation_item(
         &self,
         visible: super::flow::VisibleContent<'_>,
@@ -147,19 +165,23 @@ impl ExploreComponent {
         palette: Palette,
         focused: bool,
         diff: &DiffComponent,
+        text: &mut DrawnText,
     ) {
         let item = visible.item;
         let area = visible.area;
         let skipped = visible.skipped;
         match &item.content {
-            Content::Text(text, _) => {
-                Paragraph::new(text.clone())
+            Content::Text(content, _) => {
+                Paragraph::new(content.clone())
                     .wrap(Wrap { trim: false })
                     .scroll((skipped, 0))
                     .render(area, buffer);
+                text.conversation.push_prose(area, buffer);
             }
             Content::EvidenceSplit(list) => {
-                self.render_evidence_split(list, visible, buffer, palette, focused, diff);
+                text.evidence.extend(
+                    self.render_evidence_split(list, visible, buffer, palette, focused, diff),
+                );
             }
             Content::Editor(target) => {
                 self.render_editor(
@@ -169,6 +191,7 @@ impl ExploreComponent {
                     palette,
                     focused,
                 );
+                text.conversation.push_prose(area, buffer);
             }
             Content::SettingEditor => {
                 if let Some((editor, title)) = self.page_settings.editor() {
@@ -180,6 +203,7 @@ impl ExploreComponent {
                         buffer,
                         palette,
                     );
+                    text.conversation.push_prose(area, buffer);
                 }
             }
             Content::Controls(buttons) => {
@@ -196,7 +220,7 @@ impl ExploreComponent {
         palette: Palette,
         focused: bool,
         diff: &DiffComponent,
-    ) {
+    ) -> Vec<TextRegion> {
         let active = list.view == self.view_id();
         list.render_split(
             visible,
@@ -205,7 +229,7 @@ impl ExploreComponent {
             palette,
             !focused && active,
             focused && self.evidence_list_focused && active,
-        );
+        )
     }
 
     fn editor_title(&self, target: EditorTarget, editing: bool) -> String {

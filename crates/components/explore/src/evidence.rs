@@ -7,7 +7,7 @@ use super::{
 use diff_component::{ClippedViewport, DiffComponent};
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Margin, Rect},
     style::Style,
     text::Line,
     widgets::{Paragraph, Widget},
@@ -17,6 +17,7 @@ use std::collections::HashSet;
 use ui_events::EvidenceView;
 use ui_panes::{FileList, FileTree, FileTreeRow, SelectionPane, pad_to_width};
 use ui_shortcuts::MovementShortcut;
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -157,6 +158,9 @@ impl EvidenceList {
         viewport.draw(&pane, buffer);
     }
 
+    /// Draw the evidence list beside the shown viewer, and return the text of both, later
+    /// regions on top, over the split's own region, which needs Alt held to select: a plain
+    /// drag on its divider or its bottom row resizes it.
     pub(super) fn render_split(
         &self,
         visible: VisibleContent<'_>,
@@ -165,8 +169,11 @@ impl EvidenceList {
         palette: Palette,
         source_focused: bool,
         list_focused: bool,
-    ) {
+    ) -> Vec<TextRegion> {
         let panes = evidence_panes(visible.area, self.width);
+        let split = TextRegion::new(visible.area).needing_alt();
+        let mut list = TextRegion::default();
+        let mut source = Vec::new();
         panes.render(
             buffer,
             |left, buffer| {
@@ -178,13 +185,15 @@ impl EvidenceList {
                     visible.item.height,
                     list_focused,
                 );
+                list = TextRegion::screen(left.inner(Margin::new(1, 1)), buffer);
             },
             |right, buffer| {
                 if let Some(viewer) = diff.evidence_view(self.view) {
                     if let Some(limitation) = viewer.evidence_limitation() {
                         Paragraph::new(limitation).render(right, buffer);
+                        source = vec![TextRegion::screen(right, buffer)];
                     } else {
-                        viewer.render_embedded(
+                        source = viewer.render_embedded(
                             Window::new(self.view, right, visible.skipped, visible.item.height)
                                 .viewport,
                             buffer,
@@ -198,6 +207,9 @@ impl EvidenceList {
             },
         );
         panes.render_divider(buffer, Style::default().fg(palette.dim));
+        let mut regions = vec![split, list];
+        regions.append(&mut source);
+        regions
     }
 
     pub(super) fn control_at(

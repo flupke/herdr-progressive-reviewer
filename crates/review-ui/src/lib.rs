@@ -5,6 +5,7 @@ mod application_frame;
 mod layout;
 mod message;
 mod navigation;
+mod text_selection;
 
 pub use application::ReviewApplication;
 pub use application_frame::ApplicationFrame;

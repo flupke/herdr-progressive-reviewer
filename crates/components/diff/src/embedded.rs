@@ -10,6 +10,7 @@ use ui_actions::Action;
 use ui_events::{
     EvidenceView, ExploreEvidence, ExploreEvidenceInput, ExploreViewports, RepositoryFilesChanged,
 };
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 /// Every viewer Explore opened, and the one in front.
@@ -279,20 +280,23 @@ impl SourceViewer {
     }
 
     /// Render a window through the native engine, then clip it to the conversation viewport.
+    /// Return its text, later regions on top.
     pub fn render_embedded(
         &self,
         viewport: ClippedViewport,
         buffer: &mut Buffer,
         palette: Palette,
         focused: bool,
-    ) {
+    ) -> Vec<TextRegion> {
         let area = viewport.area();
         let mut window = Buffer::empty(area);
-        self.render(area, &mut window, palette, focused)
-            .render(&mut window);
+        let text = self.render(area, &mut window, palette, focused);
         viewport.draw(&window, buffer);
         let mut replies = self.reply_visibility.borrow_mut();
         replies.project(viewport);
         replies.capture(buffer);
+        text.iter()
+            .map(|region| viewport.place_text(region))
+            .collect()
     }
 }

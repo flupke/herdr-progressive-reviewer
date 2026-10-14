@@ -2,6 +2,9 @@ use std::ops::{Range, RangeInclusive};
 #[path = "evidence.rs"]
 mod evidence;
 use evidence::EvidenceFrames;
+#[path = "text.rs"]
+mod text;
+pub(crate) use text::push_framed_prose;
 
 use diff_rendering::{DiffFrame, FrameBorderCell, FrameOverlay, FrameOverlayRow, FramedRow};
 use ratatui::buffer::Buffer;
@@ -25,6 +28,11 @@ use crate::{DiffPresentation, LoadedDocument, PresentedRow, Token};
 use diff_position::{Layout, Position};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
+
+/// The pane column where code starts, after the line numbers, the change marker and a space.
+pub(crate) fn code_column(number_width: usize) -> usize {
+    number_width + 3
+}
 
 pub(super) struct DiffRenderer<'a> {
     comments: Option<&'a crate::comments::Comments>,
@@ -63,7 +71,7 @@ impl<'a> DiffRenderer<'a> {
                     &line,
                     index,
                     width,
-                    number_width + 3,
+                    code_column(number_width),
                     Some(frame),
                     style.bg,
                     None,
@@ -151,6 +159,8 @@ enum VisibleRowIdentity {
 pub(super) struct DiffRenderResult {
     pub(super) frame_overlay: FrameOverlay,
     pub(super) pointer_viewport: Option<DiffPointerViewport>,
+    /// The pane's area inside its borders.
+    pub(super) area: Rect,
 }
 
 #[derive(Default)]
@@ -284,7 +294,7 @@ impl DiffViewport {
         }
         Some(
             row.source_display_offset
-                .saturating_add(pane_column.saturating_sub(number_width + 3)),
+                .saturating_add(pane_column.saturating_sub(code_column(number_width))),
         )
     }
 
@@ -442,9 +452,8 @@ impl DiffPointerViewport {
     ) -> Option<(usize, Option<usize>)> {
         let row = self.rows.get(screen_row)?;
         let column = row.is_source_row.then(|| {
-            row.source_display_offset.saturating_add(
-                pane_column.saturating_sub(self.line_number_width.saturating_add(3)),
-            )
+            row.source_display_offset
+                .saturating_add(pane_column.saturating_sub(code_column(self.line_number_width)))
         });
         Some((row.source_row, column))
     }
@@ -464,12 +473,14 @@ impl DiffRenderer<'_> {
             return DiffRenderResult {
                 frame_overlay: FrameOverlay::empty(),
                 pointer_viewport: None,
+                area: inner,
             };
         };
         if self.render_empty_review(file, inner, buffer) {
             return DiffRenderResult {
                 frame_overlay: FrameOverlay::empty(),
                 pointer_viewport: None,
+                area: inner,
             };
         }
         let viewport = self.viewport(file, inner.width, focused);
@@ -525,6 +536,7 @@ impl DiffRenderer<'_> {
                     .collect(),
             ),
             pointer_viewport: Some(pointer_viewport),
+            area: inner,
         }
     }
 }
@@ -686,7 +698,7 @@ impl DiffRenderer<'_> {
                     &styled_line,
                     index,
                     width,
-                    line_number_width + 3,
+                    code_column(line_number_width),
                     enclosing_frame,
                     // Added, removed and selected rows are tinted to the edge.
                     style.bg,
@@ -976,16 +988,19 @@ fn fill_line_background(line: &mut Line<'static>, width: u16, background: Color)
     }
 }
 
+/// The cells `grapheme` takes in a line of code, where a tab takes `TAB_DISPLAY_WIDTH`.
+pub(super) fn grapheme_display_width(grapheme: &str) -> usize {
+    if grapheme == "\t" {
+        TAB_DISPLAY_WIDTH
+    } else {
+        grapheme.width()
+    }
+}
+
 fn source_display_width(line: &str, byte_column: usize) -> usize {
     line.grapheme_indices(true)
         .take_while(|(byte, grapheme)| byte.saturating_add(grapheme.len()) <= byte_column)
-        .map(|(_, grapheme)| {
-            if grapheme == "\t" {
-                TAB_DISPLAY_WIDTH
-            } else {
-                grapheme.width()
-            }
-        })
+        .map(|(_, grapheme)| grapheme_display_width(grapheme))
         .sum()
 }
 

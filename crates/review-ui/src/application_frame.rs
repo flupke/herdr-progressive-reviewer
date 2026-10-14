@@ -1,11 +1,12 @@
 //! Side-effect-free composition of mounted UI components.
 
+use component_modal::ModalComponent;
 use diff_component::DiffComponent;
 use files_component::FilesComponent;
 use locations_component::LocationsComponent;
 use overlay_component::OverlayComponent;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Margin, Rect};
 use ratatui::widgets::Widget;
 use ratatui::{
     style::{Modifier, Style},
@@ -16,9 +17,11 @@ use revision_component::RevisionComponent;
 use status_component::StatusComponent;
 use threads_component::ThreadsComponent;
 use ui_events::{ReviewNavigation, ReviewPane};
+use ui_text_selection::{TextLayer, TextRegion};
 use ui_theme::Palette;
 
 use crate::layout::{Body, NavigationTabs, ScreenLayout};
+use crate::text_selection::ScreenText;
 
 /// One renderable frame assembled from mounted components.
 pub struct ApplicationFrame<'a> {
@@ -34,12 +37,15 @@ pub struct ApplicationFrame<'a> {
     pub(super) status: &'a StatusComponent,
     pub(super) overlay: &'a OverlayComponent,
     pub(super) revision: &'a RevisionComponent,
+    pub(super) screen_text: &'a ScreenText,
 }
 
 impl Widget for ApplicationFrame<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         self.diff.begin_reply_frame();
+        let mut text = TextLayer::default();
         if self.status.render_terminal_too_small(area, buffer) {
+            self.screen_text.set_layer(text);
             return;
         }
 
@@ -47,7 +53,8 @@ impl Widget for ApplicationFrame<'_> {
         let body = layout.body_area();
         self.status
             .render_header(layout.header(), buffer, self.palette);
-        self.render_body(layout.body(), buffer);
+        text.push(TextRegion::screen(layout.header(), buffer));
+        self.render_body(layout.body(), buffer, &mut text);
         let hints = if self.mode == ReviewNavigation::Explore {
             self.explore.footer_hints()
         } else {
@@ -55,55 +62,93 @@ impl Widget for ApplicationFrame<'_> {
         };
         self.status
             .render_footer(layout.footer(), buffer, self.palette, &hints);
+        text.push(TextRegion::screen(layout.footer(), buffer));
         self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
         self.revision.render(area, buffer);
+        if let Some(modal) = self
+            .overlay
+            .modal_area()
+            .or_else(|| self.revision.modal_area())
+        {
+            text.push(TextRegion::screen(inside_borders(modal), buffer));
+        }
         self.diff.finish_reply_frame(buffer);
+        if let Some(selection) = self.screen_text.shown() {
+            selection.highlight(
+                buffer,
+                Style::default()
+                    .bg(self.palette.focus)
+                    .fg(self.palette.background),
+            );
+        }
+        self.screen_text.set_layer(text);
     }
 }
 
+/// The content of a bordered pane drawn in `area`.
+fn inside_borders(area: Rect) -> Rect {
+    area.inner(Margin::new(1, 1))
+}
+
 impl ApplicationFrame<'_> {
-    fn render_body(&self, body: Body, buffer: &mut Buffer) {
+    fn render_body(&self, body: Body, buffer: &mut Buffer, text: &mut TextLayer) {
         match body {
             Body::Explore { locations, source } => {
                 if let Some(split) = locations {
-                    self.locations.render(split.left, buffer, true);
+                    self.render_locations(split.left, buffer, text);
                 }
-                self.render_navigation(source, buffer);
+                self.render_navigation(source, buffer, text);
             }
             Body::Split(split) => {
-                self.render_navigation_pane(split.left, buffer);
-                self.render_diff(split.right, buffer);
+                self.render_navigation_pane(split.left, buffer, text);
+                self.render_diff(split.right, buffer, text);
             }
             Body::Single {
                 pane: ReviewPane::Navigation,
                 area,
-            } => self.render_navigation_pane(area, buffer),
+            } => self.render_navigation_pane(area, buffer, text),
             Body::Single {
                 pane: ReviewPane::Detail,
                 area,
-            } => self.render_diff(area, buffer),
+            } => self.render_diff(area, buffer, text),
         }
     }
 
     /// The navigation pane, which the location selector replaces while open.
-    fn render_navigation_pane(&self, area: Rect, buffer: &mut Buffer) {
+    fn render_navigation_pane(&self, area: Rect, buffer: &mut Buffer, text: &mut TextLayer) {
         if self.locations.is_active() {
-            self.locations.render(area, buffer, true);
+            self.render_locations(area, buffer, text);
         } else {
-            self.render_navigation(area, buffer);
+            self.render_navigation(area, buffer, text);
         }
     }
 
-    fn render_navigation(&self, area: Rect, buffer: &mut Buffer) {
+    fn render_locations(&self, area: Rect, buffer: &mut Buffer, text: &mut TextLayer) {
+        self.locations.render(area, buffer, true);
+        text.push(TextRegion::screen(inside_borders(area), buffer));
+    }
+
+    fn render_navigation(&self, area: Rect, buffer: &mut Buffer, text: &mut TextLayer) {
         let focused = self.focus == ReviewPane::Navigation;
-        match self.mode {
-            ReviewNavigation::Files => self.files.render(area, buffer, self.palette, focused),
-            ReviewNavigation::Threads => self.threads.render(area, buffer, self.palette, focused),
+        let regions = match self.mode {
+            ReviewNavigation::Files => {
+                self.files.render(area, buffer, self.palette, focused);
+                Vec::new()
+            }
+            ReviewNavigation::Threads => {
+                self.threads.render(area, buffer, self.palette, focused);
+                Vec::new()
+            }
             ReviewNavigation::Explore => {
                 self.explore
-                    .render(area, buffer, self.palette, focused, self.diff);
+                    .render(area, buffer, self.palette, focused, self.diff)
             }
+        };
+        // Explore's own regions, pushed after, lie over the pane's.
+        text.push(TextRegion::screen(inside_borders(area), buffer));
+        for region in regions {
+            text.push(region);
         }
         self.render_tabs(area, buffer);
     }
@@ -147,8 +192,12 @@ impl ApplicationFrame<'_> {
         Paragraph::new(tabs).render(Rect::new(area.x + 1, area.y, width, 1), buffer);
     }
 
-    fn render_diff(&self, area: Rect, buffer: &mut Buffer) {
-        self.diff
-            .render(area, buffer, self.palette, self.focus == ReviewPane::Detail);
+    fn render_diff(&self, area: Rect, buffer: &mut Buffer, text: &mut TextLayer) {
+        for region in self
+            .diff
+            .render(area, buffer, self.palette, self.focus == ReviewPane::Detail)
+        {
+            text.push(region);
+        }
     }
 }

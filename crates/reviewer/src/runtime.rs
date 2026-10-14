@@ -689,6 +689,9 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
         {
             Some(UserInput::MouseControlClick { column, row })
         }
+        MouseEventKind::Down(MouseButton::Left) if mouse.modifiers.contains(KeyModifiers::ALT) => {
+            Some(UserInput::MouseAltClick { column, row })
+        }
         MouseEventKind::Down(MouseButton::Left) => Some(UserInput::MouseClick { column, row }),
         MouseEventKind::Down(MouseButton::Right) => {
             Some(UserInput::MouseRightClick { column, row })

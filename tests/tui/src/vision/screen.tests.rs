@@ -44,3 +44,16 @@ fn cells_outside_the_screen_are_refused() {
 fn a_left_click_is_a_one_based_sgr_press_and_release() {
     assert_eq!(Cell { x: 4, y: 2 }.left_click(), "\x1b[<0;5;3M\x1b[<0;5;3m");
 }
+
+#[test]
+fn a_left_drag_is_a_press_a_move_with_the_button_down_and_a_release() {
+    assert_eq!(
+        Cell { x: 4, y: 2 }.left_drag(Cell { x: 9, y: 3 }, false),
+        "\x1b[<0;5;3M\x1b[<32;10;4M\x1b[<0;10;4m"
+    );
+    // Alt adds 8 to every button code.
+    assert_eq!(
+        Cell { x: 4, y: 2 }.left_drag(Cell { x: 9, y: 3 }, true),
+        "\x1b[<8;5;3M\x1b[<40;10;4M\x1b[<8;10;4m"
+    );
+}

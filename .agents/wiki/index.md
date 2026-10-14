@@ -23,6 +23,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 - [MCP bridge](mcp-bridge.md): registration with Codex and Claude Code and its gotchas, port conflicts.
 - [Language servers](language-servers.md): direnv, project roots, limits in Explore.
 - [Reviewer runtime](runtime.md): recording UI timings.
+- [Text selection](text-selection.md): where the copied text comes from in each pane, and the guess that joins wrapped prose.
 
 ## Explore rounds
 

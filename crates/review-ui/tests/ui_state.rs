@@ -1686,3 +1686,321 @@ fn the_open_tab_is_a_filled_pill_with_its_key_underlined() {
     assert_eq!(style_at(&app, threads_key).bg, palette.focus);
     assert_ne!(style_at(&app, files_key).bg, palette.focus);
 }
+
+fn application_with_diff() -> ReviewApplication {
+    let mut app = ReviewApplication::default();
+    publish_repository(
+        &mut app,
+        ReviewCheckpoint::new("qpvuntsm", "11111111"),
+        "Commit title\n\nCommit body\n".to_owned(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    );
+    app.publish(ui_events::ReviewThreadsLoaded {
+        review_unit: "qpvuntsm".into(),
+        result: Ok(review_threads::ReviewThreads::new("qpvuntsm".into())),
+        drafts: review_threads::SavedDrafts::default(),
+    });
+    app.publish(ui_events::DiffContentLoaded {
+        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+        path: "src/lib.rs".to_owned(),
+        rows: rows(),
+        old_content: Some(b"fn run() {\n\told();\n".to_vec()),
+        new_content: Some(b"fn run() {\n    new();\n".to_vec()),
+        hunks: review_hunks::FileHunks::default(),
+    });
+    app.update(UserInput::Resize {
+        width: 80,
+        height: 12,
+    });
+    app
+}
+
+/// The terminal cell where `text` starts on `screen`, as (column, row).
+fn cell_of(screen: &[String], text: &str) -> (u16, u16) {
+    screen
+        .iter()
+        .enumerate()
+        .find_map(|(row, line)| {
+            line.find(text).map(|byte| {
+                (
+                    u16::try_from(line[..byte].chars().count()).unwrap(),
+                    u16::try_from(row).unwrap(),
+                )
+            })
+        })
+        .unwrap_or_else(|| panic!("{text:?} must be visible in {screen:?}"))
+}
+
+#[test]
+fn alt_dragging_over_the_diff_copies_its_code_without_the_gutter() {
+    let mut app = application_with_diff();
+    let screen = application_screen(&app, 80, 12);
+    let (column, row) = cell_of(&screen, "fn run");
+    let (end, end_row) = cell_of(&screen, "new();");
+
+    assert!(
+        app.update(UserInput::MouseAltClick { column, row })
+            .is_empty()
+    );
+    assert!(
+        app.update(UserInput::MouseDrag {
+            column: end + 5,
+            row: end_row,
+        })
+        .is_empty()
+    );
+    assert_eq!(
+        app.update(UserInput::MouseRelease),
+        [Action::Terminal(TerminalAction::CopyToClipboard(
+            "fn run() {\n\told();\n    new();".to_owned()
+        ))]
+    );
+    // The diff saw no drag: no comment editor opened over the lines.
+    assert!(
+        !application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("INSERT")
+    );
+}
+
+#[test]
+fn a_plain_drag_outside_the_diff_copies_its_text_and_its_press_still_clicks() {
+    let mut app = application_with_diff();
+    publish_repository(
+        &mut app,
+        ReviewCheckpoint::new("qpvuntsm", "11111111"),
+        "Commit title\n\nCommit body\n".to_owned(),
+        vec![
+            FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed),
+            FileSummary::new("src/main.rs", ReviewStatus::Unreviewed),
+        ],
+    );
+    let screen = application_screen(&app, 80, 12);
+    let (column, row) = cell_of(&screen, "main.rs");
+
+    // The files pane took the press as a click, and opened the file it names.
+    assert_eq!(
+        app.update(UserInput::MouseClick { column, row }),
+        [Action::Lsp(LspAction::OpenDocument("src/main.rs".into()))]
+    );
+    assert!(
+        app.update(UserInput::MouseDrag {
+            column: column + 6,
+            row,
+        })
+        .is_empty()
+    );
+    assert_eq!(
+        app.update(UserInput::MouseRelease),
+        [Action::Terminal(TerminalAction::CopyToClipboard(
+            "main.rs".to_owned()
+        ))]
+    );
+}
+
+#[test]
+fn a_plain_drag_over_the_diff_comments_on_its_lines_instead_of_copying() {
+    let mut app = application_with_diff();
+    let screen = application_screen(&app, 80, 12);
+    let (column, row) = cell_of(&screen, "fn run");
+
+    app.update(UserInput::MouseClick { column, row });
+    app.update(UserInput::MouseDrag {
+        column: column + 4,
+        row: row + 2,
+    });
+    assert!(app.update(UserInput::MouseRelease).is_empty());
+    assert!(
+        application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("INSERT")
+    );
+}
+
+#[test]
+fn a_copied_text_selection_stays_highlighted_until_the_next_input() {
+    let mut app = application_with_diff();
+    let screen = application_screen(&app, 80, 12);
+    let (column, row) = cell_of(&screen, "fn run");
+    let highlight = review_ui::Theme::default().palette.focus;
+    let highlighted = |app: &ReviewApplication| {
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(app.frame(), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..80)
+            .filter(|x| buffer[(*x, row)].bg == highlight)
+            .collect::<Vec<u16>>()
+    };
+
+    app.update(UserInput::MouseAltClick { column, row });
+    app.update(UserInput::MouseDrag {
+        column: column + 1,
+        row,
+    });
+    app.update(UserInput::MouseRelease);
+    // Each redraw announces the same size again, which keeps the text selection.
+    app.update(UserInput::Resize {
+        width: 80,
+        height: 12,
+    });
+    assert_eq!(highlighted(&app), [column, column + 1]);
+
+    app.update(UserInput::Key(Key::Down));
+    assert_eq!(highlighted(&app), Vec::<u16>::new());
+}
+
+#[test]
+fn an_alt_drag_stays_a_text_selection_from_press_to_release() {
+    let mut app = application_with_diff();
+    let screen = application_screen(&app, 80, 12);
+    // The diff's left border holds no text: the press selects nothing.
+    let (border, _) = cell_of(&screen, "╭ Diff");
+    let (column, row) = cell_of(&screen, "fn run");
+
+    app.update(UserInput::MouseAltClick {
+        column: border,
+        row,
+    });
+    app.update(UserInput::Key(Key::Down));
+    app.update(UserInput::MouseDrag {
+        column,
+        row: row + 2,
+    });
+    assert!(app.update(UserInput::MouseRelease).is_empty());
+    assert!(
+        !application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("INSERT"),
+        "the diff took the drag as its own and opened a comment"
+    );
+}
+
+/// The diff of `application_with_diff`, 100 by 30, with a posted thread on its lines.
+fn application_with_thread() -> ReviewApplication {
+    let mut app = application_with_diff();
+    app.update(UserInput::MouseClick { column: 70, row: 2 });
+    app.update(UserInput::MouseDrag { column: 70, row: 4 });
+    app.update(UserInput::MouseRelease);
+    app.update(UserInput::Paste("Why the tab".into()));
+    app.update(UserInput::Key(Key::Escape));
+    let post = click_on_text(&application_screen(&app, 80, 12), "Post");
+    let saved = app.update(post);
+    app.update(UserInput::MouseRelease);
+    acknowledge_comment(&mut app, &saved);
+    app.update(UserInput::Resize {
+        width: 100,
+        height: 30,
+    });
+    app
+}
+
+#[test]
+fn an_alt_drag_over_a_thread_copies_its_message_between_the_code_lines() {
+    let mut app = application_with_thread();
+
+    let screen = application_screen(&app, 100, 30);
+    let (column, row) = cell_of(&screen, "fn run");
+    let (_, end_row) = cell_of(&screen, "Why the tab");
+    app.update(UserInput::MouseAltClick { column, row });
+    app.update(UserInput::MouseDrag {
+        column: 99,
+        row: end_row,
+    });
+    let copied = app.update(UserInput::MouseRelease);
+    let [Action::Terminal(TerminalAction::CopyToClipboard(text))] = copied.as_slice() else {
+        panic!("one copy, not {copied:?}");
+    };
+    // The thread's padding rows show blank; its rules are left out.
+    assert_eq!(
+        text,
+        "fn run() {\n\told();\n    new();\n\nYou\n\nWhy the tab"
+    );
+}
+
+#[test]
+fn a_plain_drag_over_a_thread_copies_only_its_text() {
+    let mut app = application_with_thread();
+    let screen = application_screen(&app, 100, 30);
+    let (column, row) = cell_of(&screen, "You");
+    let (message, message_row) = cell_of(&screen, "Why the tab");
+    let code = cell_of(&screen, "fn run");
+    let mut drag = |from: (u16, u16), to: (u16, u16)| {
+        app.update(UserInput::MouseClick {
+            column: from.0,
+            row: from.1,
+        });
+        app.update(UserInput::MouseDrag {
+            column: to.0,
+            row: to.1,
+        });
+        app.update(UserInput::MouseRelease)
+    };
+
+    // Down past the thread's end: the copy stops at its padding rows, which show blank.
+    assert_eq!(
+        drag((column, row), (99, row + 6)),
+        [Action::Terminal(TerminalAction::CopyToClipboard(
+            "You\n\nWhy the tab\n\n".to_owned()
+        ))]
+    );
+    // Up from the message's end into the code above: the copy stops at the thread's top.
+    let copied = drag((message + 10, message_row), code);
+    let [Action::Terminal(TerminalAction::CopyToClipboard(text))] = copied.as_slice() else {
+        panic!("one copy, not {copied:?}");
+    };
+    assert!(text.ends_with("You\n\nWhy the tab"), "{text:?}");
+    assert!(!text.contains("fn run"), "{text:?}");
+}
+
+#[test]
+fn a_plain_drag_over_a_thread_copies_its_reply_draft_without_the_editor_frame() {
+    let mut app = application_with_thread();
+    let reply = click_on_text(&application_screen(&app, 100, 30), "Reply");
+    app.update(reply);
+    app.update(UserInput::MouseRelease);
+    app.update(UserInput::Paste("draft".into()));
+    let screen = application_screen(&app, 100, 30);
+    let (column, row) = cell_of(&screen, "You");
+    let (_, buttons_row) = cell_of(&screen, "Resolve thread");
+
+    app.update(UserInput::MouseClick { column, row });
+    app.update(UserInput::MouseDrag {
+        column: 90,
+        row: buttons_row,
+    });
+    let copied = app.update(UserInput::MouseRelease);
+    let [Action::Terminal(TerminalAction::CopyToClipboard(text))] = copied.as_slice() else {
+        panic!("one copy, not {copied:?}");
+    };
+    assert!(
+        text.contains("Why the tab\n") && text.contains("\ndraft\n"),
+        "{text:?}"
+    );
+    // The editor's frame runs over the thread's padding, and its label is not prose.
+    assert!(!text.contains("INSERT"), "{text:?}");
+}
+
+#[test]
+fn a_plain_drag_in_a_thread_conversation_copies_its_code_without_the_gutter() {
+    let mut app = application_with_thread();
+    app.update(UserInput::Key(Key::Char('t')));
+
+    let screen = application_screen(&app, 100, 30);
+    let (column, row) = cell_of(&screen, "fn run");
+    // The message shows under the author, "You", whom the thread list does not name.
+    let (_, author_row) = cell_of(&screen, "You ");
+    let end_row = author_row + 2;
+    app.update(UserInput::MouseClick { column, row });
+    app.update(UserInput::MouseDrag {
+        column: 99,
+        row: end_row,
+    });
+    assert_eq!(
+        app.update(UserInput::MouseRelease),
+        [Action::Terminal(TerminalAction::CopyToClipboard(
+            "fn run() {\n    old();\n    new();\n\nYou\n\nWhy the tab".to_owned()
+        ))]
+    );
+}

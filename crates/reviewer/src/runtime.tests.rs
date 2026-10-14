@@ -1102,10 +1102,29 @@ fn modified_mouse_inputs_reuse_existing_actions() {
     );
     assert_eq!(
         normalize_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 5,
+            modifiers: KeyModifiers::ALT,
+        }),
+        Some(UserInput::MouseAltClick { column: 4, row: 5 })
+    );
+    assert_eq!(
+        normalize_mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: 40,
             row: 5,
             modifiers: KeyModifiers::NONE,
+        }),
+        Some(UserInput::MouseDrag { column: 40, row: 5 })
+    );
+    // A terminal reports Alt on every move of a drag it started with Alt held.
+    assert_eq!(
+        normalize_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 40,
+            row: 5,
+            modifiers: KeyModifiers::ALT,
         }),
         Some(UserInput::MouseDrag { column: 40, row: 5 })
     );

@@ -9,6 +9,7 @@ license.workspace = true
 comment-editor = { path = "../comment-editor" }
 explore-component = { path = "../components/explore" }
 component-core = { path = "../component-core" }
+component-modal = { path = "../component-modal" }
 diff-component = { path = "../components/diff" }
 files-component = { path = "../components/files" }
 locations-component = { path = "../components/locations" }
@@ -31,6 +32,7 @@ ui-actions = { path = "../ui-actions" }
 ui-panes = { path = "../ui-panes" }
 ui-events = { path = "../ui-events" }
 ui-shortcuts = { path = "../ui-shortcuts" }
+ui-text-selection = { path = "../ui-text-selection" }
 ui-theme = { path = "../ui-theme" }
 toml.workspace = true
 two-face.workspace = true

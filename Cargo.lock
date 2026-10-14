@@ -877,6 +877,7 @@ dependencies = [
  "ui-events",
  "ui-frame",
  "ui-shortcuts",
+ "ui-text-selection",
  "ui-theme",
  "unicode-segmentation",
  "unicode-width 0.2.0",
@@ -1083,6 +1084,7 @@ dependencies = [
  "ui-panes",
  "ui-qr-code",
  "ui-shortcuts",
+ "ui-text-selection",
  "ui-theme",
 ]
 
@@ -4476,6 +4478,7 @@ version = "0.2.0"
 dependencies = [
  "comment-editor",
  "component-core",
+ "component-modal",
  "diff-component",
  "explore-component",
  "eyre",
@@ -4512,6 +4515,7 @@ dependencies = [
  "ui-events",
  "ui-panes",
  "ui-shortcuts",
+ "ui-text-selection",
  "ui-theme",
  "unicode-segmentation",
  "unicode-width 0.2.0",
@@ -5963,6 +5967,14 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "ui-keys",
+]
+
+[[package]]
+name = "ui-text-selection"
+version = "0.2.0"
+dependencies = [
+ "ratatui 0.30.2",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

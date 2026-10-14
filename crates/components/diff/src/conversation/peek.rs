@@ -11,6 +11,7 @@ use review_lsp::SourceLocation;
 use review_threads::ReviewThread;
 use ui_actions::{Action, DocumentAction, DocumentLoad};
 use ui_events::{SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode};
+use ui_text_selection::TextRegion;
 use ui_theme::Palette;
 
 use crate::{DiffComponent, Role, SourceViewer};
@@ -40,7 +41,14 @@ impl SourcePeek {
             .unwrap_or(&self.location.path)
     }
 
-    pub(crate) fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
+    /// Draw the peek, and return the text of the source it shows, later regions on top.
+    pub(crate) fn render(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        palette: Palette,
+        focused: bool,
+    ) -> Vec<TextRegion> {
         Paragraph::new(Line::raw(
             " ← Back to thread [Esc] · Current file · read only",
         ))
@@ -54,9 +62,7 @@ impl SourcePeek {
             area.width,
             area.height.saturating_sub(1),
         );
-        self.viewer
-            .render(body, buffer, palette, focused)
-            .render(buffer);
+        let text = self.viewer.render(body, buffer, palette, focused);
         if let Some(status) = &self.status {
             Paragraph::new(status.as_str()).render(
                 Rect::new(
@@ -68,6 +74,7 @@ impl SourcePeek {
                 buffer,
             );
         }
+        text
     }
 }
 

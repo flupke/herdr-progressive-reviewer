@@ -51,6 +51,7 @@ members = [
     "crates/ui-frame",
     "crates/ui-keys",
     "crates/ui-shortcuts",
+    "crates/ui-text-selection",
     "crates/ui-theme",
     "crates/herdr-client",
     "crates/review-source",

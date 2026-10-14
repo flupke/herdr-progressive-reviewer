@@ -20,6 +20,13 @@ one Explore round. It remains part of the review when the selected code changes 
 disappears.
 _Avoid_: agent thread, conversation without qualification
 
+**Text selection**:
+The text the reviewer drags over in the pane, with Alt held over the diff's code, where a
+plain drag comments on lines, copied to the clipboard when the button is released: the
+content a pane shows, without its gutters and borders, and with the lines the pane wrapped
+joined back.
+_Avoid_: selection without qualification (the code a review thread is about), copy mode
+
 **Thread message**:
 A posted contribution to a review thread, written by the reviewer or an agent.
 Messages form the thread's conversation in posting order.

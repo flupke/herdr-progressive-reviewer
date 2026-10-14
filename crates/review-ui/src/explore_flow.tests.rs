@@ -583,6 +583,32 @@ fn evidence_uses_stable_default_height_and_keeps_manual_resizes() {
 }
 
 #[test]
+fn a_drag_on_either_half_of_the_evidence_bottom_row_resizes_it() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 100,
+    });
+    fixture.respond(&request, 1);
+    let (diff_title, title_row) = fixture.point("Diff ·");
+    // The list's bottom border, left of the divider, and the viewer's last row, right of it.
+    for column in [diff_title - 10, diff_title + 10] {
+        let height = fixture.inline_height(0);
+        let buffer = fixture.buffer();
+        let row = (title_row..fixture.app.viewport.height)
+            .find(|row| buffer[(diff_title - 4, *row)].symbol() == "╯")
+            .expect("the evidence list's bottom border is on screen");
+        fixture.app.update(UserInput::MouseClick { column, row });
+        fixture.app.update(UserInput::MouseDrag {
+            column,
+            row: row - 3,
+        });
+        fixture.app.update(UserInput::MouseRelease);
+        assert!(fixture.inline_height(0) < height, "column {column}");
+    }
+}
+
+#[test]
 fn evidence_divider_drag_resizes_the_source_without_changing_files_width() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.app.update(UserInput::Resize {
@@ -605,6 +631,39 @@ fn evidence_divider_drag_resizes_the_source_without_changing_files_width() {
     fixture.app.update(UserInput::MouseRelease);
     assert_eq!(fixture.inline_sizes()[0].1.width, initial - 5);
     assert_eq!(fixture.app.viewport.file_width, Some(39));
+}
+
+#[test]
+fn a_plain_drag_copies_the_conversation_but_comments_on_the_evidence_code() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 65,
+    });
+    fixture.respond(&request, 1);
+    let drag = |fixture: &mut ExploreUi, from: &str, to: &str| {
+        let (column, row) = fixture.point(from);
+        let (end, end_row) = fixture.point(to);
+        fixture.app.update(UserInput::MouseClick { column, row });
+        fixture.app.update(UserInput::MouseDrag {
+            column: end + u16::try_from(to.chars().count()).unwrap() - 1,
+            row: end_row,
+        });
+        fixture.app.update(UserInput::MouseRelease)
+    };
+
+    assert_eq!(
+        drag(&mut fixture, "This policy", "sufficient."),
+        [Action::Terminal(TerminalAction::CopyToClipboard(
+            "This policy determines whether the proposed recovery is sufficient.".into()
+        ))]
+    );
+    assert_eq!(
+        drag(&mut fixture, "untouched middle", "other evidence"),
+        Vec::<Action>::new()
+    );
+    // The viewer took the drag as a comment on its lines, which wait for the threads.
+    assert!(fixture.text().contains("Comments are still loading"));
 }
 
 #[test]
