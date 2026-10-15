@@ -112,8 +112,8 @@ fn unread_work_survives_a_lost_fetch_and_reopening_until_its_exact_snapshot_is_a
                 "get_thread",
                 json!({"review": access, "thread_id": thread})
             )
-            .await,
-            fetched
+            .await["threads"],
+            fetched["threads"]
         );
         assert_eq!(
             fixture.store.load_threads(&"review".into()).unwrap(),

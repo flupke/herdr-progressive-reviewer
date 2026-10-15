@@ -324,7 +324,7 @@ impl ConversationFixture {
     /// How many comment notifications the agent read once the reviewer sent every prompt it was
     /// to send by now.
     fn settled_wakeups(&self) -> usize {
-        self.settled_prompts().matches("Logical review: ").count()
+        self.settled_prompts().matches("get_new_messages").count()
     }
 
     /// The prompts the agent read, once `count` of them were comment notifications, each on
@@ -335,7 +335,7 @@ impl ConversationFixture {
             |prompts| {
                 prompts
                     .iter()
-                    .map(|prompt| prompt.matches("Logical review: ").count())
+                    .map(|prompt| prompt.matches("get_new_messages").count())
                     .sum::<usize>()
                     >= count
             },
@@ -472,7 +472,7 @@ fn mcp_threads_exchange_through_an_isolated_herdr_agent(agent: &str) {
         assert_eq!(updated["threads"][0]["code_context"], "+original");
         assert_eq!(updated["threads"][0]["source_checkpoint"], "original");
         assert!(!updated.to_string().contains("new_content"));
-        assert_eq!(fixture.wait_for_wakeups(2).matches("Logical review: ").count(), 2);
+        assert_eq!(fixture.wait_for_wakeups(2).matches("get_new_messages").count(), 2);
 
         let reply = json!({"review": access, "thread_id": first, "message_id": "d2b82f52-39d7-4a37-a6ca-28d6f8be17db", "text": "Agent answer", "in_reply_to": updated["threads"][0]["in_reply_to"]});
         assert_eq!(value(&client, "reply", reply.clone()).await, value(&client, "reply", reply).await);

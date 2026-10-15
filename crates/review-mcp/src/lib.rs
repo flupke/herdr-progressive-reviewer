@@ -3,6 +3,7 @@
 mod bridge;
 mod endpoint;
 mod handler;
+mod instructions;
 mod server;
 
 use review_threads::{MessageId, Post, ReviewThread, ThreadId};
@@ -70,6 +71,9 @@ impl Request {
 #[derive(Debug)]
 pub enum Response {
     Threads(Vec<ReviewThread>),
+    /// The threads that wait for the agent's answer, which the result gives with the
+    /// instructions for answering them.
+    NewMessages(Vec<ReviewThread>),
     Posted(MessageId),
     /// Whether an Explore submission was new rather than a retry, and the number the reviewer's
     /// screens give the question it posted; `None` for a conclusion.

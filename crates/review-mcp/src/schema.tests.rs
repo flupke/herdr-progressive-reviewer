@@ -58,6 +58,56 @@ fn a_round_conversation_names_its_round_and_each_message_its_question_and_quote(
     assert_eq!(message["quote"], "the store takes a lock");
 }
 
+/// The instructions `get_new_messages` returns with `threads`.
+fn instructions(threads: Vec<review_threads::ReviewThread>) -> String {
+    let result = Handler::result(super::Response::NewMessages(threads));
+    let text = result.content[0].as_text().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+    value["instructions"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn new_messages_bring_the_rules_of_a_round_conversation_only_with_one() {
+    let mut book = review_threads::ReviewThreads::new("change".into());
+    let anchor = review_source::DiffRangeAnchor {
+        source_checkpoint: "initial".into(),
+        old_path: None,
+        new_path: Some("lib.rs".into()),
+        old_lines: None,
+        new_lines: Some(0..1),
+        target_kind: review_source::AnchorKind::Lines,
+        source_hunk_count: 1,
+        old_content: None,
+        new_content: Some(b"original\n".to_vec()),
+        diff_hash: "hash".into(),
+    };
+    book.post(review_threads::Post::start(
+        anchor,
+        "+original".into(),
+        "Rename this".into(),
+    ))
+    .unwrap();
+    book.post(review_threads::Post::to_round(
+        "round-1",
+        "Why a lock?".into(),
+        None,
+        None,
+    ))
+    .unwrap();
+    let [code, round] = [0, 1].map(|index| book.threads()[index].clone());
+
+    let on_code = instructions(vec![code.clone()]);
+    assert!(!on_code.contains("revise_question"), "{on_code}");
+    let with_round = instructions(vec![code, round]);
+    assert!(with_round.starts_with(&on_code), "{with_round}");
+    assert!(with_round.contains("revise_question"), "{with_round}");
+    assert_ne!(
+        instructions(Vec::new()),
+        on_code,
+        "nothing to answer, nothing to reply to"
+    );
+}
+
 #[test]
 fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example() {
     let tools = Handler::tools();

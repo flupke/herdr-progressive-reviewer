@@ -17,6 +17,7 @@ sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+review-source = { path = "../review-source" }
 review-test-support = { path = "../review-test-support" }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
 tempfile.workspace = true

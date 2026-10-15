@@ -1,8 +1,9 @@
 # Round conversation
 
-The reviewer may also write to you in the round's conversation, a review thread. Its messages
-come in a review comments wakeup that names this round, with the question or stage each was
-written under. A message is not an answer: reply with the review threads' reply tool, written as
+The reviewer may also write to you in the round's conversation, a review thread. A review
+comments wakeup brings its messages: get_new_messages gives the thread with this round as its
+explore_round, and each message with the question or stage it was written under. A message is
+not an answer: reply with the review threads' reply tool, written as
 Texts the reviewer reads, in the index, says, then end your turn. When a message makes the open
 question wrong, or settles it, call revise_question before you reply: it puts a higher version in
 its place, with your reason. A question the round conversation settled asks the reviewer to

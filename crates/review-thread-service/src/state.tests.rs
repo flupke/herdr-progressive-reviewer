@@ -128,8 +128,8 @@ impl Service {
 
     fn fetch(&mut self, access: &str) -> Result<Vec<ReviewThread>, String> {
         match self.state.request(access, &Operation::GetNewMessages)? {
-            Response::Threads(threads) => Ok(threads),
-            _ => unreachable!("fetching returns threads"),
+            Response::NewMessages(threads) => Ok(threads),
+            _ => unreachable!("fetching returns the new messages"),
         }
     }
 
@@ -559,72 +559,41 @@ fn the_worker_keeps_serving_while_an_agent_takes_its_time_to_start_on_a_prompt()
 }
 
 #[test]
-fn a_round_message_wakes_the_agent_with_its_round_and_the_question_it_was_asked_under() {
+fn a_round_message_wakes_the_agent_and_is_fetched_with_the_question_it_was_asked_under() {
     let mut service = Service::start();
-    let first = service.talk(
-        "round-7",
-        "Why a lock here?",
-        Some(AskedUnder::Question {
-            question: "q-lock".into(),
-            version: 3,
-            number: Some(2.into()),
-        }),
-    );
-    let second = service.talk("round-7", "And in the design?", Some(AskedUnder::Design));
+    let asked_under = AskedUnder::Question {
+        question: "q-lock".into(),
+        version: 3,
+        number: Some(2.into()),
+    };
+    service.talk("round-7", "Why a lock here?", Some(asked_under.clone()));
 
-    let prompts = service.poll();
-    let (_, access) = only_wakeup(&prompts);
-    let prompt = &prompts[0].text;
+    let (_, access) = only_wakeup(&service.poll());
     let thread = service.fetch(&access).unwrap().remove(0);
     assert_eq!(thread.round(), Some("round-7"));
-    assert!(
-        prompt.contains(&format!(
-            "Round conversation: {}\nExplore round: round-7\n",
-            thread.id.as_str()
-        )),
-        "{prompt}"
-    );
-    assert!(
-        prompt.contains(&format!(
-            "Message: {}\nQuestion: q-lock (version 3)\n",
-            first.as_str()
-        )),
-        "{prompt}"
-    );
-    assert!(
-        prompt.contains(&format!("Message: {}\nStage: design\n", second.as_str())),
-        "{prompt}"
-    );
-    let asked =
-        &prompt[prompt.find(first.as_str()).unwrap()..prompt.find(second.as_str()).unwrap()];
-    assert!(
-        asked.contains("Q2"),
-        "the number the reviewer sees: {asked}"
-    );
+    assert_eq!(thread.messages[0].asked_under, Some(asked_under));
 
     service.answer(&access, &thread).unwrap();
     assert!(service.fetch(&access).unwrap().is_empty());
     service.talk("round-7", "One more", None);
-    let prompts = service.poll();
-    only_wakeup(&prompts);
-    assert!(
-        !prompts[0].text.contains(first.as_str()),
-        "an answered message is not brought again"
-    );
+    only_wakeup(&service.poll());
 }
 
 #[test]
-fn a_wakeup_for_comments_on_code_names_no_round() {
+fn a_wakeup_names_the_review_and_its_access_and_leaves_the_comments_to_get_new_messages() {
     let mut service = Service::start();
     service.start_thread("Rename this");
     let prompts = service.poll();
-    only_wakeup(&prompts);
+    let (_, access) = only_wakeup(&prompts);
+    let prompt = &prompts[0].text;
+    assert!(prompt.contains(review_types::MCP_SERVER), "{prompt}");
     assert!(
-        prompts[0]
-            .text
-            .ends_with(&format!("Logical review: {UNIT}")),
-        "nothing about a round follows the review: {}",
-        prompts[0].text
+        !prompt.contains("Rename this"),
+        "the comment comes from get_new_messages: {prompt}"
+    );
+    assert_eq!(
+        service.fetch(&access).unwrap()[0].messages[0].text,
+        "Rename this"
     );
 }
 

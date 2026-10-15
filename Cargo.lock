@@ -4269,6 +4269,7 @@ version = "0.2.0"
 dependencies = [
  "axum",
  "review-explore",
+ "review-source",
  "review-test-support",
  "review-threads",
  "review-types",

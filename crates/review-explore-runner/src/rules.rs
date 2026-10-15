@@ -135,7 +135,7 @@ fn rules(request: &TurnRequest) -> Vec<Rule> {
     rules.push(Rule::new(
         "conversation.md",
         include_str!("rules/conversation.md"),
-        When::On("when a review comments wakeup names this round"),
+        When::On("when get_new_messages returns this round's conversation"),
     ));
     rules
 }

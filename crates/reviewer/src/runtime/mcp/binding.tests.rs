@@ -157,7 +157,7 @@ impl ConversationFixture {
             |received| {
                 prompts_of(&StandInRole::SecondAgent, received)
                     .iter()
-                    .map(|prompt| prompt.matches("Logical review: ").count())
+                    .map(|prompt| prompt.matches("get_new_messages").count())
                     .sum::<usize>()
                     >= wakeups
             },

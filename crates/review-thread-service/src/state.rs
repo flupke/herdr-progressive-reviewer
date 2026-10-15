@@ -464,10 +464,7 @@ impl State {
                     .ok_or("The review thread no longer exists")?;
                 Ok(Response::Threads(vec![thread]))
             }
-            Operation::GetNewMessages => {
-                let threads = book.new_messages();
-                Ok(Response::Threads(threads))
-            }
+            Operation::GetNewMessages => Ok(Response::NewMessages(book.new_messages())),
             Operation::Reply(post) => {
                 let id = self.update(&access.review_unit, |book| book.answer(post.clone()))?;
                 if !self.books[&access.review_unit].has_new_messages()
@@ -585,12 +582,11 @@ impl State {
         let Some(access) = self.access.get(token) else {
             return Ok(());
         };
-        let pending = self
+        if !self
             .books
             .get(&access.review_unit)
-            .map(ReviewThreads::new_messages)
-            .unwrap_or_default();
-        if pending.is_empty() {
+            .is_some_and(ReviewThreads::has_new_messages)
+        {
             return Ok(());
         }
         let current = self
@@ -603,7 +599,7 @@ impl State {
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
         }
-        let prompt = access.prompt(&pending);
+        let prompt = access.prompt();
         let Some(wakeup) = self.wakeups.get_mut(token) else {
             return Ok(());
         };

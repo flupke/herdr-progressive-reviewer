@@ -5,7 +5,6 @@ mod agent_identity;
 mod delivery;
 mod notification;
 mod pinned_agent;
-mod round_prompt;
 mod state;
 mod wakeup;
 
