@@ -39,18 +39,18 @@ fn the_next_round_is_written_in_simplified_technical_english_by_default() {
 }
 
 #[test]
-fn the_writing_style_key_saves_the_other_style_and_the_next_round_takes_it() {
+fn the_writing_style_key_saves_the_next_style_and_the_next_round_takes_it() {
     let mut fixture = ExploreUi::start_screen(BASE, POLICY);
 
     let actions = fixture.app.update(UserInput::Key(Key::Char('W')));
 
-    assert_eq!(saved(&actions), Some(WritingStyle::Plain));
+    assert_eq!(saved(&actions), Some(WritingStyle::Concise));
     assert!(
         fixture
             .text()
-            .contains("Writing style of the next round: plain")
+            .contains("Writing style of the next round: concise")
     );
-    assert_eq!(start_in_pane(&mut fixture).writing, WritingStyle::Plain);
+    assert_eq!(start_in_pane(&mut fixture).writing, WritingStyle::Concise);
 }
 
 #[test]

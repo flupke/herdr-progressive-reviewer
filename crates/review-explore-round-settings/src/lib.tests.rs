@@ -20,6 +20,11 @@ fn settings_read_back_as_they_were_saved() {
             RunAhead::Recommended,
             r#"{"writing":"simplified_technical_english","run_ahead":"recommended"}"#,
         ),
+        (
+            WritingStyle::Concise,
+            RunAhead::Off,
+            r#"{"writing":"concise","run_ahead":"off"}"#,
+        ),
     ] {
         let settings = ExploreRoundSettings { writing, run_ahead };
 
@@ -32,13 +37,15 @@ fn settings_read_back_as_they_were_saved() {
 }
 
 #[test]
-fn turning_the_writing_style_over_gives_the_other_style() {
-    let mut writing = WritingStyle::SimplifiedTechnicalEnglish;
+fn the_writing_style_cycles_through_simplified_technical_english_and_concise_back_to_plain() {
+    let mut writing = WritingStyle::Plain;
 
-    writing.toggle();
-    assert_eq!(writing, WritingStyle::Plain);
-    writing.toggle();
+    writing.cycle();
     assert_eq!(writing, WritingStyle::SimplifiedTechnicalEnglish);
+    writing.cycle();
+    assert_eq!(writing, WritingStyle::Concise);
+    writing.cycle();
+    assert_eq!(writing, WritingStyle::Plain);
 }
 
 #[test]

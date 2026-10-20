@@ -193,7 +193,7 @@ pub enum ExploreSettingShortcut {
     /// Turn over whose change the round started from the start screen reviews: the reviewer's
     /// or someone else's.
     Whose,
-    /// Turn over the writing style of the next round.
+    /// Change the writing style of the next round: plain, Simplified Technical English, concise.
     WritingStyle,
     /// Change which choices run-ahead prepares: off, the recommended one, every one.
     RunAhead,

@@ -105,9 +105,10 @@ _Avoid_: summary, lead paragraph
 
 **Writing style**:
 How the Explore agent writes every text the reviewer reads in a round: plain (the agent's own
-style) or Simplified Technical English (the writing rules of ASD-STE100, without its controlled
-dictionary). The reviewer's setting gives it to a round when the round starts, and the round
-keeps it on every turn.
+style), Simplified Technical English (the writing rules of ASD-STE100, without its controlled
+dictionary) or concise (as short as the agent can write, at the cost of grammar). The
+reviewer's setting gives it to a round when the round starts, and the round keeps it on every
+turn.
 _Avoid_: tone, language
 
 **Challenger**:

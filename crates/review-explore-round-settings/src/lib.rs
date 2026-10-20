@@ -27,6 +27,8 @@ pub enum WritingStyle {
     /// names kept as they are in the code.
     #[default]
     SimplifiedTechnicalEnglish,
+    /// As short as the agent can write, at the cost of grammar.
+    Concise,
 }
 
 impl WritingStyle {
@@ -35,11 +37,12 @@ impl WritingStyle {
         *self == Self::Plain
     }
 
-    /// Changes to the other style.
-    pub fn toggle(&mut self) {
+    /// Changes to the next style: plain, then Simplified Technical English, then concise.
+    pub fn cycle(&mut self) {
         *self = match self {
             Self::Plain => Self::SimplifiedTechnicalEnglish,
-            Self::SimplifiedTechnicalEnglish => Self::Plain,
+            Self::SimplifiedTechnicalEnglish => Self::Concise,
+            Self::Concise => Self::Plain,
         };
     }
 }

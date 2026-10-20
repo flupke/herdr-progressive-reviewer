@@ -25,10 +25,10 @@ impl RoundSettings {
         self.saved.writing
     }
 
-    /// Turns the writing style over, shows it at once and saves it; the reviewer answers with
-    /// the settings as saved.
-    pub(super) fn toggle_writing(&mut self) -> Vec<Action> {
-        self.saved.writing.toggle();
+    /// Moves the writing style to the next one, shows it at once and saves it; the reviewer
+    /// answers with the settings as saved.
+    pub(super) fn cycle_writing(&mut self) -> Vec<Action> {
+        self.saved.writing.cycle();
         vec![Action::Settings(SettingsAction::SaveExploreWritingStyle(
             self.saved.writing,
         ))]
@@ -48,6 +48,7 @@ impl RoundSettings {
         let style = match self.saved.writing {
             WritingStyle::Plain => "plain",
             WritingStyle::SimplifiedTechnicalEnglish => "Simplified Technical English",
+            WritingStyle::Concise => "concise",
         };
         let run_ahead = match self.saved.run_ahead {
             RunAhead::Off => "off",

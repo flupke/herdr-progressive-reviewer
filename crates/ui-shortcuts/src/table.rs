@@ -675,7 +675,7 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Explore round settings: turn over the writing style of the next round"),
+        description: Some("Explore round settings: change the writing style of the next round"),
         bindings: &[ShortcutBinding::one(
             Key::Char('W'),
             explore_setting(ExploreSettingShortcut::WritingStyle),

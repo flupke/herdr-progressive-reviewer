@@ -63,7 +63,7 @@ impl ExploreComponent {
                 self.turn_over_whose();
                 Vec::new()
             }
-            ExploreSettingShortcut::WritingStyle => self.round_settings.toggle_writing(),
+            ExploreSettingShortcut::WritingStyle => self.round_settings.cycle_writing(),
             ExploreSettingShortcut::RunAhead => self.round_settings.cycle_run_ahead(),
             ExploreSettingShortcut::Page(setting) => {
                 self.page_settings.change(setting, &self.keymap)

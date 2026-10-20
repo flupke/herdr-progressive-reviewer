@@ -223,8 +223,15 @@ fn texts(writing: WritingStyle) -> String {
         StatusMark::Good.marker(),
         markers::<StatusMark>(),
     );
-    if writing == WritingStyle::SimplifiedTechnicalEnglish {
-        let _ = write!(texts, "\n{}", include_str!("rules/writing-style.md"));
+    let style = match writing {
+        WritingStyle::Plain => None,
+        WritingStyle::SimplifiedTechnicalEnglish => Some(include_str!(
+            "rules/writing-style-simplified-technical-english.md"
+        )),
+        WritingStyle::Concise => Some(include_str!("rules/writing-style-concise.md")),
+    };
+    if let Some(style) = style {
+        let _ = write!(texts, "\n{style}");
     }
     texts
 }

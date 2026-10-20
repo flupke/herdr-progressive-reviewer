@@ -837,6 +837,7 @@ fn a_round_started_from_the_page_takes_the_writing_style_the_settings_give_the_n
     for writing in [
         WritingStyle::Plain,
         WritingStyle::SimplifiedTechnicalEnglish,
+        WritingStyle::Concise,
     ] {
         let mut harness = Harness::start();
         harness.store.save_explore_writing_style(writing).unwrap();

@@ -500,21 +500,30 @@ fn only_a_review_of_someone_elses_change_has_its_rules_on_every_turn() {
 }
 
 #[test]
-fn only_a_round_in_simplified_technical_english_has_the_rules_of_its_style() {
+fn a_round_has_the_rules_of_its_own_writing_style_only() {
     let comparison = comparison();
-    let style = heading(include_str!("rules/writing-style.md"));
+    let simplified_technical_english = heading(include_str!(
+        "rules/writing-style-simplified-technical-english.md"
+    ));
+    let concise = heading(include_str!("rules/writing-style-concise.md"));
     let mut inputs = Vec::new();
     for writing in [
         WritingStyle::Plain,
         WritingStyle::SimplifiedTechnicalEnglish,
+        WritingStyle::Concise,
     ] {
         for kickoff in [true, false] {
             let turn = turn_of(&comparison, kickoff, |round| round.writing = writing);
 
             let texts = section(file(&turn, INDEX).unwrap(), include_str!("rules/texts.md"));
             assert_eq!(
-                texts.contains(style),
+                texts.contains(simplified_technical_english),
                 writing == WritingStyle::SimplifiedTechnicalEnglish,
+                "{writing:?}, kickoff: {kickoff}"
+            );
+            assert_eq!(
+                texts.contains(concise),
+                writing == WritingStyle::Concise,
                 "{writing:?}, kickoff: {kickoff}"
             );
         }
@@ -530,6 +539,7 @@ fn only_a_round_in_simplified_technical_english_has_the_rules_of_its_style() {
     }
     // The style changes the rules only, never what the turn brings.
     assert_eq!(inputs[0], inputs[1]);
+    assert_eq!(inputs[0], inputs[2]);
 }
 
 #[test]
