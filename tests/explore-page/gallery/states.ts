@@ -503,7 +503,7 @@ export const STATES: GalleryState[] = [
     about: 'Cancel this answer, opened in the previous turn: the hint and Confirm: cancel my answer.',
     async reach(session, page) {
       await question(session, page, 2);
-      await page.getByText('Cancel this answer…').click();
+      await page.locator('.turn').getByText('Cancel this answer…').click();
     },
   },
   {
