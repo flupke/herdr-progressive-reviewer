@@ -2,7 +2,7 @@
 
 What an Explore round guarantees the reviewer, and why, from Start to Reset: its scope, the unchanged code it assumes, what its judgements and recaps do not establish, when its review marks move, and what Implement and Reset do. The terms are defined in [CONTEXT.md](../../CONTEXT.md).
 
-Related pages: what the agent's prompts and tools guarantee is in [Explore agent contract](explore-agent-contract.md); the saved round in [Explore recovery](explore-recovery.md); the settings in [Explore settings](explore-settings.md). Explore is experimental.
+Related pages: what the agent's prompts and tools guarantee is in [Explore agent contract](explore-agent-contract.md); the saved round in [Explore recovery](explore-recovery.md); the settings in [Explore settings](explore-settings.md).
 
 ## Scope
 
