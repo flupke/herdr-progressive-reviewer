@@ -7,10 +7,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use agent_fork::ProcessStamp;
+use herdr_client::protocol::{Agent, PaneId};
 use review_explore::{Alternative, AnswerInput, Comparison, ExploreRound, Question};
 use review_explore_round_settings::RunAhead;
 use review_explore_runner::{RoundData, TurnInstructions, Unreviewed};
-use review_run_ahead::{FAILURES_TO_HALT, ForkPoint, ForkRecord, ForkStart, RoundForks};
+use review_run_ahead::{Failure, ForkPoint, ForkRecord, ForkStart, RoundForks};
 use review_types::MarkAuthor;
 use tempfile::TempDir;
 
@@ -43,6 +44,36 @@ impl ForkFiles {
     }
 }
 
+/// Why no fork is taken for the question that waits.
+struct Refusal {
+    why: String,
+    /// Whether run-ahead failed: a check or a step it needs could not be made, rather than
+    /// the forks waiting for something or the question needing none.
+    failed: bool,
+}
+
+impl Refusal {
+    /// Run-ahead failed, for `why`.
+    fn failed(why: impl std::fmt::Display) -> Self {
+        Self {
+            why: why.to_string(),
+            failed: true,
+        }
+    }
+}
+
+impl From<String> for Refusal {
+    fn from(why: String) -> Self {
+        Self { why, failed: false }
+    }
+}
+
+impl From<&str> for Refusal {
+    fn from(why: &str) -> Self {
+        why.to_owned().into()
+    }
+}
+
 /// The forks to start for the question that waits.
 struct ForkPlan {
     point: ForkPoint,
@@ -55,18 +86,34 @@ impl ExploreSession {
     pub(super) fn run_ahead_take(&mut self) {
         match self.fork_plan() {
             Ok(plan) => self.start_forks(plan),
-            Err(reason) => {
+            Err(Refusal { why, failed }) => {
                 let armed = self.run_ahead.armed.as_mut().expect("a question waits");
-                if armed.refusal.as_ref() != Some(&reason) {
-                    armed.refusal = Some(reason.clone());
-                    self.run_ahead.log(&format!("no forks: {reason}"));
+                if armed.refusal.as_ref() != Some(&why) {
+                    armed.refusal = Some(why.clone());
+                    self.run_ahead.log(&format!("no forks: {why}"));
+                }
+                if failed {
+                    self.no_forks_failed(why);
                 }
             }
         }
     }
 
+    /// No fork could be taken for the question that waits, for `why`, a failure of run-ahead:
+    /// it counts once per question, however often the refusal repeats.
+    fn no_forks_failed(&mut self, why: String) {
+        let Some(armed) = self.run_ahead.armed.as_mut() else {
+            return;
+        };
+        if std::mem::replace(&mut armed.refusal_counted, true) {
+            return;
+        }
+        let round = armed.asked.round.clone();
+        self.run_ahead_failed(&round, Failure::NoForks { why });
+    }
+
     /// The forks of the question that waits, prompts included, or why none can be taken.
-    fn fork_plan(&mut self) -> Result<ForkPlan, String> {
+    fn fork_plan(&mut self) -> Result<ForkPlan, Refusal> {
         let armed = self.run_ahead.armed.as_ref().ok_or("no question waits")?;
         if self.run_ahead.switching.is_some() {
             return Err("the agent is switching to a fork's session".into());
@@ -81,46 +128,17 @@ impl ExploreSession {
             .ok()
             .and_then(|forks| refusal(&forks, &armed.asked.question, self.run_ahead.reviewer))
         {
-            return Err(refusal);
+            return Err(refusal.into());
         }
         let question = armed.asked.question.clone();
-        let agent = self
-            .agents
-            .get_agent(&pane)
-            .map_err(|error| error.to_string())?
-            .ok_or("the agent's pane is gone")?;
-        if !agent.agent_status.waits_for_prompt() {
-            return Err(format!("the agent is {:?}", agent.agent_status));
-        }
-        // Forks taken from a session the round does not match would prepare turns of another
-        // interview: the idle agent settles first, by itself once.
-        if let Some((round, fork)) = self.unsettled() {
-            let reason = format!(
-                "the agent may run the session of the fork {}, whose turn the round did not take",
-                fork.session
-            );
-            if !self.run_ahead.settle_failed.contains(&fork.session)
-                && self.can_settle(&round, &fork, &agent)
-            {
-                self.settle(&round, fork, &pane, reason.clone(), Trigger::RunAhead);
-            }
-            if self.unsettled().is_some() {
-                return Err(reason);
-            }
-        }
-        // Run-ahead hears what the agent does through those hooks alone.
-        if self.run_ahead.host.unhooked(&agent) {
-            return Err(
-                "the agent runs without the reviewer's Claude Code plugin: restart it".into(),
-            );
-        }
-        let point = self.run_ahead.host.point(&agent)?;
+        let agent = self.agent_to_fork(&pane)?;
         let choices = self.choices_to_prepare(&question)?;
+        let point = self.run_ahead.host.point(&agent).map_err(Refusal::failed)?;
         let round = self.state.round.clone().ok_or("no round")?;
         let comparison = self.state.comparison.clone().ok_or("no change captured")?;
         let (unreviewed, mut files) = self
             .unreviewed_after_answer(&round)
-            .map_err(|error| format!("{error:#}"))?;
+            .map_err(|error| Refusal::failed(format!("{error:#}")))?;
         // A fork's turn carries the round's data as the agent's would.
         let round_data = self
             .round_data(
@@ -128,7 +146,7 @@ impl ExploreSession {
                 &round.exploration.instance,
                 false,
             )
-            .map_err(|error| format!("{error:#}"))?;
+            .map_err(|error| Refusal::failed(format!("{error:#}")))?;
         // Kept while the question waits: forks taken again are told the same.
         let armed = self.run_ahead.armed.as_mut().ok_or("no question waits")?;
         let forks = choices
@@ -148,7 +166,8 @@ impl ExploreSession {
                     reserved,
                 )
             })
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Refusal::failed)?
             .into_iter()
             .map(|(fork, turn)| {
                 let prompt = turn.prompt().to_owned();
@@ -163,9 +182,47 @@ impl ExploreSession {
         })
     }
 
+    /// The agent of `pane`, once its session may be forked now, or why not.
+    fn agent_to_fork(&mut self, pane: &PaneId) -> Result<Agent, Refusal> {
+        let agent = self
+            .agents
+            .get_agent(pane)
+            .map_err(Refusal::failed)?
+            .ok_or("the agent's pane is gone")?;
+        if !agent.agent_status.waits_for_prompt() {
+            return Err(format!("the agent is {:?}", agent.agent_status).into());
+        }
+        // Forks taken from a session the round does not match would prepare turns of another
+        // interview: the idle agent settles first, by itself once.
+        if let Some((round, fork)) = self.unsettled() {
+            let reason = format!(
+                "the agent may run the session of the fork {}, whose turn the round did not take",
+                fork.session
+            );
+            if !self.run_ahead.settle_failed.contains(&fork.session)
+                && self.can_settle(&round, &fork, &agent)
+            {
+                self.settle(&round, fork, pane, reason.clone(), Trigger::RunAhead);
+            }
+            if self.unsettled().is_some() {
+                return Err(reason.into());
+            }
+        }
+        if let Some(why) = self.run_ahead.host.unforkable(&agent) {
+            return Err(why.into());
+        }
+        // Run-ahead hears what the agent does through those hooks alone.
+        if self.run_ahead.host.unhooked(&agent) {
+            return Err(
+                "the agent runs without the reviewer's Claude Code plugin: restart it".into(),
+            );
+        }
+        Ok(agent)
+    }
+
     /// The choices of `question` the reviewer's settings prepare.
-    fn choices_to_prepare(&self, question: &Question) -> Result<Vec<Alternative>, String> {
-        let run_ahead = self.rounds.run_ahead().map_err(|error| error.to_string())?;
+    fn choices_to_prepare(&self, question: &Question) -> Result<Vec<Alternative>, Refusal> {
+        let run_ahead = self.rounds.run_ahead().map_err(Refusal::failed)?;
         let choices: Vec<_> = question
             .alternatives
             .iter()
@@ -174,9 +231,10 @@ impl ExploreSession {
             .collect();
         if choices.is_empty() {
             return Err(match run_ahead {
-                RunAhead::Off => "run-ahead is off".into(),
-                _ => "the question recommends no choice".into(),
-            });
+                RunAhead::Off => "run-ahead is off",
+                _ => "the question recommends no choice",
+            }
+            .into());
         }
         Ok(choices)
     }
@@ -231,7 +289,7 @@ impl ExploreSession {
         };
         let mut forks = Vec::new();
         let mut listing = Vec::new();
-        let mut halted = false;
+        let mut halt = None;
         for (mut fork, prompt) in plan.forks {
             let start = ForkStart {
                 point: &plan.point,
@@ -248,14 +306,20 @@ impl ExploreSession {
                 match &started {
                     Ok(process) => record.process = Some(*process),
                     Err(error) => {
-                        record.exit = Some(format!("did not start: {error}"));
+                        let exit = format!("did not start: {error}");
+                        record.exit = Some(exit.clone());
                         record.cleaned = true;
-                        return Some(saved.fork_failed(now));
+                        return saved
+                            .failed(Failure::Fork { exit }, now)
+                            .then(|| saved.halt_notice())
+                            .flatten();
                     }
                 }
-                Some(false)
+                None
             });
-            halted |= matches!(failed, Ok(Some(true)));
+            if let Ok(Some(notice)) = failed {
+                halt = Some(notice);
+            }
             match started {
                 Ok(process) => {
                     listing.push(format!("{} as {}", fork.choice, fork.session));
@@ -281,8 +345,8 @@ impl ExploreSession {
             forks,
             files: plan.files,
         });
-        if halted {
-            self.halt(&round);
+        if let Some(notice) = halt {
+            self.halt(&round, notice);
         }
     }
 
@@ -333,8 +397,9 @@ impl ExploreSession {
                 None
             }
             Err(error) => {
-                self.run_ahead
-                    .log(&format!("no forks: their record was not saved: {error}"));
+                let why = format!("their record was not saved: {error}");
+                self.run_ahead.log(&format!("no forks: {why}"));
+                self.no_forks_failed(why);
                 None
             }
         }
@@ -362,8 +427,8 @@ impl ExploreSession {
 /// for the round, or forks of another reviewer that still runs answer it. This `reviewer`
 /// takes the forks.
 fn refusal(forks: &RoundForks, question: &Question, reviewer: ProcessStamp) -> Option<String> {
-    if forks.halted_at_ms.is_some() {
-        return Some(halted());
+    if let Some(notice) = forks.halt_notice() {
+        return Some(notice);
     }
     forks
         .forks
@@ -373,11 +438,6 @@ fn refusal(forks: &RoundForks, question: &Question, reviewer: ProcessStamp) -> O
                 && fork.runs_for_another_reviewer(reviewer)
         })
         .then(|| "another reviewer forks this question".to_owned())
-}
-
-/// Why no fork is taken once too many failed in a row.
-pub(super) fn halted() -> String {
-    format!("Run-ahead stopped for this round: {FAILURES_TO_HALT} forks in a row failed")
 }
 
 /// The fork that answers `question` with `choice`, the files of its turn and the prompt that

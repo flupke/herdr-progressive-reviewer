@@ -263,6 +263,10 @@ impl ForkHost for ClaudeForks {
             .is_ok_and(|(hooks, _)| self.pane_of(agent).hooked(hooks, agent))
     }
 
+    fn unforkable(&self, agent: &Agent) -> Option<String> {
+        self.forkable(agent).err()
+    }
+
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
         let session = self.forkable(agent)?.1.to_owned();
         let processes = self

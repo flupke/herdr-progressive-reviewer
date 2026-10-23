@@ -139,6 +139,9 @@ struct Armed {
     worked: bool,
     /// Why no fork could be taken, as last logged.
     refusal: Option<String>,
+    /// Whether a refusal to take the forks counted as a failure of run-ahead: one counts once
+    /// per question, however often it repeats.
+    refusal_counted: bool,
     /// The reviewer's talk with the agent in the round's conversation, while it keeps the forks
     /// from being taken.
     talk: Option<talk::Talk>,
@@ -465,6 +468,7 @@ impl ExploreSession {
             taken: None,
             worked: false,
             refusal: None,
+            refusal_counted: false,
             talk,
             reserved: BTreeMap::new(),
         });
