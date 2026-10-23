@@ -45,6 +45,15 @@ impl ReviewNavigation {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReviewNavigationChanged(pub ReviewNavigation);
 
+/// One event is settled: the components handled it and every event they published, and the
+/// navigation took the mode and focus they asked for. Actions requested here run before the
+/// other actions of the event, so that state saved here is the state they start from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EventSettled {
+    pub mode: ReviewNavigation,
+    pub focus: ReviewPane,
+}
+
 /// Select or clear a conversation without selecting or loading its anchored file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ThreadSelectionChanged {

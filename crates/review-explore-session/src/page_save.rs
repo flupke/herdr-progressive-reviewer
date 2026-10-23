@@ -4,7 +4,7 @@
 use review_explore::ExploreRound;
 use review_explore_page::CommandRefusal;
 
-use crate::{ExploreSession, publish_committed};
+use crate::ExploreSession;
 
 impl ExploreSession {
     /// Saves `change` to the round the session shows. `change` returns whether it changed the
@@ -26,7 +26,7 @@ impl ExploreSession {
         match self.rounds.update(&unit, &instance, change) {
             Ok((true, saved)) => {
                 self.state.round = Some(saved.clone());
-                publish_committed(&self.events, saved);
+                self.publish_committed(saved);
                 Ok(())
             }
             Ok((false, _)) => Ok(()),

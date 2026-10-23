@@ -25,6 +25,7 @@ pub(super) fn restore(
     // Serialization removes comparison buffers, preserving only history/source locators.
     let round = serde_json::from_slice(&serde_json::to_vec(round).unwrap()).unwrap();
     fixture.app.publish(ui_events::ExploreRestored {
+        implementations: Vec::new(),
         result: Ok(Some(Arc::new(round))),
         view,
         historical: false,
@@ -151,6 +152,7 @@ fn historical_question_offers_reset_after_round_navigation_is_removed() {
     let (mut fixture, kickoff) = ExploreUi::new();
     let round = round(&fixture, &kickoff);
     no_post(&fixture.app.publish(ui_events::ExploreRestored {
+        implementations: Vec::new(),
         result: Ok(Some(Arc::new(round))),
         view: None,
         historical: true,
@@ -358,6 +360,45 @@ fn restored_evidence_position_height_and_focus_survive_reflow_without_selecting_
 }
 
 #[test]
+fn moving_focus_to_the_evidence_saves_the_view_with_the_evidence_focused() {
+    let (mut fixture, request) = ExploreUi::new();
+    let round = round(&fixture, &request);
+    restore(&mut fixture, &round, None);
+
+    let saved = saved(fixture.app.update(UserInput::Key(Key::Tab)));
+
+    assert_eq!(saved.state.focus, review_explore::EditorFocus::Evidence);
+}
+
+#[test]
+fn posting_an_answer_saves_the_view_before_the_turn() {
+    let (mut fixture, request) = ExploreUi::new();
+    let round = round(&fixture, &request);
+    let view = ViewSave {
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
+        sequence: 1,
+        state: ExploreViewState {
+            page: ExplorePage::Question(0),
+            editing: true,
+            ..Default::default()
+        },
+    };
+    restore(&mut fixture, &round, Some(view));
+    fixture.app.update(UserInput::Paste("Posted text".into()));
+
+    let actions = fixture.app.update(UserInput::Key(Key::ControlEnter));
+
+    let position = |wanted: fn(&Action) -> bool| actions.iter().position(wanted);
+    let save = position(|action| matches!(action, Action::Explore(Command::SaveView(_))));
+    let turn = position(|action| matches!(action, Action::Explore(Command::Turn(_))));
+    assert!(
+        save.zip(turn).is_some_and(|(save, turn)| save < turn),
+        "{actions:?}"
+    );
+}
+
+#[test]
 fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_saving() {
     let (mut fixture, request) = ExploreUi::new();
     let mut round = round(&fixture, &request);
@@ -442,6 +483,7 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
         let (mut fixture, request) = ExploreUi::new();
         let round = round(&fixture, &request);
         no_post(&fixture.app.publish(ui_events::ExploreRestored {
+            implementations: Vec::new(),
             result: Ok(Some(Arc::new(round))),
             view: None,
             historical: false,
@@ -560,6 +602,7 @@ fn the_path_run_ahead_took_for_a_turn_shows_under_the_question_it_asked() {
     // A reopened reviewer knows it from the saved forks.
     let saved = serde_json::from_slice(&serde_json::to_vec(&round).unwrap()).unwrap();
     fixture.app.publish(ui_events::ExploreRestored {
+        implementations: Vec::new(),
         result: Ok(Some(Arc::new(saved))),
         view: None,
         historical: false,

@@ -338,17 +338,12 @@ impl ReviewApplication {
             self.saved_editor_keymap = keymap;
             actions.push(Action::Settings(SettingsAction::SaveEditorKeymap(keymap)));
         }
-        let positions = self
-            .event_bus
-            .get::<DiffComponent>(self.diff_component)
-            .map(DiffComponent::explore_positions)
-            .unwrap_or_default();
-        if let Ok(saves) = self.event_bus.publish(ui_events::ExploreAutosave {
-            positions,
-            focus: self.navigation.explore_focus(),
+        if let Ok(settled) = self.event_bus.publish(ui_events::EventSettled {
+            mode: self.navigation.mode(),
+            focus: self.navigation.focus(),
         }) {
-            let saves = saves.into_iter().flat_map(DispatchResult::into_actions);
-            actions.splice(0..0, saves);
+            let settled = settled.into_iter().flat_map(DispatchResult::into_actions);
+            actions.splice(0..0, settled);
         }
         actions
     }

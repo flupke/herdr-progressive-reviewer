@@ -17,6 +17,10 @@ The guarantees of saved Explore rounds across a restart: what is never saved, wh
 
 - Keystrokes not yet flushed can be lost when the process dies abruptly. An acknowledged
   domain change or authorization never depends on that flush.
+- The Explore component saves its view once each event settles (`EventSettled`, which the
+  application publishes), and its save runs ahead of the event's other actions. A turn posted
+  on that event records the sequence of a view that already holds its draft, so a restore
+  drops the posted draft instead of showing it again.
 - An explicit Retry reuses the logical request ID with a new dispatch-attempt ID, so a
   late cancellation cannot fail a newer attempt.
 
@@ -28,6 +32,11 @@ The guarantees of saved Explore rounds across a restart: what is never saved, wh
 - A confirmed result wins a race with a cancellation, and can be saved to an archived
   round.
 - Queued work stays paused on a restore, and a retry cannot alter its authorized scope.
+- What a front end shows of an implementation request comes from one rule,
+  `ImplementationState::of`: its dispatch state, and whether this process sends it. The
+  session hands the result to the pane in its events and to the page in its publication;
+  neither front end reads a dispatch state. The pane's events count as sent by this process
+  only the request it sends; the page's publication counts every request while it sends one.
 - The identity of the native agent session is compared by agent, kind and value, which
   allows a resumed pane. An original binding that cannot be resolved, and an agent session
   that really was replaced, fail closed: the round does not continue on them.

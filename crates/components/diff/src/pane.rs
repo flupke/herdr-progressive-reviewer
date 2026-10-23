@@ -18,9 +18,10 @@ use review_thread_projection::SharedThreadProjection;
 use ui_actions::{Action, DocumentAction};
 use ui_events::{
     DiffViewportChanged, EvidenceView, ExploreComparisonAccepted, ExploreEvidence,
-    ExplorePositionsRestored, PointerInput, PointerInputKind, RepositoryFilesChanged,
-    ReviewNavigation, ReviewNavigationChanged, ReviewThreadsLoaded, ReviewableFiles,
-    SourceContentLoadFailed, SourceContentLoaded, TextPasted, ThreadPostFinished, ToastRequested,
+    ExplorePositionsChanged, ExplorePositionsRestored, PointerInput, PointerInputKind,
+    RepositoryFilesChanged, ReviewNavigation, ReviewNavigationChanged, ReviewThreadsLoaded,
+    ReviewableFiles, SourceContentLoadFailed, SourceContentLoaded, TextPasted, ThreadPostFinished,
+    ToastRequested,
 };
 use ui_shortcuts::{
     ApplicationShortcut, ConversationCommand, ConversationShortcut, DiffGlobalShortcut,
@@ -42,6 +43,8 @@ pub struct DiffComponent {
     explore: ExploreViewers,
     /// The live source the peek last asked the application to watch.
     watched_source: Option<PathBuf>,
+    /// The evidence positions last published for Explore to save.
+    published_positions: Vec<review_explore::EvidencePosition>,
 }
 
 impl DiffComponent {
@@ -69,6 +72,7 @@ impl DiffComponent {
             conversation: ConversationView::default(),
             explore: ExploreViewers::default(),
             watched_source: None,
+            published_positions: Vec::new(),
         }
     }
 
@@ -119,11 +123,6 @@ impl DiffComponent {
             .is_shown()
             .then(|| self.explore.view(id))
             .flatten()
-    }
-
-    /// The position of every question's evidence viewer, for Explore to save.
-    pub fn explore_positions(&self) -> Vec<review_explore::EvidencePosition> {
-        self.explore.positions()
     }
 
     /// Start observations for a fresh frame, including frames with no detail pane.
@@ -256,7 +255,8 @@ impl DiffComponent {
     }
 
     /// Run one handler, then ask the application to watch the peek's live
-    /// source whenever it changed.
+    /// source whenever it changed, and tell Explore where its evidence
+    /// viewers stand whenever one moved.
     fn handle<E, R: IntoDispatchResult<Action>>(
         &mut self,
         event: E,
@@ -267,6 +267,13 @@ impl DiffComponent {
         if source != self.watched_source {
             self.watched_source.clone_from(&source);
             actions.push(Action::Document(DocumentAction::WatchSource(source)));
+        }
+        let positions = self.explore.positions();
+        if positions != self.published_positions {
+            self.published_positions.clone_from(&positions);
+            self.services
+                .events
+                .publish(ExplorePositionsChanged(positions));
         }
         actions
     }

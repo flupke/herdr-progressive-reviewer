@@ -5,7 +5,7 @@ use std::sync::Arc;
 use review_explore::{DispatchState, ExploreRound, ViewSave};
 use review_types::ReviewUnit;
 
-use crate::{ExploreSession, State, publish_committed};
+use crate::{ExploreSession, State};
 
 fn empty_restore() -> ui_events::ExploreRestored {
     ui_events::ExploreRestored {
@@ -14,6 +14,7 @@ fn empty_restore() -> ui_events::ExploreRestored {
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        implementations: Vec::new(),
         turn_paths: std::collections::BTreeMap::new(),
     }
 }
@@ -105,6 +106,8 @@ impl ExploreSession {
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
         restored.progress = restored_progress(&round);
+        // Reopening sends nothing: a request saved as queued is paused.
+        restored.implementations = crate::implementation::round_progress(&round, None);
         // A record of forks that cannot be read takes no turn away from the round.
         restored.turn_paths = self
             .rounds
@@ -277,7 +280,7 @@ impl ExploreSession {
                 if round.revision <= previous.revision {
                     return;
                 }
-                publish_committed(&self.events, round.clone());
+                self.publish_committed(round.clone());
                 self.state.round = Some(round);
             }
             Err(error) => {

@@ -59,7 +59,7 @@ impl ExploreSession {
             .as_ref()
             .and_then(|question| round.exploration.question_number(question))
             .map(Into::into);
-        Self::acknowledge(&self.events, request, applied, round, shown_as);
+        self.acknowledge(request, applied, round, shown_as);
     }
 
     /// Saves the agent's `revision` of the open question, and shows it.
@@ -76,7 +76,7 @@ impl ExploreSession {
             .exploration
             .question_number(&revision.question)
             .map(Into::into);
-        Self::acknowledge(&self.events, request, applied, round, shown_as);
+        self.acknowledge(request, applied, round, shown_as);
     }
 
     /// Saves `revision` in the session's round; whether it changed the round, and the round
@@ -108,15 +108,17 @@ impl ExploreSession {
     /// Shows the round `round` an accepted call left, and answers `request` once the reviewer
     /// applied it.
     fn acknowledge(
-        events: &component_core::ApplicationEventSender,
+        &self,
         request: Request,
         applied: bool,
         round: ExploreRound,
         shown_as: Option<review_types::QuestionNumber>,
     ) {
         let (response, received) = std::sync::mpsc::channel();
-        if events
+        if self
+            .events
             .send(ui_events::ExploreCommitted {
+                implementations: self.implementation_progress(&round),
                 round: Arc::new(round),
                 applied,
                 response,

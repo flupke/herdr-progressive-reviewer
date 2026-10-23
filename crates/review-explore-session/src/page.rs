@@ -508,21 +508,9 @@ fn latest_turn(
     }
 }
 
-/// An implementation request as the page shows it. A request saved as queued or attempting is
-/// on its way when this process sends it; otherwise an earlier process left it paused or with
-/// an unknown outcome.
+/// An implementation request as the page shows it.
 fn page_implementation(delivery: &ImplementationDelivery, sending: bool) -> PageImplementation {
-    let state = match &delivery.state {
-        DispatchState::Queued | DispatchState::Attempting if sending => {
-            ImplementationState::Sending
-        }
-        DispatchState::Queued => ImplementationState::Paused,
-        DispatchState::Attempting | DispatchState::Unknown => ImplementationState::Unknown,
-        DispatchState::Delivered => ImplementationState::Sent,
-        DispatchState::NotStarted => ImplementationState::NotStarted,
-        DispatchState::NotSent(reason) => ImplementationState::NotSent(reason.clone()),
-        DispatchState::Cancelled => ImplementationState::Cancelled,
-    };
+    let state = ImplementationState::of(&delivery.state, sending);
     PageImplementation {
         delivery: delivery.request.delivery.clone(),
         attempt: delivery.attempt.clone(),

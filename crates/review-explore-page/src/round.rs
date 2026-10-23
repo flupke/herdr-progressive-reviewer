@@ -3,6 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+pub use review_explore::ImplementationState;
 use review_explore::{
     CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
     InterviewUpdate, KeptAnswer, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse,
@@ -443,41 +444,6 @@ impl ReviewName {
             revision: identity.short_revision(),
             title: identity.title().to_owned(),
         }
-    }
-}
-
-/// What became of an implementation request, as the page shows it.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
-#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
-pub enum ImplementationState {
-    /// The reviewer sends it to the agent now.
-    Sending,
-    /// The agent received it.
-    Sent,
-    /// It was saved, then not sent: the reviewer reopened first. The reviewer may send it, or
-    /// a new one.
-    Paused,
-    /// Whether the agent received it is unknown. The reviewer may send a new one, after
-    /// checking the agent's pane.
-    Unknown,
-    /// The agent did not start on it: the text may still wait in the agent's prompt box. The
-    /// reviewer looks at the agent's pane, then sends it again as it is.
-    NotStarted,
-    /// It could not be sent, for this reason. The reviewer may send another.
-    NotSent(String),
-    /// The reviewer cancelled it before it was sent, and may send another.
-    Cancelled,
-}
-
-impl ImplementationState {
-    /// Whether the reviewer may send another request in place of this one: the request is
-    /// neither on its way nor received by the agent, and does not wait in the agent's prompt
-    /// box, where a request the agent did not start on may still be.
-    pub fn allows_another(&self) -> bool {
-        matches!(
-            self,
-            Self::Paused | Self::Unknown | Self::NotSent(_) | Self::Cancelled
-        )
     }
 }
 

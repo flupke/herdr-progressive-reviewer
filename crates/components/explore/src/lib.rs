@@ -624,9 +624,10 @@ impl ExploreComponent {
 
 impl Component<Action> for ExploreComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
-        subscriptions.subscribe(|component: &mut Self, event: &ui_events::ExploreAutosave| {
-            component.autosave(event).into_iter().collect::<Vec<_>>()
+        subscriptions.subscribe(|component: &mut Self, event: &ui_events::EventSettled| {
+            component.autosave(*event).into_iter().collect::<Vec<_>>()
         });
+        subscriptions.subscribe(Self::positions_changed);
         subscriptions.subscribe(Self::history_changed);
         subscriptions.subscribe(Self::restored);
         subscriptions.subscribe(Self::posted);

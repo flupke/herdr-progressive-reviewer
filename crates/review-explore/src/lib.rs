@@ -1,6 +1,7 @@
 //! Durable interviews over the complete working-copy change, retaining compact diff patches.
 
 mod durable;
+mod implementation_state;
 mod presentation;
 mod recovery;
 pub use durable::{
@@ -8,6 +9,7 @@ pub use durable::{
     ImplementationDelivery, InterviewDelivery, MarkCounts, MarkPhrase, MarkTense, ReopenedLines,
     ReviewCompletion, RoundsBefore, TurnMarks, now_ms,
 };
+pub use implementation_state::ImplementationState;
 pub use presentation::{
     EditorFocus, EvidencePosition, ExplorePage, ExploreViewState, QuestionReading, RoundFront,
     ViewSave,
