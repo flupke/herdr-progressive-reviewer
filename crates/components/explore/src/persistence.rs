@@ -3,8 +3,8 @@ use comment_editor::CommentEditor;
 use review_explore::{Command, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
 use ui_actions::Action;
 use ui_events::{
-    ExploreCommitted, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed,
-    ExploreTurnPath,
+    EventSettled, ExploreCommitted, ExplorePositionsChanged, ExplorePosted, ExploreProgress,
+    ExploreRestored, ExploreStorageFailed, ExploreTurnPath,
 };
 
 pub(super) struct Durability {
@@ -17,6 +17,8 @@ pub(super) struct Durability {
     revision: u64,
     pub(super) persisted: bool,
     pub(super) focus: ui_events::ReviewPane,
+    /// Where the evidence viewers stand, as the diff pane last published.
+    positions: Vec<review_explore::EvidencePosition>,
 }
 
 impl Default for Durability {
@@ -31,6 +33,7 @@ impl Default for Durability {
             revision: 0,
             persisted: false,
             focus: ui_events::ReviewPane::Navigation,
+            positions: Vec::new(),
         }
     }
 }
@@ -117,10 +120,15 @@ impl ExploreComponent {
         }
     }
 
-    /// Called after input/events, never from rendering. Only small view state is autosaved.
-    pub(super) fn autosave(&mut self, event: &ui_events::ExploreAutosave) -> Option<Action> {
-        if let Some(focus) = event.focus {
-            self.durable.focus = focus;
+    pub(super) fn positions_changed(&mut self, event: &ExplorePositionsChanged) {
+        self.durable.positions.clone_from(&event.0);
+    }
+
+    /// Save the view once each event settles, never from rendering. Only small view state is
+    /// autosaved.
+    pub(super) fn autosave(&mut self, event: EventSettled) -> Option<Action> {
+        if event.mode == ui_events::ReviewNavigation::Explore {
+            self.durable.focus = event.focus;
         }
         if !self.durable.enabled
             || !self.durable.persisted
@@ -132,7 +140,7 @@ impl ExploreComponent {
         let round = self.exploration.as_ref()?;
         let instance = round.instance.clone();
         let review_unit = round.comparison.checkpoint.review_unit.clone();
-        let state = self.saved_view(event.positions.clone());
+        let state = self.saved_view(self.durable.positions.clone());
         if self.durable.last.as_ref() == Some(&state) {
             return None;
         }
@@ -182,7 +190,7 @@ impl ExploreComponent {
             .iter()
             .map(|_| TurnView::default())
             .collect();
-        self.restore_conclusions(round);
+        self.restore_conclusions(round, &event.implementations);
         self.drafts.clear();
         self.heights.clear();
         let state = round.restored_view(event.view.as_ref());
@@ -427,7 +435,7 @@ impl ExploreComponent {
         if !already_visible {
             self.update_applied(count, None);
         }
-        self.refresh_implementation_delivery(&event.round);
+        self.refresh_implementation_delivery(&event.implementations);
         let _ = event.response.send(Ok(event.applied));
     }
 

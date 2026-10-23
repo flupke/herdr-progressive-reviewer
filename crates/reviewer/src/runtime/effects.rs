@@ -2,8 +2,7 @@
 //! channels and their lifecycle.
 //!
 //! The event loop hands actions to [`Effects`] and receives every result as an event
-//! on the [`Outputs`] channels. Explore autosave still comes from
-//! the application as an action; this is where its effects would move.
+//! on the [`Outputs`] channels.
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;

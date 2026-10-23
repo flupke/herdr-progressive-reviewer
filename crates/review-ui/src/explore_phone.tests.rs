@@ -57,6 +57,7 @@ fn the_start_screen_shows_the_address_of_the_page_that_starts_the_next_round() {
     assert!(fixture.text().contains(NEXT_URL));
     assert!(fixture.shows_qr_code());
     fixture.app.publish(ui_events::ExploreRestored {
+        implementations: Vec::new(),
         result: Ok(None),
         view: None,
         historical: false,

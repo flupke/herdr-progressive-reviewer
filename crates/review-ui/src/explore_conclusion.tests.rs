@@ -1,6 +1,6 @@
 use super::*;
 use crate::RepositoryAction;
-use review_explore::{ConclusionSubmission, ImplementationRequest};
+use review_explore::{ConclusionSubmission, ImplementationRequest, ImplementationState};
 
 fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
     let update = ConclusionSubmission {
@@ -86,21 +86,31 @@ fn authorized_round(
     round
 }
 
-/// Restores a saved request as if the app restarted while it was in `state`.
+/// The saved request `delivery`, in the state `state` the session decided for it.
+fn progress(
+    delivery: &review_explore::ImplementationDelivery,
+    state: ImplementationState,
+) -> ui_events::ImplementationProgress {
+    ui_events::ImplementationProgress {
+        request: delivery.request.clone(),
+        attempt: delivery.attempt.clone(),
+        state,
+    }
+}
+
+/// Restores a saved request as if the app restarted, with the session deciding that it is in
+/// `state`.
 fn restart_with_delivery(
     fixture: &mut ExploreUi,
     kickoff: &TurnRequest,
-    state: review_explore::DispatchState,
+    state: ImplementationState,
 ) -> ImplementationRequest {
     let conclusion = finish(fixture, kickoff);
     let request = implementation(fixture.click_actions(" Implement "));
-    let mut round = authorized_round(fixture, kickoff, conclusion, &request);
-    round
-        .implementations
-        .get_mut(&request.delivery)
-        .unwrap()
-        .state = state;
+    let round = authorized_round(fixture, kickoff, conclusion, &request);
+    let implementations = vec![progress(&round.implementations[&request.delivery], state)];
     fixture.app.publish(ui_events::ExploreRestored {
+        implementations,
         result: Ok(Some(std::sync::Arc::new(round))),
         view: None,
         historical: false,
@@ -114,11 +124,7 @@ fn restart_with_delivery(
 #[test]
 fn sending_a_saved_request_shows_its_text_instead_of_later_edits() {
     let (mut fixture, kickoff) = ExploreUi::new();
-    let saved = restart_with_delivery(
-        &mut fixture,
-        &kickoff,
-        review_explore::DispatchState::Queued,
-    );
+    let saved = restart_with_delivery(&mut fixture, &kickoff, ImplementationState::Paused);
     assert!(
         fixture
             .text()
@@ -135,7 +141,7 @@ fn sending_a_saved_request_shows_its_text_instead_of_later_edits() {
         .publish(ui_events::ExploreImplementationFinished {
             request: sent,
             attempt: None,
-            state: review_explore::DispatchState::Delivered,
+            state: ImplementationState::Sent,
         });
     let text = fixture.text();
     assert!(text.contains("To be implemented · read-only"), "{text}");
@@ -146,11 +152,7 @@ fn sending_a_saved_request_shows_its_text_instead_of_later_edits() {
 #[test]
 fn a_sent_request_restored_after_restart_shows_its_text_read_only() {
     let (mut fixture, kickoff) = ExploreUi::new();
-    restart_with_delivery(
-        &mut fixture,
-        &kickoff,
-        review_explore::DispatchState::Delivered,
-    );
+    restart_with_delivery(&mut fixture, &kickoff, ImplementationState::Sent);
     fixture.click("To be implemented");
     fixture.app.update(UserInput::Paste("Blocked edit".into()));
     let text = fixture.text();
@@ -166,11 +168,7 @@ fn a_sent_request_restored_after_restart_shows_its_text_read_only() {
 #[test]
 fn unknown_delivery_is_read_only_until_a_new_request_is_started() {
     let (mut fixture, kickoff) = ExploreUi::new();
-    restart_with_delivery(
-        &mut fixture,
-        &kickoff,
-        review_explore::DispatchState::Attempting,
-    );
+    restart_with_delivery(&mut fixture, &kickoff, ImplementationState::Unknown);
     let text = fixture.text();
     assert!(text.contains("Delivery outcome unknown"), "{text}");
     assert!(text.contains("To be implemented · read-only"), "{text}");
@@ -243,7 +241,7 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
         .publish(ui_events::ExploreImplementationFinished {
             request,
             attempt: None,
-            state: review_explore::DispatchState::Delivered,
+            state: ImplementationState::Sent,
         });
     assert!(
         fixture
@@ -268,7 +266,10 @@ fn a_request_sent_from_the_explore_page_shows_as_sending_then_sent_and_cannot_be
 
     fixture
         .app
-        .publish(ui_events::ExploreImplementationSaved(saved.clone()));
+        .publish(ui_events::ExploreImplementationSaved(progress(
+            &saved,
+            ImplementationState::Sending,
+        )));
 
     let text = fixture.text();
     assert!(text.contains("Sending implementation request"), "{text}");
@@ -286,7 +287,7 @@ fn a_request_sent_from_the_explore_page_shows_as_sending_then_sent_and_cannot_be
         .publish(ui_events::ExploreImplementationFinished {
             request,
             attempt: Some(saved.attempt),
-            state: review_explore::DispatchState::Delivered,
+            state: ImplementationState::Sent,
         });
     let text = fixture.text();
     assert!(
@@ -316,7 +317,7 @@ fn submitted_instructions_stay_read_only_in_both_editor_keymaps() {
                     .publish(ui_events::ExploreImplementationFinished {
                         request: request.clone(),
                         attempt: None,
-                        state: review_explore::DispatchState::Delivered,
+                        state: ImplementationState::Sent,
                     });
             }
             fixture.click("To be implemented");
@@ -369,7 +370,7 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
         .publish(ui_events::ExploreImplementationFinished {
             request: first.clone(),
             attempt: None,
-            state: review_explore::DispatchState::Cancelled,
+            state: ImplementationState::Cancelled,
         });
     assert!(!fixture.text().contains("Implementation request sent"));
     let second = implementation(fixture.click_actions(" Implement "));
@@ -378,7 +379,7 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
         .publish(ui_events::ExploreImplementationFinished {
             request: first,
             attempt: None,
-            state: review_explore::DispatchState::Delivered,
+            state: ImplementationState::Sent,
         });
     assert!(!fixture.text().contains("Implementation request sent"));
     fixture
@@ -386,7 +387,7 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
         .publish(ui_events::ExploreImplementationFinished {
             request: second.clone(),
             attempt: None,
-            state: review_explore::DispatchState::NotSent("Agent unavailable".into()),
+            state: ImplementationState::NotSent("Agent unavailable".into()),
         });
     assert!(fixture.text().contains("Agent unavailable"));
     fixture.click("To be implemented");
@@ -447,7 +448,7 @@ fn cancel_racing_with_completed_delivery_reports_that_the_request_was_sent() {
         .publish(ui_events::ExploreImplementationFinished {
             request,
             attempt: None,
-            state: review_explore::DispatchState::Delivered,
+            state: ImplementationState::Sent,
         });
     assert!(
         fixture
@@ -466,18 +467,24 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
     let old = round.implementations[&request.delivery].clone();
     fixture
         .app
-        .publish(ui_events::ExploreImplementationSaved(old.clone()));
+        .publish(ui_events::ExploreImplementationSaved(progress(
+            &old,
+            ImplementationState::Sending,
+        )));
     round.authorize(&request).unwrap();
     let current = round.implementations[&request.delivery].clone();
     fixture
         .app
-        .publish(ui_events::ExploreImplementationSaved(current.clone()));
+        .publish(ui_events::ExploreImplementationSaved(progress(
+            &current,
+            ImplementationState::Sending,
+        )));
     fixture
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request: request.clone(),
             attempt: Some(old.attempt),
-            state: review_explore::DispatchState::Cancelled,
+            state: ImplementationState::Cancelled,
         });
     assert!(fixture.text().contains(" Cancel implementation "));
     assert!(!fixture.text().contains(" Implement "));
@@ -486,7 +493,7 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
         .publish(ui_events::ExploreImplementationFinished {
             request,
             attempt: Some(current.attempt),
-            state: review_explore::DispatchState::Unknown,
+            state: ImplementationState::Unknown,
         });
     assert!(fixture.text().contains("Delivery outcome unknown"));
     assert!(!fixture.text().contains(" Implement ") && !fixture.text().contains(" Retry "));
@@ -608,16 +615,21 @@ fn an_implementation_request_the_agent_did_not_start_on_shows_in_the_state_line_
         text: "Edited on the page.".into(),
     };
     let round = authorized_round(&fixture, &kickoff, conclusion, &request);
-    let mut saved = round.implementations[&request.delivery].clone();
+    let saved = round.implementations[&request.delivery].clone();
     fixture
         .app
-        .publish(ui_events::ExploreImplementationSaved(saved.clone()));
+        .publish(ui_events::ExploreImplementationSaved(progress(
+            &saved,
+            ImplementationState::Sending,
+        )));
     assert!(fixture.text().contains("Concluded"), "{}", fixture.text());
 
-    saved.state = review_explore::DispatchState::NotStarted;
     fixture
         .app
-        .publish(ui_events::ExploreImplementationSaved(saved));
+        .publish(ui_events::ExploreImplementationSaved(progress(
+            &saved,
+            ImplementationState::NotStarted,
+        )));
 
     let text = fixture.text();
     assert!(

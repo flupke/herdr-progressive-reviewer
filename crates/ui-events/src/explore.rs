@@ -18,6 +18,8 @@ pub struct ExploreRestored {
     pub storage_error: Option<String>,
     /// Where the restored interview stands; reopening never sends anything itself.
     pub progress: ExploreProgress,
+    /// The latest implementation request of each conclusion of the restored round.
+    pub implementations: Vec<ImplementationProgress>,
     /// The path each turn of the restored round took after an answer to a question run-ahead
     /// watched, by request.
     pub turn_paths: BTreeMap<String, TurnPath>,
@@ -58,6 +60,8 @@ pub struct ExplorePosted {
 #[derive(Clone, Debug)]
 pub struct ExploreCommitted {
     pub round: Arc<review_explore::ExploreRound>,
+    /// The latest implementation request of each conclusion of `round`.
+    pub implementations: Vec<ImplementationProgress>,
     pub applied: bool,
     pub response: std::sync::mpsc::Sender<Result<bool, String>>,
 }
@@ -135,8 +139,18 @@ pub struct ExplorePageReset {
     pub round: String,
 }
 
+/// The session saved an implementation request: authorized it, or recorded its delivery.
 #[derive(Clone, Debug)]
-pub struct ExploreImplementationSaved(pub review_explore::ImplementationDelivery);
+pub struct ExploreImplementationSaved(pub ImplementationProgress);
+
+/// A conclusion's latest implementation request and what became of it, decided by the Explore
+/// session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImplementationProgress {
+    pub request: review_explore::ImplementationRequest,
+    pub attempt: String,
+    pub state: review_explore::ImplementationState,
+}
 
 /// The interview accepted this capture; cancelled completions never reach viewers.
 #[derive(Clone, Debug)]
@@ -162,7 +176,7 @@ pub struct ExploreImplementationFinished {
     pub request: review_explore::ImplementationRequest,
     /// Absent only when preparation failed before an attempt was authorized.
     pub attempt: Option<String>,
-    pub state: review_explore::DispatchState,
+    pub state: review_explore::ImplementationState,
 }
 
 #[derive(Clone, Debug)]
@@ -192,11 +206,10 @@ pub struct ExploreEvidenceInput {
 #[derive(Clone, Debug)]
 pub struct ExplorePositionsRestored(pub Vec<review_explore::EvidencePosition>);
 
+/// Where each question's evidence viewer stands, published by the diff pane whenever a
+/// position changes, for Explore to save.
 #[derive(Clone, Debug)]
-pub struct ExploreAutosave {
-    pub positions: Vec<review_explore::EvidencePosition>,
-    pub focus: Option<crate::ReviewPane>,
-}
+pub struct ExplorePositionsChanged(pub Vec<review_explore::EvidencePosition>);
 
 #[derive(Clone, Debug)]
 pub struct ExploreHistoryChanged(pub review_explore::ExploreHistory);

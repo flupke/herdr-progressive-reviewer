@@ -1,11 +1,82 @@
 //! Explicitly authorized implementation of an Explore conclusion.
 
 use crate::{ExploreSession, dispatch::DurableDispatch, turn_log::SentTurn};
-use review_explore::{DispatchState, ImplementationRequest};
+use review_explore::{
+    DispatchState, ExploreRound, ImplementationDelivery, ImplementationRequest, ImplementationState,
+};
+use std::collections::BTreeSet;
 use std::sync::Arc;
-use ui_events::ExploreImplementationFinished;
+use ui_events::{ExploreImplementationFinished, ImplementationProgress};
+
+/// What the front ends show of `delivery`, which this process sends when `sending`.
+pub(crate) fn progress(delivery: &ImplementationDelivery, sending: bool) -> ImplementationProgress {
+    ImplementationProgress {
+        request: delivery.request.clone(),
+        attempt: delivery.attempt.clone(),
+        state: ImplementationState::of(&delivery.state, sending),
+    }
+}
+
+/// The implementation request this process sends; dropping it cancels its prompt.
+#[derive(Debug)]
+pub(crate) struct SendingImplementation {
+    /// The request's delivery ID.
+    delivery: String,
+    _cancellation: review_thread_service::PromptCancellation,
+}
+
+/// The latest implementation request of each conclusion of `round`, with the one whose
+/// delivery ID is `sending` sent by this process.
+pub(crate) fn round_progress(
+    round: &ExploreRound,
+    sending: Option<&str>,
+) -> Vec<ImplementationProgress> {
+    let conclusions: BTreeSet<_> = round
+        .implementations
+        .values()
+        .map(|delivery| delivery.request.conclusion.as_str())
+        .collect();
+    conclusions
+        .into_iter()
+        .filter_map(|conclusion| round.latest_implementation(conclusion))
+        .map(|delivery| {
+            progress(
+                delivery,
+                sending == Some(delivery.request.delivery.as_str()),
+            )
+        })
+        .collect()
+}
 
 impl ExploreSession {
+    /// Publish a durable round change nobody waits to acknowledge; false once the application
+    /// stopped receiving events.
+    pub(crate) fn publish_committed(&self, round: ExploreRound) -> bool {
+        let (response, _) = std::sync::mpsc::channel();
+        self.events
+            .send(ui_events::ExploreCommitted {
+                implementations: self.implementation_progress(&round),
+                round: Arc::new(round),
+                applied: true,
+                response,
+            })
+            .is_ok()
+    }
+
+    /// The latest implementation request of each conclusion of `round`, as this process shows
+    /// it now.
+    pub(crate) fn implementation_progress(
+        &self,
+        round: &ExploreRound,
+    ) -> Vec<ImplementationProgress> {
+        let sending = self
+            .state
+            .implementation
+            .as_ref()
+            .map(|sending| sending.delivery.as_str());
+        round_progress(round, sending)
+    }
+
     /// Saves the authorized `request`, then prompts the agent with it, and tells the front
     /// ends. Errs, with the reason, only when the request was not saved: a prompt that fails
     /// after the save leaves the request saved as not sent.
@@ -18,14 +89,17 @@ impl ExploreSession {
                 let _ = self.events.send(ExploreImplementationFinished {
                     request,
                     attempt: None,
-                    state: DispatchState::NotSent(error.clone()),
+                    state: ImplementationState::NotSent(error.clone()),
                 });
                 return Err(error);
             }
         };
-        let _ = self.events.send(ui_events::ExploreImplementationSaved(
-            round.implementations[&request.delivery].clone(),
-        ));
+        let _ = self
+            .events
+            .send(ui_events::ExploreImplementationSaved(progress(
+                &round.implementations[&request.delivery],
+                true,
+            )));
         let prompt =
             review_explore_runner::implementation_prompt(&request, round.exploration.author);
         let observer = DurableDispatch {
@@ -46,14 +120,17 @@ impl ExploreSession {
         let (receipt, cancellation) =
             self.prompts
                 .send_observed(agent, prompt, Some(Arc::new(observer)));
-        self.state.implementation = Some(cancellation);
+        self.state.implementation = Some(SendingImplementation {
+            delivery: request.delivery.clone(),
+            _cancellation: cancellation,
+        });
         let events = self.events.clone();
         let attempt = round.implementations[&request.delivery].attempt.clone();
         std::thread::spawn(move || {
             let _ = events.send(ExploreImplementationFinished {
                 request,
                 attempt: Some(attempt),
-                state: DurableDispatch::outcome(&receipt.wait()),
+                state: ImplementationState::of(&DurableDispatch::outcome(&receipt.wait()), true),
             });
         });
         Ok(())

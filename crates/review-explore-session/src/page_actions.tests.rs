@@ -2,7 +2,7 @@
 //! Stop waiting, Retry, Cancel answer, Reset, a reply to the conclusion, and the recoveries of an
 //! implementation request.
 
-use review_explore::{Command, DispatchState};
+use review_explore::Command;
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, Interruption, PageCommand, Recovery,
     RoundStage, Waiting,
@@ -474,7 +474,7 @@ fn the_page_cancels_an_implementation_request_that_is_being_sent() {
     assert_eq!(cancelled, Ok(()));
     assert_eq!(
         harness.implementation_finished().state,
-        DispatchState::Cancelled
+        ImplementationState::Cancelled
     );
     assert_eq!(
         harness.shown_implementation().map(|shown| shown.state),
@@ -507,7 +507,7 @@ fn the_page_sends_a_saved_request_that_a_reopening_paused() {
     // The earlier process's prompt ends cancelled; this one's reaches the agent.
     let finished = (0..2)
         .map(|_| harness.implementation_finished())
-        .find(|finished| finished.state == DispatchState::Delivered)
+        .find(|finished| finished.state == ImplementationState::Sent)
         .expect("the saved request reaches the agent");
     assert_eq!(
         (
@@ -572,7 +572,7 @@ fn retry_on_the_page_sends_a_request_the_agent_did_not_start_on_again_as_it_was(
         Ok(())
     );
     let first = harness.implementation_finished();
-    assert_eq!(first.state, DispatchState::NotStarted);
+    assert_eq!(first.state, ImplementationState::NotStarted);
     let shown = harness.shown_implementation().expect("a request");
     assert_eq!(shown.state, ImplementationState::NotStarted);
     assert_eq!(
@@ -590,7 +590,7 @@ fn retry_on_the_page_sends_a_request_the_agent_did_not_start_on_again_as_it_was(
 
     assert_eq!(retried, Ok(()));
     let finished = harness.implementation_finished();
-    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.state, ImplementationState::Sent);
     assert_eq!(finished.request, first.request);
     assert_eq!(harness.saved().implementations.len(), 1);
 }

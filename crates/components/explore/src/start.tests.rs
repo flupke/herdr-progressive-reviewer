@@ -30,6 +30,7 @@ impl Pane {
             ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
         });
         bus.publish(ExploreRestored {
+            implementations: Vec::new(),
             result: Ok(None),
             view: None,
             historical: false,

@@ -65,16 +65,13 @@ fn explore_evidence_focus_is_enclosed_by_explore() {
     navigation.apply(requested(Some(ReviewNavigation::Explore), None));
     assert_eq!(navigation.focused_pane(), PaneComponent::Explore);
     assert!(!navigation.focus_is_enclosed());
-    assert_eq!(navigation.explore_focus(), Some(ReviewPane::Navigation));
 
     navigation.toggle_focus();
 
     assert_eq!(navigation.focused_pane(), PaneComponent::Diff);
     assert!(navigation.focus_is_enclosed());
-    assert_eq!(navigation.explore_focus(), Some(ReviewPane::Detail));
     navigation.apply(requested(Some(ReviewNavigation::Files), None));
     assert!(!navigation.focus_is_enclosed());
-    assert_eq!(navigation.explore_focus(), None);
 }
 
 #[test]

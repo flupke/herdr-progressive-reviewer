@@ -56,9 +56,10 @@ impl DispatchObserver for DurableDispatch {
                 if let DispatchId::Implementation { request, .. } = &self.id
                     && let Some(delivery) = round.implementations.get(request)
                 {
-                    let _ = self
-                        .events
-                        .send(ui_events::ExploreImplementationSaved(delivery.clone()));
+                    // This process ran the dispatch.
+                    let _ = self.events.send(ui_events::ExploreImplementationSaved(
+                        crate::implementation::progress(delivery, true),
+                    ));
                 }
                 Ok(())
             }

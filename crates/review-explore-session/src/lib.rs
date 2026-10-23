@@ -151,7 +151,7 @@ struct State {
     start: Start,
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
-    implementation: Option<PromptCancellation>,
+    implementation: Option<implementation::SendingImplementation>,
 }
 
 /// Where the reviewer's latest start of a round stands, while the session has no round. Each
@@ -241,19 +241,6 @@ impl State {
     fn renew_access(&mut self) {
         self.access = uuid::Uuid::new_v4().to_string();
     }
-}
-
-/// Publish a durable round change nobody waits to acknowledge; false once the
-/// application stopped receiving events.
-fn publish_committed(events: &ApplicationEventSender, round: ExploreRound) -> bool {
-    let (response, _) = std::sync::mpsc::channel();
-    events
-        .send(ui_events::ExploreCommitted {
-            round: Arc::new(round),
-            applied: true,
-            response,
-        })
-        .is_ok()
 }
 
 impl Drop for ExploreSession {

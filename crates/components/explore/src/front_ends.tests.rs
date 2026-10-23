@@ -115,6 +115,7 @@ impl Pane {
             ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
         });
         bus.publish(ExploreRestored {
+            implementations: Vec::new(),
             result: Ok(Some(Arc::new(round.clone()))),
             view: None,
             historical: false,
@@ -225,6 +226,7 @@ fn the_pane_moves_to_the_agents_next_question() {
 
     pane.bus
         .publish(ExploreCommitted {
+            implementations: Vec::new(),
             round: Arc::new(next),
             applied: true,
             response,
@@ -286,6 +288,7 @@ impl Pane {
             ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
         });
         bus.publish(ExploreRestored {
+            implementations: Vec::new(),
             result: Ok(None),
             view: None,
             historical: false,
@@ -342,6 +345,7 @@ fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
     let (response, acknowledged) = std::sync::mpsc::channel();
     pane.bus
         .publish(ExploreCommitted {
+            implementations: Vec::new(),
             round: Arc::new(asked),
             applied: true,
             response,
@@ -671,6 +675,7 @@ fn a_revised_question_takes_the_place_of_the_open_one_without_losing_the_answer_
     let actions = pane
         .bus
         .publish(ExploreCommitted {
+            implementations: Vec::new(),
             round: Arc::new(revised),
             applied: true,
             response,
@@ -700,6 +705,7 @@ fn a_revised_question_keeps_the_comment_left_on_it_while_the_reviewer_reads_anot
     let (response, _acknowledged) = std::sync::mpsc::channel();
     pane.bus
         .publish(ExploreCommitted {
+            implementations: Vec::new(),
             round: Arc::new(round.clone()),
             applied: true,
             response,
@@ -732,6 +738,7 @@ fn a_revised_question_keeps_the_comment_left_on_it_while_the_reviewer_reads_anot
 
     pane.bus
         .publish(ExploreCommitted {
+            implementations: Vec::new(),
             round: Arc::new(round),
             applied: true,
             response,

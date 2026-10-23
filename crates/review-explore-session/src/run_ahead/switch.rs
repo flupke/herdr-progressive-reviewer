@@ -216,7 +216,7 @@ impl ExploreSession {
                         session: fork.session,
                     },
                 );
-                crate::publish_committed(&self.events, round);
+                self.publish_committed(round);
             }
             Err(error) => {
                 let error = format!("the fork's turn was not saved: {error}");

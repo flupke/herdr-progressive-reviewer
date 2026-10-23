@@ -1,7 +1,7 @@
 //! The stage of the round the session publishes for the Explore page.
 
 use review_explore::Command;
-use review_explore::{DispatchState, QuizStage, Step, StepState, TabTitle};
+use review_explore::{QuizStage, Step, StepState, TabTitle};
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, Interruption, PageAnswer, PageCommand,
     PageImplement, PageImplementation, ReviewName, RoundStage,
@@ -1042,7 +1042,7 @@ fn an_implement_from_the_page_saves_and_prompts_the_request_the_pane_would() {
     assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
 
     let finished = harness.implementation_finished();
-    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.state, ImplementationState::Sent);
     let saved = harness.saved();
     let [delivery] = saved.implementations.values().collect::<Vec<_>>()[..] else {
         panic!("saved requests: {:?}", saved.implementations);
@@ -1091,6 +1091,32 @@ fn the_page_shows_its_implementation_request_as_sending_then_sent() {
 }
 
 #[test]
+fn the_pane_hears_the_request_this_process_sends_as_sending_until_it_is_sent() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    harness.delivery.close();
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+    let saved = harness.next::<ui_events::ExploreImplementationSaved>().0;
+    assert_eq!(
+        (saved.request.text.as_str(), &saved.state),
+        (EDITED, &ImplementationState::Sending)
+    );
+
+    // Another front end saves the round while the request is on its way.
+    harness.damage(|round| round.revision += 1);
+    harness.session.handle(Input::StorageChanged);
+
+    let committed = harness.next::<ui_events::ExploreCommitted>();
+    harness.delivery.open();
+    assert_eq!(committed.implementations, vec![saved]);
+    assert_eq!(
+        harness.implementation_finished().state,
+        ImplementationState::Sent
+    );
+}
+
+#[test]
 fn a_request_saved_before_a_reopening_shows_as_paused_and_may_be_replaced_on_the_page() {
     let mut harness = Harness::start();
     harness.conclude();
@@ -1115,7 +1141,7 @@ fn a_request_saved_before_a_reopening_shows_as_paused_and_may_be_replaced_on_the
     );
     let finished = (0..2)
         .map(|_| harness.implementation_finished())
-        .find(|finished| finished.state == DispatchState::Delivered)
+        .find(|finished| finished.state == ImplementationState::Sent)
         .expect("the new request reaches the agent");
     assert_eq!(finished.request.text, "Only this.");
 }
@@ -1181,7 +1207,7 @@ fn after_a_request_that_was_not_sent_the_page_may_send_another() {
     harness.agents.remove_agent(&PaneId(PANE.into()));
     harness.delivery.open();
     let finished = harness.implementation_finished();
-    assert!(matches!(finished.state, DispatchState::NotSent(_)));
+    assert!(matches!(finished.state, ImplementationState::NotSent(_)));
     let shown = harness.shown_implementation().expect("a request");
     assert!(
         matches!(shown.state, ImplementationState::NotSent(_)),
@@ -1199,7 +1225,7 @@ fn after_a_request_that_was_not_sent_the_page_may_send_another() {
         Ok(())
     );
     let finished = harness.implementation_finished();
-    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.state, ImplementationState::Sent);
     assert_eq!(finished.request.text, "Only this.");
 }
 
@@ -1229,7 +1255,7 @@ fn a_pane_implement_that_missed_the_pages_request_starts_no_second_implementatio
     let outcomes: Vec<_> = finished
         .iter()
         .map(|finished| {
-            let sent = finished.state == DispatchState::Delivered;
+            let sent = finished.state == ImplementationState::Sent;
             (finished.request.text.as_str(), sent)
         })
         .collect();
@@ -1246,7 +1272,7 @@ fn a_pane_implement_that_missed_the_pages_request_starts_no_second_implementatio
         harness
             .next::<ui_events::ExploreImplementationFinished>()
             .state,
-        DispatchState::NotSent(_)
+        ImplementationState::NotSent(_)
     ));
     assert_eq!(harness.saved().implementations.len(), 1);
     let implement_prompts = harness

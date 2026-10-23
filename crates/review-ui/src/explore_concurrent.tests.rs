@@ -104,6 +104,7 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     assert!(fixture.text().contains("Next local draft"));
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
+        implementations: Vec::new(),
         round: Arc::new(round),
         applied: false,
         response,
@@ -249,6 +250,7 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     round.revision += 1;
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
+        implementations: Vec::new(),
         round: Arc::new(round.clone()),
         applied: true,
         response,
@@ -264,6 +266,7 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     fixture.app.update(UserInput::Key(Key::Tab));
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
+        implementations: Vec::new(),
         round: Arc::new(round),
         applied: false,
         response,

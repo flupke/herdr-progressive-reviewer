@@ -95,7 +95,10 @@ fn an_implementation_request_the_agent_does_not_start_on_is_sent_again_as_it_was
         .handle(Input::Command(Command::Implement(request.clone())));
 
     let finished = harness.next::<ui_events::ExploreImplementationFinished>();
-    assert_eq!(finished.state, DispatchState::NotStarted);
+    assert_eq!(
+        finished.state,
+        review_explore::ImplementationState::NotStarted
+    );
     harness.session.handle(Input::StorageChanged);
     let saved = harness.saved();
     assert_eq!(
@@ -117,7 +120,7 @@ fn an_implementation_request_the_agent_does_not_start_on_is_sent_again_as_it_was
         .session
         .handle(Input::Command(Command::Implement(request.clone())));
     let finished = harness.next::<ui_events::ExploreImplementationFinished>();
-    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.state, review_explore::ImplementationState::Sent);
     assert_eq!(finished.request, request);
     let prompts = &harness.agents.prompts()[prompts..];
     assert_eq!(prompts.len(), 1);

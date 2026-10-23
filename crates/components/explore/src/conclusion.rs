@@ -4,9 +4,11 @@ use super::{
 };
 use comment_editor::CommentEditor;
 use ratatui::widgets::{Paragraph, Wrap};
+use review_explore::ImplementationState;
 use ui_actions::Action;
 use ui_events::{
-    ExploreImplementationFinished, ReviewNavigation, ReviewPane, ReviewPaneFocusRequested,
+    ExploreImplementationFinished, ImplementationProgress, ReviewNavigation, ReviewPane,
+    ReviewPaneFocusRequested,
 };
 use ui_theme::Palette;
 
@@ -248,7 +250,7 @@ impl ExploreComponent {
             && view.delivery.pending_delivery() == Some(event.request.delivery.as_str())
             && view.attempt == event.attempt
         {
-            view.delivery = Delivery::from_state(&event.request, &event.state);
+            view.delivery = Delivery::shown(&event.request, &event.state);
         }
     }
 
@@ -423,24 +425,18 @@ impl ExploreComponent {
 }
 
 impl ExploreComponent {
-    pub(super) fn refresh_implementation_delivery(&mut self, round: &review_explore::ExploreRound) {
-        for (id, view) in &mut self.conclusions {
-            let Some(record) = round.latest_implementation(id) else {
+    pub(super) fn refresh_implementation_delivery(&mut self, latest: &[ImplementationProgress]) {
+        for progress in latest {
+            let Some(view) = self.conclusions.get_mut(&progress.request.conclusion) else {
                 continue;
             };
             let pending_here =
-                view.delivery.pending_delivery() == Some(record.request.delivery.as_str());
-            if pending_here
-                && matches!(
-                    record.state,
-                    review_explore::DispatchState::Queued
-                        | review_explore::DispatchState::Attempting
-                )
-            {
+                view.delivery.pending_delivery() == Some(progress.request.delivery.as_str());
+            if pending_here && progress.state == ImplementationState::Sending {
                 continue;
             }
-            view.delivery = Delivery::restored(record);
-            view.attempt = Some(record.attempt.clone());
+            view.delivery = Delivery::shown(&progress.request, &progress.state);
+            view.attempt = Some(progress.attempt.clone());
         }
     }
 
@@ -463,9 +459,14 @@ impl ExploreComponent {
         }
     }
 
-    pub(super) fn restore_conclusions(&mut self, round: &review_explore::ExploreRound) {
+    pub(super) fn restore_conclusions(
+        &mut self,
+        round: &review_explore::ExploreRound,
+        latest: &[ImplementationProgress],
+    ) {
         self.conclusions.clear();
         self.reconcile_conclusions(round);
+        self.refresh_implementation_delivery(latest);
     }
 
     pub(super) fn reconcile_conclusions(&mut self, round: &review_explore::ExploreRound) {
@@ -476,9 +477,6 @@ impl ExploreComponent {
             if self.conclusions.contains_key(&turn.update.request) {
                 continue;
             }
-            let delivery = round
-                .latest_implementation(&turn.update.request)
-                .map_or(Delivery::Ready, Delivery::restored);
             self.conclusions.insert(
                 turn.update.request.clone(),
                 ConclusionView {
@@ -486,7 +484,7 @@ impl ExploreComponent {
                     content: content.clone(),
                     editor: CommentEditor::new(&content.to_be_implemented, &self.keymap),
                     replying: false,
-                    delivery,
+                    delivery: Delivery::Ready,
                     attempt: None,
                 },
             );
@@ -494,30 +492,29 @@ impl ExploreComponent {
     }
 
     pub(super) fn implementation_saved(&mut self, event: &ui_events::ExploreImplementationSaved) {
-        let record = &event.0;
+        let progress = &event.0;
         if self
             .exploration
             .as_ref()
-            .is_none_or(|round| round.instance != record.request.instance)
+            .is_none_or(|round| round.instance != progress.request.instance)
         {
             return;
         }
         self.implementation_requested = true;
-        let Some(view) = self.conclusions.get_mut(&record.request.conclusion) else {
+        let Some(view) = self.conclusions.get_mut(&progress.request.conclusion) else {
             return;
         };
-        if view.delivery.pending_delivery() == Some(record.request.delivery.as_str()) {
-            view.attempt = Some(record.attempt.clone());
-            // A queued result is not a recovered paused request in this running process.
-            if record.state != review_explore::DispatchState::Queued {
-                view.delivery = Delivery::restored(record);
+        if view.delivery.pending_delivery() == Some(progress.request.delivery.as_str()) {
+            view.attempt = Some(progress.attempt.clone());
+            if progress.state != ImplementationState::Sending {
+                view.delivery = Delivery::shown(&progress.request, &progress.state);
             }
-        } else if record.state == review_explore::DispatchState::Queued {
+        } else if progress.state == ImplementationState::Sending {
             // Another front end, the Explore page, authorized it: this process sends it now.
-            view.delivery = Delivery::Pending(record.request.clone());
-            view.attempt = Some(record.attempt.clone());
+            view.delivery = Delivery::Pending(progress.request.clone());
+            view.attempt = Some(progress.attempt.clone());
             if self.editor_target == EditorTarget::Implementation
-                && self.general_context.as_ref() == Some(&record.request.conclusion)
+                && self.general_context.as_ref() == Some(&progress.request.conclusion)
             {
                 self.editing = false;
             }
@@ -526,24 +523,18 @@ impl ExploreComponent {
 }
 
 impl Delivery {
-    fn restored(record: &review_explore::ImplementationDelivery) -> Self {
-        Self::from_state(&record.request, &record.state)
-    }
-
-    fn from_state(
-        request: &review_explore::ImplementationRequest,
-        state: &review_explore::DispatchState,
-    ) -> Self {
-        use review_explore::DispatchState;
-        match state.recovered() {
-            DispatchState::Queued => Self::Paused(request.clone()),
-            DispatchState::Attempting | DispatchState::Unknown => Self::Unknown(request.clone()),
-            DispatchState::Delivered => Self::Sent(request.clone()),
-            DispatchState::NotStarted => Self::NotStarted(request.clone()),
-            DispatchState::Cancelled => {
+    /// The request `request`, in the state the session decided for it.
+    fn shown(request: &review_explore::ImplementationRequest, state: &ImplementationState) -> Self {
+        match state {
+            ImplementationState::Sending => Self::Pending(request.clone()),
+            ImplementationState::Paused => Self::Paused(request.clone()),
+            ImplementationState::Unknown => Self::Unknown(request.clone()),
+            ImplementationState::Sent => Self::Sent(request.clone()),
+            ImplementationState::NotStarted => Self::NotStarted(request.clone()),
+            ImplementationState::Cancelled => {
                 Self::Failed("Implementation request cancelled before sending.".into())
             }
-            DispatchState::NotSent(error) => Self::Failed(error),
+            ImplementationState::NotSent(error) => Self::Failed(error.clone()),
         }
     }
 }

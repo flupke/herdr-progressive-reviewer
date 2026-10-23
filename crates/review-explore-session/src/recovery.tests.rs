@@ -1,7 +1,7 @@
 //! Restoring saved rounds after a restart, repairing damaged records and retrying
 //! interrupted deliveries, through the session interface over a temporary directory.
 
-use review_explore::{DispatchState, ExplorePage, ExploreViewState};
+use review_explore::{DispatchState, ExplorePage, ExploreViewState, ImplementationState};
 use ui_events::ExploreProgress;
 
 use super::*;
@@ -296,10 +296,10 @@ fn implementation_delivery_states_survive_restart_without_replaying() {
         round.authorize(&request).unwrap();
     });
     let prompts = harness.agents.prompts().len();
-    for state in [
-        DispatchState::Queued,
-        DispatchState::Attempting,
-        DispatchState::Delivered,
+    for (state, shown) in [
+        (DispatchState::Queued, ImplementationState::Paused),
+        (DispatchState::Attempting, ImplementationState::Unknown),
+        (DispatchState::Delivered, ImplementationState::Sent),
     ] {
         harness.damage(|round| {
             round
@@ -309,17 +309,85 @@ fn implementation_delivery_states_survive_restart_without_replaying() {
                 .state = state.clone();
         });
 
-        let restored = harness.reopen().result.unwrap().unwrap();
+        let restored = harness.reopen();
 
-        let delivery = &restored.implementations[&request.delivery];
+        let round = restored.result.unwrap().unwrap();
+        let delivery = &round.implementations[&request.delivery];
         assert_eq!(delivery.request.text, "Exactly this authorized text");
         assert_eq!(delivery.state, state);
+        assert_eq!(
+            restored.implementations,
+            vec![ui_events::ImplementationProgress {
+                request: request.clone(),
+                attempt: delivery.attempt.clone(),
+                state: shown,
+            }],
+            "the pane shows what the reopened session decided"
+        );
         assert_eq!(
             harness.agents.prompts().len(),
             prompts,
             "reopening sent nothing"
         );
     }
+}
+
+#[test]
+fn a_request_an_earlier_process_left_queued_stays_paused_while_another_is_sent() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    // An earlier process saved a request for the first conclusion and never sent it.
+    let earlier = harness
+        .exploration()
+        .implementation("Earlier task".into())
+        .unwrap();
+    harness.damage(|round| {
+        round.authorize(&earlier).unwrap();
+    });
+    let reply = harness.request(Some(AnswerInput {
+        text: "Revise it.".into(),
+        ..AnswerInput::default()
+    }));
+    let access = harness.turn(&reply);
+    let revised = harness.exploration().retry_request().unwrap().clone();
+    assert!(applied(
+        harness.submit(&access, conclusion(&revised, CONCLUSION))
+    ));
+    let restored = harness.reopen();
+    harness.adopt(&restored);
+    let request = harness
+        .exploration()
+        .implementation("Add a regression test.".into())
+        .unwrap();
+    assert_ne!(request.conclusion, earlier.conclusion);
+    harness.delivery.close();
+    harness
+        .session
+        .handle(Input::Command(Command::Implement(request.clone())));
+    let sent = harness.next::<ui_events::ExploreImplementationSaved>().0;
+
+    // Another front end saves the round while the request is on its way.
+    harness.damage(|round| round.revision += 1);
+    harness.session.handle(Input::StorageChanged);
+
+    let committed = harness.next::<ui_events::ExploreCommitted>();
+    harness.delivery.open();
+    let state_of = |delivery: &str| {
+        committed
+            .implementations
+            .iter()
+            .find(|progress| progress.request.delivery == delivery)
+            .map(|progress| progress.state.clone())
+    };
+    assert_eq!(
+        state_of(&earlier.delivery),
+        Some(ImplementationState::Paused)
+    );
+    assert_eq!(
+        state_of(&request.delivery),
+        Some(ImplementationState::Sending)
+    );
+    assert_eq!(sent.state, ImplementationState::Sending);
 }
 
 #[test]
@@ -535,7 +603,7 @@ fn a_restored_conclusion_is_implemented_by_the_selected_agent_without_a_conversa
 
     let finished = harness.next::<ui_events::ExploreImplementationFinished>();
     assert_eq!(finished.request, request);
-    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.state, review_explore::ImplementationState::Sent);
     let prompts = harness.agents.prompts();
     assert!(
         prompts

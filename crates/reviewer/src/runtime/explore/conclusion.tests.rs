@@ -82,7 +82,7 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
         .explore(ExploreCommand::Implement(request.clone()));
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
-    assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
+    assert_eq!(delivered.state, review_explore::ImplementationState::Sent);
     let prompts = flow
         .fixture
         .herdr
@@ -109,7 +109,7 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
     flow.fixture.explore(ExploreCommand::Implement(request));
     assert_eq!(
         flow.wait_for_implementation().state,
-        review_explore::DispatchState::Delivered
+        review_explore::ImplementationState::Sent
     );
     let prompts = flow.settled_prompts();
     flow.fixture.explore(ExploreCommand::CancelImplementation);
