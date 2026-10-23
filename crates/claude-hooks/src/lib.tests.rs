@@ -139,6 +139,63 @@ fn a_prompt_the_reviewer_does_not_block_goes_on_without_a_decision() {
     assert_eq!(decision, None);
 }
 
+/// A long prompt the reviewer types, as Herdr pastes it.
+const LONG: &str = "The reviewer clicked Implement.\n\nTasks from the reviewer:\n- one\n- two\n";
+
+/// `LONG` as Claude Code 2.1.309 reports it, after the text `before` left in its input box.
+fn wrapped_paste(before: &str) -> String {
+    format!("{before}\n\n<pasted_content id=\"4225\">\n{LONG}</pasted_content id=\"4225\">\n")
+}
+
+#[test]
+fn a_long_prompt_claude_code_reports_as_a_paste_is_the_one_the_reviewer_typed() {
+    let (_runtime, directory, hooks) = reviewer();
+    let pane = PaneId("w:p1".into());
+    let expectation = hooks.expect_prompt(&pane, Some("session"), LONG, "blocked");
+
+    let decision = hook(
+        &pane,
+        &directory,
+        prompt_submit(&wrapped_paste("")).as_bytes(),
+    );
+
+    assert_eq!(decision, None);
+    assert_eq!(expectation.wait(Duration::ZERO), Some(Heard::Submitted));
+}
+
+#[test]
+fn text_left_in_the_input_box_before_a_long_prompt_is_blocked() {
+    let (_runtime, directory, hooks) = reviewer();
+    let pane = PaneId("w:p1".into());
+    let expectation = hooks.expect_prompt(&pane, Some("session"), LONG, "blocked");
+
+    let decision = hook(
+        &pane,
+        &directory,
+        prompt_submit(&wrapped_paste("half a thought")).as_bytes(),
+    );
+
+    assert!(decision.is_some_and(|decision| decision.contains("\"block\"")));
+    assert_eq!(
+        expectation.wait(Duration::ZERO),
+        Some(Heard::Joined {
+            left: "half a thought".into()
+        })
+    );
+}
+
+#[test]
+fn the_typed_prompt_in_another_session_of_the_pane_is_blocked() {
+    let (_runtime, directory, hooks) = reviewer();
+    let pane = PaneId("w:p1".into());
+    let expectation = hooks.expect_prompt(&pane, Some("agent"), "Reply with ok", "blocked");
+
+    let decision = hook(&pane, &directory, prompt_submit("Reply with ok").as_bytes());
+
+    assert!(decision.is_some());
+    assert_eq!(expectation.wait(Duration::ZERO), Some(Heard::Stopped));
+}
+
 /// The JSON file at `path` under this crate.
 fn manifest(path: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);

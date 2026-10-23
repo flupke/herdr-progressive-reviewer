@@ -1,24 +1,74 @@
 //! Reviewer prompts are submitted through Herdr: the conversation worker decides what to send,
-//! and its courier sends it.
+//! and its courier sends it. An agent that runs the reviewer's hooks confirms each prompt
+//! through them, and the hooks block text left in its input box that joined the prompt.
 use std::sync::{
     Arc, Condvar, Mutex, PoisonError,
     atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver, Sender},
 };
 use std::thread;
+use std::time::Duration;
 
+use agent_hooks::{AgentHooks, Heard};
 use herdr_client::protocol::{Agent, AgentPort};
 
 use crate::{Input, PinnedAgent};
 
-/// Submit `text` to `agent` and wait until it starts on it. Any other failure may come after
-/// Herdr wrote the text, so it leaves the outcome unknown.
-fn prompt_agent(port: &dyn AgentPort, agent: &Agent, text: &str) -> Result<(), PromptError> {
-    port.prompt_agent(&agent.pane_id, text)
-        .map_err(|error| match error {
-            herdr_client::Error::AgentNotStarted { .. } => PromptError::NotStarted,
-            error => PromptError::Unknown(error.to_string()),
-        })
+/// How long a prompt to an agent that runs the reviewer's hooks waits for them to report it,
+/// before Herdr's status decides: they report it within milliseconds of the submission, also
+/// while the agent works on a turn.
+const HOOK_LIMIT: Duration = Duration::from_secs(5);
+
+/// Why the agent's hooks block a prompt submitted while the reviewer types one, as the agent
+/// shows it.
+const BLOCKED: &str = "The progressive reviewer stopped this prompt while it typed one of its \
+                       own here, since text left in the input box joins its prompt. Empty the \
+                       input box, keeping your own text elsewhere, before you Retry in the \
+                       reviewer.";
+
+/// Submit `text` to `agent` and wait until it starts on it: as its `hooks` report the prompt,
+/// when the agent runs them, and otherwise as Herdr reports the agent's status. Any other
+/// failure may come after Herdr wrote the text, so it leaves the outcome unknown.
+fn prompt_agent(
+    port: &dyn AgentPort,
+    hooks: Option<&AgentHooks>,
+    agent: &Agent,
+    text: &str,
+) -> Result<(), PromptError> {
+    let unknown = |error: herdr_client::Error| match error {
+        herdr_client::Error::AgentNotStarted { .. } => PromptError::NotStarted,
+        error => PromptError::Unknown(error.to_string()),
+    };
+    let Some(hooks) = hooks.filter(|hooks| hooks.hooked(port, agent)) else {
+        return port.prompt_agent(&agent.pane_id, text).map_err(unknown);
+    };
+    let session = agent
+        .agent_session
+        .as_ref()
+        .map(|session| session.value.as_str());
+    let expectation = hooks.expect_prompt(&agent.pane_id, session, text, BLOCKED);
+    port.submit_prompt(&agent.pane_id, text).map_err(unknown)?;
+    match expectation.wait(HOOK_LIMIT) {
+        Some(Heard::Submitted) => Ok(()),
+        Some(Heard::Joined { left }) => Err(PromptError::Blocked { left }),
+        Some(Heard::Stopped) => Err(PromptError::Delivery(
+            "The reviewer stopped its prompt, which reached the agent while it switched \
+             sessions, or reached another session than Herdr reports. Look at the agent's pane, \
+             then Retry."
+                .into(),
+        )),
+        // The hooks did not say. A working agent started on it, as Herdr judges for an agent
+        // without them; an idle one may have ended a quick turn on it already.
+        Some(Heard::Resumed | Heard::Blocked { .. }) | None => match port.get_agent(&agent.pane_id)
+        {
+            Ok(Some(now)) if now.agent_status.started_on_prompt() => Ok(()),
+            Ok(_) => Err(PromptError::Unknown(format!(
+                "the agent's hooks did not report the prompt within {} s",
+                HOOK_LIMIT.as_secs()
+            ))),
+            Err(error) => Err(unknown(error)),
+        },
+    }
 }
 
 /// What the courier calls with the outcome of one prompt, on its own thread.
@@ -34,7 +84,7 @@ struct QueuedPrompt {
 }
 
 impl QueuedPrompt {
-    fn send(self, port: &dyn AgentPort) {
+    fn send(self, port: &dyn AgentPort, hooks: Option<&AgentHooks>) {
         let withdrawn = self
             .cancelled
             .as_ref()
@@ -42,7 +92,7 @@ impl QueuedPrompt {
         let result = if withdrawn {
             Err(PromptError::Cancelled)
         } else {
-            prompt_agent(port, &self.agent, &self.text)
+            prompt_agent(port, hooks, &self.agent, &self.text)
         };
         (self.outcome)(result);
     }
@@ -82,7 +132,7 @@ impl PromptGate {
     }
 
     /// Sends `delivery` once no hold lives; no hold begins while it is sent.
-    fn send(&self, delivery: QueuedPrompt, port: &dyn AgentPort) {
+    fn send(&self, delivery: QueuedPrompt, port: &dyn AgentPort, hooks: Option<&AgentHooks>) {
         let mut state = self.lock();
         #[cfg(test)]
         if state.holds > 0 {
@@ -100,7 +150,7 @@ impl PromptGate {
         state.sending = true;
         drop(state);
         let _sent = Sent(self);
-        delivery.send(port);
+        delivery.send(port, hooks);
     }
 
     /// A prompt for the courier to send, after those it holds already.
@@ -214,7 +264,13 @@ pub(super) struct Courier {
 }
 
 impl Courier {
-    pub(super) fn start(port: Arc<dyn AgentPort>, gate: Arc<PromptGate>) -> Self {
+    /// Sends through `port`, and confirms the prompts to the agents that run the reviewer's
+    /// hooks through `hooks`, when the reviewer listens to them.
+    pub(super) fn start(
+        port: Arc<dyn AgentPort>,
+        gate: Arc<PromptGate>,
+        hooks: Option<Arc<AgentHooks>>,
+    ) -> Self {
         let (sender, parcels) = mpsc::channel();
         let courier = Self {
             parcels: sender,
@@ -225,7 +281,7 @@ impl Courier {
         thread::spawn(move || {
             for parcel in parcels {
                 match parcel {
-                    Parcel::Prompt(delivery) => gate.send(*delivery, &*port),
+                    Parcel::Prompt(delivery) => gate.send(*delivery, &*port, hooks.as_deref()),
                     #[cfg(test)]
                     Parcel::Flush(done) => {
                         let _ = done.send(());
@@ -294,6 +350,13 @@ pub enum PromptError {
     Delivery(String),
     #[error("The agent did not start on the prompt. Look at the agent's pane, then Retry.")]
     NotStarted,
+    /// The agent's hooks blocked the prompt, joined by the text `left` in its input box: the
+    /// agent did not run it.
+    #[error(
+        "Text left in the agent's input box joined the prompt, so the reviewer stopped both. \
+         Empty the agent's input box, then Retry. The text left there: {left}"
+    )]
+    Blocked { left: String },
     #[error("Delivery outcome unknown: {0}")]
     Unknown(String),
 }
@@ -469,7 +532,7 @@ mod tests {
         let agent: Agent = serde_json::from_value(serde_json::json!({"pane_id":"pane", "tab_id":"tab", "workspace_id":"workspace", "agent_status":"idle"})).unwrap();
         agents.upsert_agent(agent.clone());
         let gate = Arc::<PromptGate>::default();
-        let courier = Courier::start(Arc::new(agents.clone()), gate.clone());
+        let courier = Courier::start(Arc::new(agents.clone()), gate.clone(), None);
         let hold = PromptHold::new(&gate);
         let (outcomes, outcome) = mpsc::channel();
         let withdrawn = Arc::new(AtomicBool::new(false));
@@ -524,6 +587,7 @@ mod tests {
         let worker = crate::Worker::start(
             store,
             agents.clone(),
+            None,
             herdr_client::protocol::AgentTarget::new(
                 agent.workspace_id.clone(),
                 Some(agent.pane_id.clone()),

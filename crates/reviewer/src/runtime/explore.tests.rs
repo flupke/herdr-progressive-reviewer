@@ -3,6 +3,8 @@ use review_explore::{AnswerInput, Command as ExploreCommand, Exploration, TopicS
 
 #[path = "explore/conclusion.tests.rs"]
 mod conclusion;
+#[path = "explore/prompt_hooks.tests.rs"]
+mod prompt_hooks;
 
 impl ReviewFlowFixture {
     pub(super) fn explore(&self, command: ExploreCommand) {

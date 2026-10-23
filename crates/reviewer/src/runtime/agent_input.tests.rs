@@ -12,6 +12,14 @@ impl AgentInput {
         &self.text
     }
 
+    /// Puts the prompt `blocked`, if any, back in the composer, as Claude Code does with a
+    /// prompt its hooks blocked.
+    pub(super) fn restore(&mut self, blocked: Option<String>) {
+        if let Some(blocked) = blocked {
+            self.text = blocked;
+        }
+    }
+
     pub(super) fn handle(&mut self, event: Event) -> Option<String> {
         match event {
             Event::Paste(text) => self.text.push_str(&text),

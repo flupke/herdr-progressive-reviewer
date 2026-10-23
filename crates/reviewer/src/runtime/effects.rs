@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread::{self, JoinHandle};
 
+use agent_hooks::AgentHooks;
 use component_core::{ApplicationEventSender, EventEnvelope};
 use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
 use herdr_client::client::HerdrClient;
@@ -55,6 +56,9 @@ pub(super) struct Setup {
     pub(super) page_opener: Option<PageOpener>,
     /// The Explore page's link to the review threads, which hold the round's conversation.
     pub(super) page_threads: Arc<PageThreads>,
+    /// Where the hooks of the agents of Herdr's server reach the reviewer; `None` when it is
+    /// not known.
+    pub(super) hook_directory: Option<agent_hooks::HookDirectory>,
     /// How run-ahead forks the agent.
     pub(super) run_ahead: RunAheadSetup,
 }
@@ -70,22 +74,36 @@ pub(super) struct RunAheadSetup {
     /// How long the reviewer's talk with the agent in the round conversation stays quiet
     /// before run-ahead takes forks again.
     pub(super) talk_quiet: std::time::Duration,
-    /// Where the hooks of the agents of Herdr's server reach the reviewer; `None` when it is
-    /// not known.
-    pub(super) hooks: Option<agent_hooks::HookDirectory>,
 }
 
 impl RunAheadSetup {
-    /// The forks of the agents `agents` reports.
-    fn forks(self, agents: &HerdrClient) -> Arc<claude_fork::ClaudeForks> {
+    /// The forks of the agents `agents` reports, which hears the agents' hooks through `hooks`.
+    fn forks(
+        self,
+        agents: &HerdrClient,
+        hooks: Result<Arc<AgentHooks>, String>,
+    ) -> Arc<claude_fork::ClaudeForks> {
         Arc::new(claude_fork::ClaudeForks::new(
             agents.clone(),
             self.tools,
             self.log,
             self.waits,
-            self.hooks.as_ref(),
+            hooks,
         ))
     }
+}
+
+/// The reviewer's end of the hooks of the agents of Herdr's server, whose directory is
+/// `directory`, or why it does not listen to them.
+fn listen_to_hooks(
+    directory: Option<&agent_hooks::HookDirectory>,
+) -> Result<Arc<AgentHooks>, String> {
+    let directory = directory.ok_or(
+        "cannot listen to the agents' hooks: XDG_RUNTIME_DIR or HERDR_SOCKET_PATH is not set",
+    )?;
+    AgentHooks::listen(directory)
+        .map(Arc::new)
+        .map_err(|error| format!("cannot listen to the agents' hooks: {error}"))
 }
 
 /// Where effects deliver their results.
@@ -144,6 +162,7 @@ impl Effects {
             page,
             page_opener,
             page_threads,
+            hook_directory,
             run_ahead,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
@@ -151,20 +170,22 @@ impl Effects {
         let (commands, command_receiver) = mpsc::channel();
         let (documents, document_thread) =
             start_documents(repository.clone(), Arc::clone(&tracker), messages.clone());
+        // One listener serves the thread service's prompts and run-ahead.
+        let hooks = listen_to_hooks(hook_directory.as_ref());
         let comments = start_comments(
             &store,
             agents.clone(),
+            hooks.as_ref().ok().cloned(),
             target.clone(),
             endpoint,
             &commands,
-            messages.clone(),
-            Arc::clone(&page_threads),
+            thread_events(&commands, messages.clone(), Arc::clone(&page_threads)),
         );
         if let Some(turns) = &turns {
             comments.log_turns(turns.clone());
         }
         let talk_quiet = run_ahead.talk_quiet;
-        let forks = run_ahead.forks(&agents);
+        let forks = run_ahead.forks(&agents, hooks);
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
             store: store.clone(),
@@ -431,17 +452,17 @@ fn start_documents(
 fn start_comments(
     store: &ReviewStore,
     agents: HerdrClient,
+    hooks: Option<Arc<AgentHooks>>,
     target: AgentTarget,
     endpoint: Result<review_mcp::Endpoint, String>,
     commands: &Sender<WorkerCommand>,
-    messages: ApplicationEventSender,
-    page: Arc<PageThreads>,
+    events: impl Fn(comments::Event) + Send + 'static,
 ) -> comments::Worker {
-    let explore = inbox_for(commands.clone());
     let commands = commands.clone();
     comments::Worker::start(
         store.clone(),
         agents,
+        hooks,
         target,
         endpoint,
         move |request| {
@@ -451,14 +472,25 @@ fn start_comments(
                 )))
                 .map_err(|_| "The reviewer is closed".to_owned())
         },
-        move |event| {
-            page.observe(&event);
-            if let comments::Event::RoundMessage(message) = &event {
-                explore.deliver(explore_session::Input::RoundMessage(message.clone()));
-            }
-            publish_thread_event(&messages, event);
-        },
+        events,
     )
+}
+
+/// Where the thread worker's events go: the Explore page, the Explore session for a message of
+/// the round conversation, and the pane.
+fn thread_events(
+    commands: &Sender<WorkerCommand>,
+    messages: ApplicationEventSender,
+    page: Arc<PageThreads>,
+) -> impl Fn(comments::Event) + Send + 'static {
+    let explore = inbox_for(commands.clone());
+    move |event| {
+        page.observe(&event);
+        if let comments::Event::RoundMessage(message) = &event {
+            explore.deliver(explore_session::Input::RoundMessage(message.clone()));
+        }
+        publish_thread_event(&messages, event);
+    }
 }
 
 /// Shows the thread worker's `event` in the pane.

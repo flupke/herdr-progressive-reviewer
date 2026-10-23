@@ -1,5 +1,6 @@
 //! The events that the hooks of an agent in a Herdr pane send to the reviewers of its Herdr
-//! server: run-ahead waits on them instead of reading the agent's screen.
+//! server: the reviewer confirms each prompt it types through them, and run-ahead waits on them
+//! instead of reading the agent's screen.
 //!
 //! The agent runs the reviewer's hooks (`claude-hooks` holds Claude Code's plugin). Each hook
 //! runs `reviewer-control agent-hook`, which hands the event, with the agent's pane, to every

@@ -79,8 +79,11 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   /resume <session>`, which fires `UserPromptSubmit`; a command alone fires none. So while a
   switch or a settling waits for the session, the reviewer blocks every prompt of that pane,
   and the switch fails, the answer waiting for Retry. A blocked prompt runs no turn: Claude
-  Code 2.1.292 shows the reason and the original prompt in its transcript, and leaves the
-  input box empty. A hook that gets no answer in time lets the prompt go on.
+  Code shows the reason and the original prompt in its transcript, and 2.1.309 puts the
+  prompt back in the input box (2.1.292 left it empty), so a Retry joins it again until the
+  user clears the box. A hook that gets no answer in time lets the prompt go on. The thread
+  service confirms its own prompts through the same hook, and the same listener
+  ([threads](threads.md#delivery)): a pane holds a prompt's expectation and a resume's at once.
 - Settling rests on Claude Code taking what is typed while it loads a session after it, in
   order: once a settling `/resume` is typed and Herdr reports the agent there, an earlier late
   resume cannot move it. This is not checked.

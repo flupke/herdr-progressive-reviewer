@@ -124,6 +124,11 @@ pub trait AgentPort: Send + Sync {
 
     /// Submit one complete prompt through Herdr's agent-aware boundary.
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()>;
+
+    /// Submit `text` as [`Self::prompt_agent`] does, without waiting for the agent to start
+    /// working: for a command of the agent's own, which starts no turn, or for a prompt whose
+    /// submission the agent's hooks confirm.
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> Result<()>;
 }
 
 /// Pane read operations needed by the reviewer.
@@ -225,6 +230,12 @@ impl AgentStatus {
     /// Whether an agent in this state waits for its next prompt.
     pub fn waits_for_prompt(self) -> bool {
         matches!(self, Self::Idle | Self::Done)
+    }
+
+    /// Whether an agent in this state started on a prompt, as Herdr's wait in
+    /// [`AgentPort::prompt_agent`] judges it: working, or blocked on its user.
+    pub fn started_on_prompt(self) -> bool {
+        matches!(self, Self::Working | Self::Blocked)
     }
 }
 

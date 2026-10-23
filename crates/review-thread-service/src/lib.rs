@@ -100,10 +100,13 @@ impl Worker {
     }
 
     /// Serve MCP at `endpoint`. Explore operations go straight to `explore`, which
-    /// belongs to the Explore session; this worker handles only review threads.
+    /// belongs to the Explore session; this worker handles only review threads. The prompts to
+    /// an agent that runs the reviewer's hooks are confirmed through `hooks`, when the reviewer
+    /// listens to them.
     pub fn start(
         store: ReviewStore,
         port: impl AgentPort + 'static,
+        hooks: Option<std::sync::Arc<agent_hooks::AgentHooks>>,
         target: AgentTarget,
         endpoint: Result<Endpoint, String>,
         explore: impl Fn(review_mcp::Request) -> Result<(), String> + Send + Sync + 'static,
@@ -129,14 +132,16 @@ impl Worker {
             if let Err(error) = &server {
                 publish(Event::Error(error.clone()));
             }
+            let port: std::sync::Arc<dyn AgentPort> = std::sync::Arc::new(port);
+            let courier = delivery::Courier::start(port.clone(), courier_gate, hooks);
             State::new(
                 store,
-                std::sync::Arc::new(port),
+                port,
                 target,
                 available,
                 Box::new(publish),
                 inputs,
-                courier_gate,
+                courier,
             )
             .run(&receiver);
             drop(server);

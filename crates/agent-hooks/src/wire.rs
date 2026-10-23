@@ -20,9 +20,14 @@ pub enum AgentEvent {
         session: String,
         source: SessionSource,
     },
-    /// The text `prompt` was submitted to the agent: the agent takes a turn on it unless a
-    /// reviewer blocks it. A command of Claude Code's own, such as `/resume`, is no prompt.
-    PromptSubmitted { prompt: String },
+    /// The text `prompt` was submitted to the agent, on the session `session`: the agent takes
+    /// a turn on it unless a reviewer blocks it. A command of Claude Code's own, such as
+    /// `/resume`, is no prompt. A hook older than the session field reports none.
+    PromptSubmitted {
+        prompt: String,
+        #[serde(default)]
+        session: Option<String>,
+    },
 }
 
 /// A reviewer's answer to [`AgentEvent::PromptSubmitted`].

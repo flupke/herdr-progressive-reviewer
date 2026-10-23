@@ -54,14 +54,15 @@ impl Service {
             _ => {}
         };
         let (sender, inputs) = std::sync::mpsc::channel();
+        let port: Arc<dyn AgentPort> = Arc::new(agents.clone());
         let mut state = State::new(
             store,
-            Arc::new(agents.clone()),
+            port.clone(),
             target.clone(),
             true,
             Box::new(publish),
             sender,
-            Arc::default(),
+            crate::delivery::Courier::start(port, Arc::default(), None),
         );
         state.command(Command::Thread(ThreadCommand::Load(UNIT.into())));
         Self {
@@ -431,6 +432,10 @@ impl AgentPort for SlowAgents {
         self.agents.pane_process_info(pane_id)
     }
 
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        self.agents.submit_prompt(pane_id, text)
+    }
+
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
         let _ = self.prompting.send(());
         let _ = self.release.lock().unwrap().recv();
@@ -466,6 +471,7 @@ impl SlowWorker {
                 prompting,
                 release: Mutex::new(released),
             },
+            None,
             AgentTarget::new(workspace(), Some(pane("first"))),
             Err("No MCP listener in this test".into()),
             |_| Err("No MCP listener in this test".into()),

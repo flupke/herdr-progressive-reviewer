@@ -294,9 +294,7 @@ impl IsolatedHerdrServer {
     /// Herdr wrote there before: what the agent did with it.
     fn mark(&self) -> Vec<Reported> {
         self.events.mark(|prompt| {
-            self.client()
-                .submit_agent_command(&self.pane_id, prompt)
-                .unwrap();
+            self.client().submit_prompt(&self.pane_id, prompt).unwrap();
         })
     }
 
@@ -599,7 +597,7 @@ fn e2e_agent_process() {
             return;
         }
         if let Some(prompt) = input.handle(event) {
-            prompts.read(&prompt);
+            input.restore(prompts.read(&prompt));
         }
         let screen = if input.text().is_empty() {
             turns.screen().unwrap_or_else(|| format!("{marker} "))
@@ -622,11 +620,12 @@ struct AgentPrompts {
 
 impl AgentPrompts {
     /// Claude Code's own `/resume <session>` continues that session; a marker only says that
-    /// the agent read it; any other prompt starts a turn.
-    fn read(&mut self, prompt: &str) {
+    /// the agent read it; any other prompt starts a turn, unless the hooks block it: Claude
+    /// Code 2.1.309 then puts it back in its input box, and this returns it.
+    fn read(&mut self, prompt: &str) -> Option<String> {
         if let Some(id) = marker_of(prompt) {
             self.report.report(&StandInEvent::Marker { id });
-            return;
+            return None;
         }
         if let Some(session) = prompt.trim().strip_prefix("/resume ") {
             self.transcript.resume(session);
@@ -638,13 +637,13 @@ impl AgentPrompts {
             if fs::remove_file(self.directory.join("unreported-resume")).is_err() {
                 self.hooks.session_started(session, "resume");
             }
-            return;
+            return None;
         }
         if self.hooks.blocks(prompt) {
             self.report.report(&StandInEvent::PromptBlocked {
                 text: prompt.to_owned(),
             });
-            return;
+            return Some(prompt.to_owned());
         }
         self.transcript.turn();
         // The agent reads the turn's files as it reads the prompt that names them.
@@ -652,6 +651,7 @@ impl AgentPrompts {
             text: review_test_support::turn::with_turn(prompt),
         });
         self.turns.prompt_read();
+        None
     }
 }
 
@@ -925,7 +925,7 @@ impl ReviewFlowFixture {
             setup.target =
                 AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone()));
             setup.endpoint = Ok(endpoint);
-            setup.run_ahead.hooks = Some(herdr.hook_directory());
+            setup.hook_directory = Some(herdr.hook_directory());
             adjust(setup);
         });
         let review_unit = runtime.refreshed_checkpoint().review_unit;

@@ -55,6 +55,8 @@ enum Payload {
     },
     UserPromptSubmit {
         prompt: String,
+        #[serde(default)]
+        session_id: Option<String>,
     },
     /// An event the plugin does not register.
     #[serde(other)]
@@ -89,15 +91,43 @@ fn hook(pane: &PaneId, directory: &HookDirectory, payload: &[u8]) -> Option<Stri
             });
             None
         }
-        Payload::UserPromptSubmit { prompt } => {
+        Payload::UserPromptSubmit { prompt, session_id } => {
             let report = Report {
                 pane: pane.clone(),
-                event: AgentEvent::PromptSubmitted { prompt },
+                event: AgentEvent::PromptSubmitted {
+                    prompt: unwrap_pastes(&prompt),
+                    session: session_id,
+                },
             };
             let reason = directory.ask(&report, ASK_LIMIT)?;
             Some(serde_json::json!({"decision": "block", "reason": reason}).to_string())
         }
     }
+}
+
+/// How Claude Code opens a long paste in the prompt it reports, before the paste's ID.
+const PASTE_OPEN: &str = "<pasted_content id=\"";
+
+/// `prompt` with each long paste in it as it was pasted. Claude Code (2.1.309) reports a long
+/// paste, such as a long prompt Herdr types, wrapped as `<pasted_content id="N">` and a line
+/// break, the text, then `</pasted_content id="N">` and a line break.
+fn unwrap_pastes(prompt: &str) -> String {
+    let mut text = String::with_capacity(prompt.len());
+    let mut rest = prompt;
+    while let Some(start) = rest.find(PASTE_OPEN) {
+        let Some((id, body)) = rest[start + PASTE_OPEN.len()..].split_once("\">") else {
+            break;
+        };
+        let Some((pasted, after)) = body.split_once(&format!("</pasted_content id=\"{id}\">"))
+        else {
+            break;
+        };
+        text.push_str(&rest[..start]);
+        text.push_str(pasted.strip_prefix('\n').unwrap_or(pasted));
+        rest = after.strip_prefix('\n').unwrap_or(after);
+    }
+    text.push_str(rest);
+    text
 }
 
 #[cfg(test)]

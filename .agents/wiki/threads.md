@@ -20,15 +20,31 @@ the unanswered work, with each pending thread's full conversation as context.
   round conversation only when a fetched thread is one: the agent calls the tool anyway, so
   the rules reach it beside the threads they apply to, with no file to keep, while the
   server's MCP instructions, which every session of the agent loads, stay short.
-- The reviewer asks Herdr to wait until the agent is working or blocked. An agent that is
-  working already counts at once. One that shows neither within Herdr's 5 seconds did not
-  start on the prompt: its text may still wait in the agent's prompt box.
+- An agent that runs the hooks of the reviewer's Claude Code plugin (as run-ahead checks it,
+  `AgentHooks::hooked`) confirms each prompt through its `UserPromptSubmit` hook: the reviewer
+  types the prompt without Herdr's wait, and it counts as delivered once the hook reports the
+  typed text, on the session Herdr reports. Claude Code 2.1.309 runs the hook within
+  milliseconds of the submission, also for a prompt it queues while it works.
+- Text left in the agent's input box joins the typed prompt into one. While the reviewer
+  waits for its prompt, the hook blocks any other prompt of that pane: the joined one, whose
+  delivery then fails with the text left (`PromptError::Blocked`) and waits for Retry, and
+  one typed by someone else, after which the reviewer waits on for its own. A blocked prompt runs no turn; Claude
+  Code 2.1.309 shows the reason and puts the prompt back in the input box, so the user clears
+  the box before Retry.
+- Claude Code trims the end of the prompt it reports, and wraps a long paste in
+  `<pasted_content id="N">` tags, which `claude-hooks` removes before the reviewer compares.
+- When the hook does not report within 5 seconds, an agent Herdr reports working or blocked
+  counts as started; any other leaves the outcome unknown, since a quick turn may have ended.
+- For an agent without the hooks, Herdr's status decides: the reviewer asks Herdr to wait
+  until the agent is working or blocked. An agent that is working already counts at once. One
+  that shows neither within Herdr's wait did not start on the prompt: its text may still wait
+  in the agent's input box.
 - Herdr judges by the state it knows. When an integration reports the agent's state to Herdr
   instead of Herdr reading its screen, that integration must report the turns the agent
-  starts, or every prompt counts as not started.
+  starts, or every prompt to an agent without the hooks counts as not started.
 - Herdr owns the terminal submission and rejects a prompt to a blocked agent. The reviewer
-  does not inspect the agent's terminal or its focus, and neither inspects nor protects a
-  draft in its composer.
+  does not inspect the agent's terminal or its focus; it protects a prompt from the text left
+  in the input box only through the hooks.
 
 ## Access values
 

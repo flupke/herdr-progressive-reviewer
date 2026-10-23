@@ -80,6 +80,7 @@ impl DurableDispatch {
             Err(PromptError::Cancelled) => DispatchState::Cancelled,
             Err(PromptError::NotStarted) => DispatchState::NotStarted,
             Err(PromptError::Delivery(error)) => DispatchState::NotSent(error.clone()),
+            Err(error @ PromptError::Blocked { .. }) => DispatchState::NotSent(error.to_string()),
             Err(PromptError::Unknown(_)) => DispatchState::Unknown,
         }
     }
