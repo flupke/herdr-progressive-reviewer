@@ -88,6 +88,7 @@ impl Harness {
                 agents: agents.clone(),
                 gate: delivery.clone(),
             },
+            None,
             target(),
             Err("No MCP listener in this test".into()),
             |_| Err("No MCP listener in this test".into()),
@@ -446,6 +447,11 @@ impl AgentPort for GatedAgents {
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
         self.agents
             .prompt_agent(pane_id, &review_test_support::turn::with_turn(text))
+    }
+
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        self.agents
+            .submit_prompt(pane_id, &review_test_support::turn::with_turn(text))
     }
 }
 

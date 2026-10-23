@@ -12,7 +12,7 @@ use review_types::ReviewUnit;
 use serde::Serialize;
 use vision_turns::TurnLog;
 
-use crate::delivery::{Courier, PromptError, PromptGate, PromptQueue};
+use crate::delivery::{Courier, PromptError, PromptQueue};
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
 
 /// How often the worker checks Herdr again while a prompt or wakeup waits. A prompt bound to
@@ -54,11 +54,11 @@ impl State {
         available: bool,
         publish: Box<dyn Fn(Event) + Send>,
         inputs: Sender<Input>,
-        gate: Arc<PromptGate>,
+        courier: Courier,
     ) -> Self {
         Self {
             store,
-            courier: Courier::start(port.clone(), gate),
+            courier,
             inputs,
             port,
             target,

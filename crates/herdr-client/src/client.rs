@@ -324,16 +324,6 @@ impl HerdrClient {
         Ok(read.text)
     }
 
-    /// Submits `text` to the agent of `pane_id` as Herdr submits a prompt, without waiting for
-    /// the agent to start working: for a command of the agent's own, which starts no turn.
-    pub fn submit_agent_command(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        self.request(
-            method::AGENT_PROMPT,
-            &json!({"target": pane_id.0, "text": text}),
-        )
-        .map(|_| ())
-    }
-
     /// Build a client for an explicitly configured Herdr connection.
     pub fn new(socket_path: PathBuf, plugin_id: String, state_dir: PathBuf) -> Self {
         Self {
@@ -682,6 +672,14 @@ impl AgentPort for HerdrClient {
     fn pane_process_info(&self, pane_id: &PaneId) -> Result<PaneProcessInfo> {
         let result = self.request("pane.process_info", &json!({"pane_id": pane_id.0}))?;
         Self::parse(&result, "process_info", "pane.process_info")
+    }
+
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        self.request(
+            method::AGENT_PROMPT,
+            &json!({"target": pane_id.0, "text": text}),
+        )
+        .map(|_| ())
     }
 
     /// Herdr answers once the agent is working or blocked, which an agent working already

@@ -4431,6 +4431,7 @@ dependencies = [
 name = "review-thread-service"
 version = "0.2.0"
 dependencies = [
+ "agent-hooks",
  "herdr-client",
  "review-mcp",
  "review-source",

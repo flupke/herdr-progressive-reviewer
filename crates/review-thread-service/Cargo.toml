@@ -10,6 +10,7 @@ license.workspace = true
 flush = []
 
 [dependencies]
+agent-hooks = { path = "../agent-hooks" }
 serde.workspace = true
 vision-turns = { path = "../vision-turns" }
 herdr-client = { path = "../herdr-client" }

@@ -63,12 +63,12 @@ impl EffectsFixture {
             page: review_explore_page::RoundPublisher::default(),
             page_opener: None,
             page_threads: std::sync::Arc::default(),
+            hook_directory: None,
             run_ahead: RunAheadSetup {
                 tools: test_fork_tools(),
                 log: Some(state.path().join("run-ahead.log")),
                 waits: claude_fork::ForkWaits::default(),
                 talk_quiet: Duration::ZERO,
-                hooks: None,
             },
         };
         configure(&mut setup);

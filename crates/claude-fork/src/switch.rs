@@ -81,31 +81,6 @@ impl AgentPane<'_> {
             .ok_or_else(|| "the agent's pane is gone".to_owned())
     }
 
-    /// Whether `agent`, the agent of this pane, runs the hooks of the reviewer's plugin: its
-    /// process, still in the pane, started the session Herdr reports with them, as `hooks`
-    /// recorded it.
-    pub(crate) fn hooked(&self, hooks: &AgentHooks, agent: &Agent) -> bool {
-        let Some(session) = &agent.agent_session else {
-            return false;
-        };
-        let started: Vec<_> = hooks
-            .hooked_sessions(self.pane)
-            .into_iter()
-            .filter(|started| started.session == session.value && started.process.is_running())
-            .collect();
-        !started.is_empty()
-            && self
-                .herdr
-                .pane_process_info(self.pane)
-                .is_ok_and(|processes| {
-                    processes.foreground_processes.iter().any(|process| {
-                        started
-                            .iter()
-                            .any(|started| started.process.pid == process.pid)
-                    })
-                })
-    }
-
     /// The agent, once Herdr reports it waiting for a prompt on the session `session`.
     fn ready_on(&self, session: &str) -> Option<Agent> {
         self.agent().ok().filter(|agent| {
@@ -177,7 +152,7 @@ impl Resume<'_> {
         if !agent.agent_status.waits_for_prompt() {
             return Err(failed("the agent in the pane is working".into()));
         }
-        if !self.pane.hooked(hooks, &agent) {
+        if !hooks.hooked(self.pane.herdr, &agent) {
             return Err(failed(
                 "the agent in the pane runs without the reviewer's Claude Code plugin".into(),
             ));
@@ -186,13 +161,13 @@ impl Resume<'_> {
         let deadline = Instant::now() + self.limit;
         let block = format!(
             "The progressive reviewer stopped this prompt: it typed `{command}` while text \
-             waited in the input box, and both would have run as one prompt. Your text is \
-             below; the reviewer's answer waits for Retry."
+             waited in the input box, and both would have run as one prompt. Clear the input \
+             box before you Retry the answer in the reviewer."
         );
         let expectation = hooks.expect_resume(self.pane.pane, self.session, &block);
         self.pane
             .herdr
-            .submit_agent_command(self.pane.pane, &command)
+            .submit_prompt(self.pane.pane, &command)
             .map_err(|error| failed(error.to_string()))?;
         let late = |what: &str| SwitchFailure {
             error: format!(
@@ -209,7 +184,7 @@ impl Resume<'_> {
             Some(Heard::Blocked { prompt }) if prompt.contains(&command) => {
                 return Err(failed(
                     "text in the agent's input box joined the /resume, so the reviewer stopped \
-                     both; the agent's pane shows the text"
+                     both; clear the agent's input box, then Retry"
                         .into(),
                 ));
             }
@@ -222,7 +197,10 @@ impl Resume<'_> {
                     typed: true,
                 });
             }
-            None => return Err(late("the agent's hook did not report")),
+            // An expectation of a resume hears nothing of a prompt it waits for.
+            Some(Heard::Submitted | Heard::Joined { .. } | Heard::Stopped) | None => {
+                return Err(late("the agent's hook did not report"));
+            }
         }
         drop(expectation);
         // Herdr hears of the session from its own hook, which Claude Code runs beside the

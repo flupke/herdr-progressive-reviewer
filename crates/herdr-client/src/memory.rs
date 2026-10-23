@@ -106,6 +106,14 @@ impl AgentPort for InMemoryAgents {
         })
     }
 
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        self.host().prompts.push(SentPrompt {
+            pane_id: pane_id.clone(),
+            text: text.to_owned(),
+        });
+        Ok(())
+    }
+
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
         let mut host = self.host();
         host.prompts.push(SentPrompt {

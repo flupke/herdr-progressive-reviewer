@@ -74,6 +74,7 @@ impl ConversationFixture {
         let worker = Worker::start(
             ReviewStore::open(server.server.state_directory(), repository.path()).unwrap(),
             server.client(),
+            None,
             target.clone(),
             Ok(endpoint),
             |_| Err("No Explore session in this test".into()),
@@ -105,6 +106,7 @@ impl ConversationFixture {
         self.worker = Some(Worker::start(
             self.store.clone(),
             self.server.client(),
+            None,
             self.target.clone(),
             Ok(self.endpoint),
             |_| Err("No Explore session in this test".into()),
@@ -242,7 +244,7 @@ impl ConversationFixture {
         self.server.events().mark(|marker| {
             self.server
                 .client()
-                .submit_agent_command(&second.pane_id, marker)
+                .submit_prompt(&second.pane_id, marker)
                 .unwrap();
         });
         prompts_of(&StandInRole::SecondAgent, &self.server.events().received())

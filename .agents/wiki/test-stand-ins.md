@@ -45,12 +45,16 @@ prompt, in the order Herdr types them, stay files in the server's directory, whi
 reads as it reads the prompt: `swallow` makes it read each prompt without starting on it,
 `unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`.
 
-The Claude Code stand-in of the run-ahead tests (`REVIEW_AGENT_E2E_HOOKS`) runs the hooks of the
-reviewer's Claude Code plugin as Claude Code does, through the `reviewer-control` that Cargo
-built beside the test binary, and does not start on a prompt they block (`PromptBlocked`); a
-marker is no prompt to them. The tests take the hooks' real path to the reviewer, whose
-`RunAheadSetup.hooks` names the directory of the test's Herdr server. `herdr pane send-text`
-leaves text in the stand-in's input box, which the next prompt typed there joins.
+The Claude Code stand-in of the run-ahead and hooked delivery tests (`REVIEW_AGENT_E2E_HOOKS`)
+runs the hooks of the reviewer's Claude Code plugin as Claude Code does, through the
+`reviewer-control` that Cargo built beside the test binary, and does not start on a prompt they
+block (`PromptBlocked`), which it puts back in its input box as Claude Code 2.1.309 does: a test
+clears the box (`herdr pane send-keys <pane> ctrl+u`) before its next prompt or marker. A marker
+is no prompt to the hooks. Every prompt the reviewer types to it is confirmed by its hook, not by
+Herdr's status: a swallowed prompt counts as delivered. The tests take the hooks' real path to
+the reviewer, whose `Setup.hook_directory` names the directory of the test's Herdr server.
+`herdr pane send-text` leaves text in the stand-in's input box, which the next prompt typed
+there joins.
 
 ### Proving that nothing happened
 

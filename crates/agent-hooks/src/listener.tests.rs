@@ -20,13 +20,21 @@ fn started(pane: &str, session: &str, source: SessionSource) -> Report {
 }
 
 fn submitted(pane: &str, prompt: &str) -> Report {
+    submitted_on(pane, prompt, Some("session"))
+}
+
+fn submitted_on(pane: &str, prompt: &str, session: Option<&str>) -> Report {
     Report {
         pane: self::pane(pane),
         event: AgentEvent::PromptSubmitted {
             prompt: prompt.into(),
+            session: session.map(Into::into),
         },
     }
 }
+
+/// A prompt as the reviewer types it, its line ended.
+const TYPED: &str = "Explore round r1: read /tmp/turn/index.md and follow it.\n";
 
 /// A reviewer listening in a new directory.
 fn reviewer() -> (tempfile::TempDir, HookDirectory, AgentHooks) {
@@ -174,4 +182,95 @@ fn each_process_of_a_pane_keeps_the_last_session_it_started_and_one_that_ended_g
         [started("other", this)]
     );
     assert_eq!(directory.hooked_sessions(&pane("w:p3")), []);
+}
+
+#[test]
+fn the_prompt_the_reviewer_typed_goes_on_and_is_heard() {
+    let (_runtime, directory, hooks) = reviewer();
+    let expectation = hooks.expect_prompt(&pane("w:p1"), Some("session"), TYPED, "blocked");
+
+    // The agent trims the line's end.
+    let block = directory.ask(&submitted("w:p1", TYPED.trim_end()), GUARD);
+
+    assert_eq!(block, None);
+    assert_eq!(expectation.wait(GUARD), Some(Heard::Submitted));
+}
+
+#[test]
+fn text_left_in_the_input_box_that_joined_the_typed_prompt_is_blocked_with_its_reason() {
+    let (_runtime, directory, hooks) = reviewer();
+    let expectation = hooks.expect_prompt(
+        &pane("w:p1"),
+        Some("session"),
+        TYPED,
+        "text in the box met the prompt",
+    );
+    let joined = format!("half a thought{}", TYPED.trim_end());
+
+    let block = directory.ask(&submitted("w:p1", &joined), GUARD);
+
+    assert_eq!(block.as_deref(), Some("text in the box met the prompt"));
+    assert_eq!(
+        expectation.wait(Duration::ZERO),
+        Some(Heard::Joined {
+            left: "half a thought".into()
+        })
+    );
+}
+
+#[test]
+fn the_typed_prompt_on_another_session_is_stopped_even_with_text_left_in_the_box() {
+    let (_runtime, directory, hooks) = reviewer();
+    let alone = hooks.expect_prompt(&pane("w:p1"), Some("session"), TYPED, "blocked");
+    let joined = hooks.expect_prompt(&pane("w:p2"), Some("session"), TYPED, "blocked");
+
+    let block = directory.ask(&submitted_on("w:p1", TYPED, Some("nested")), GUARD);
+    let joined_block = directory.ask(
+        &submitted_on("w:p2", &format!("half a thought{TYPED}"), Some("nested")),
+        GUARD,
+    );
+
+    assert_eq!(block.as_deref(), Some("blocked"));
+    assert_eq!(joined_block.as_deref(), Some("blocked"));
+    assert_eq!(alone.wait(Duration::ZERO), Some(Heard::Stopped));
+    assert_eq!(joined.wait(Duration::ZERO), Some(Heard::Stopped));
+}
+
+#[test]
+fn a_prompt_without_the_typed_one_is_blocked_and_the_reviewer_still_waits_for_its_own() {
+    let (_runtime, directory, hooks) = reviewer();
+    let expectation = hooks.expect_prompt(&pane("w:p1"), Some("session"), TYPED, "blocked");
+
+    let other = directory.ask(&submitted("w:p1", "hello"), GUARD);
+    assert_eq!(other.as_deref(), Some("blocked"));
+    assert_eq!(expectation.wait(Duration::ZERO), None);
+    // A hook older than the session field reports none.
+    let own = directory.ask(&submitted_on("w:p1", TYPED, None), GUARD);
+
+    assert_eq!(own, None);
+    assert_eq!(expectation.wait(Duration::ZERO), Some(Heard::Submitted));
+    drop(expectation);
+    assert_eq!(directory.ask(&submitted("w:p1", "hello"), GUARD), None);
+}
+
+#[test]
+fn a_prompt_and_a_resume_expected_in_one_pane_each_hear_what_they_wait_for() {
+    let (_runtime, directory, hooks) = reviewer();
+    let resume = hooks.expect_resume(&pane("w:p1"), "fork", "resuming");
+    let prompt = hooks.expect_prompt(&pane("w:p1"), Some("session"), TYPED, "typing");
+
+    // While the agent resumes a session, even the typed prompt is blocked.
+    let block = directory.ask(&submitted("w:p1", TYPED), GUARD);
+
+    assert_eq!(block.as_deref(), Some("resuming"));
+    let blocked = Some(Heard::Blocked {
+        prompt: TYPED.into(),
+    });
+    assert_eq!(prompt.wait(Duration::ZERO), Some(Heard::Stopped));
+    assert_eq!(resume.wait(Duration::ZERO), blocked);
+    drop(prompt);
+    let later = hooks.expect_resume(&pane("w:p1"), "later", "resuming");
+    directory.tell(&started("w:p1", "later", SessionSource::Resume));
+    assert_eq!(later.wait(GUARD), Some(Heard::Resumed));
+    assert_eq!(resume.wait(Duration::ZERO), blocked);
 }

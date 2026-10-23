@@ -733,6 +733,9 @@ fn text_left_in_the_input_box_is_blocked_with_the_resume_and_the_answer_waits_fo
             text: format!("half a thought /resume {fork}")
         }
     );
+    // The agent put the joined prompt back in its input box, which its user empties.
+    run.herdr()
+        .run_cli(&["pane", "send-keys", &run.herdr().pane_id.0, "ctrl+u"]);
     let typed = run.wait_for_saved("the failed switch", |saved| {
         match &saved.forks[0].continued {
             Some(Continuation::Failed { typed, .. }) => Some(*typed),

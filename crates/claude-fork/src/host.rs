@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use agent_fork::{Launcher, ProcessStamp, Wrapper};
-use agent_hooks::{AgentHooks, HookDirectory};
+use agent_hooks::AgentHooks;
 use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{Agent, AgentPort, AgentStatus, PaneId, PaneProcess};
 use review_run_ahead::{
@@ -111,31 +111,30 @@ pub struct ClaudeForks {
 impl ClaudeForks {
     /// Forks of the agents `herdr` reports, started through `tools`, logged to `log`, waiting
     /// on Herdr and on the forks as `waits` say, and on what the agents' hooks tell the reviewer
-    /// in `hooks`, the directory of Herdr's server, when it is known.
+    /// through `hooks`, or else why the reviewer does not listen to them.
     pub fn new(
         herdr: HerdrClient,
         tools: ForkTools,
         log: Option<PathBuf>,
         waits: ForkWaits,
-        hooks: Option<&HookDirectory>,
+        hooks: Result<Arc<AgentHooks>, String>,
     ) -> Self {
-        let mut forks = Self {
+        let (hooks, unheard) = match hooks {
+            Ok(hooks) => (Some(hooks), None),
+            Err(error) => (None, Some(error)),
+        };
+        let forks = Self {
             launcher: Launcher::start(tools.wrapper()),
             herdr,
             tools,
             log,
             waits,
-            hooks: None,
+            hooks,
             live: Arc::default(),
             discards: Mutex::default(),
         };
-        match hooks.map(AgentHooks::listen) {
-            Some(Ok(hooks)) => forks.hooks = Some(Arc::new(hooks)),
-            Some(Err(error)) => forks.log(&format!("cannot listen to the agents' hooks: {error}")),
-            None => forks.log(
-                "cannot listen to the agents' hooks: XDG_RUNTIME_DIR or HERDR_SOCKET_PATH is not \
-                 set",
-            ),
+        if let Some(error) = unheard {
+            forks.log(&error);
         }
         forks
     }
@@ -172,14 +171,6 @@ impl ClaudeForks {
             .as_ref()
             .ok_or("Herdr reports no session for the agent")?;
         Ok((hooks, &session.value))
-    }
-
-    /// The pane of `agent`.
-    fn pane_of<'a>(&'a self, agent: &'a Agent) -> AgentPane<'a> {
-        AgentPane {
-            herdr: &self.herdr,
-            pane: &agent.pane_id,
-        }
     }
 }
 
@@ -255,12 +246,12 @@ impl ForkHost for ClaudeForks {
         // An agent run-ahead cannot fork for another reason has that reason, which `point`
         // gives.
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| !self.pane_of(agent).hooked(hooks, agent))
+            .is_ok_and(|(hooks, _)| !hooks.hooked(&self.herdr, agent))
     }
 
     fn can_move(&self, agent: &Agent) -> bool {
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| self.pane_of(agent).hooked(hooks, agent))
+            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent))
     }
 
     fn unforkable(&self, agent: &Agent) -> Option<String> {
