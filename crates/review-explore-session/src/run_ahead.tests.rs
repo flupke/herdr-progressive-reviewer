@@ -8,8 +8,9 @@ use agent_fork::{ForkCommand, ProcessStamp};
 use review_explore_page::RoundStage;
 use review_explore_round_settings::RunAhead;
 use review_run_ahead::{
-    Continuation, DiscardReason, ForkEnd, ForkHost, ForkPoint, ForkRecord, ForkStart, ForkTrace,
-    PaneWatch, PlainReason, RoundForks, StatusReport, SwitchFailure, SwitchTo, TurnPath,
+    Continuation, DiscardReason, FAILURES_TO_HALT, ForkEnd, ForkHost, ForkPoint, ForkRecord,
+    ForkStart, ForkTrace, PaneWatch, PlainReason, RoundForks, StatusReport, SwitchFailure,
+    SwitchTo, TurnPath,
 };
 
 use super::*;
@@ -42,6 +43,10 @@ struct FakeHost {
     unhooked: bool,
     /// Whether the host hears no agent's hooks, and so moves no agent.
     deaf: bool,
+    /// Why no fork can be taken of the agent's session, when it cannot.
+    point_refusal: Option<String>,
+    /// Why run-ahead never forks the agent, when it does not.
+    unforkable: Option<String>,
     /// The switches asked, by the session of their fork, and where each reports its end.
     switches: Vec<(String, SwitchDone)>,
     /// The sessions the agent was asked to resume, and where each reports its end.
@@ -120,6 +125,16 @@ impl FakeForks {
         self.host().deaf = true;
     }
 
+    /// Run-ahead never forks the agent from now on, for `why`, as a Codex agent.
+    fn unfork(&self, why: &str) {
+        self.host().unforkable = Some(why.into());
+    }
+
+    /// No fork can be taken of the agent's session from now on, for `why`.
+    fn refuse_points(&self, why: &str) {
+        self.host().point_refusal = Some(why.into());
+    }
+
     /// Whether the forks discarded from now on keep running until the test lets them stop.
     fn hold_stops(&self, hold: bool) {
         self.host().hold_stops = hold;
@@ -196,7 +211,16 @@ impl ForkHost for FakeForks {
         !host.unhooked && !host.deaf
     }
 
+    fn unforkable(&self, _agent: &Agent) -> Option<String> {
+        self.host().unforkable.clone()
+    }
+
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
+        let host = self.host();
+        if let Some(why) = host.unforkable.as_ref().or(host.point_refusal.as_ref()) {
+            return Err(why.clone());
+        }
+        drop(host);
         Ok(ForkPoint {
             session: agent.agent_session.as_ref().unwrap().value.clone(),
             entry: self.host().entry.clone(),
@@ -2251,8 +2275,12 @@ fn too_many_forks_failing_in_a_row_stops_run_ahead_for_the_round_with_a_notice()
         .end_as(&second[0].session, "exit status: 1", false);
     harness.pump();
 
-    // The pane shows a notice.
-    harness.next::<ui_events::ToastRequested>();
+    let notice = harness.next::<ui_events::ToastRequested>();
+    assert!(
+        notice.text.contains("exit status: 1"),
+        "the pane shows a notice with the cause: {}",
+        notice.text
+    );
     let forks = harness.forks_saved();
     assert!(forks.halted_at_ms.is_some());
     assert_eq!(
@@ -2274,6 +2302,202 @@ fn too_many_forks_failing_in_a_row_stops_run_ahead_for_the_round_with_a_notice()
         4,
         "no fork is taken for the round again"
     );
+}
+
+/// Run-ahead fails as `fail` makes it, which `failure` names: the round counts one failure.
+fn a_failure_of_run_ahead_s_own_counts_once(failure: &str, fail: impl FnOnce(&mut Harness)) {
+    let mut harness = Harness::start();
+
+    fail(&mut harness);
+    harness.pump();
+
+    let forks = harness.forks_saved();
+    assert_eq!(forks.failed_in_a_row, 1, "{failure}");
+    assert_eq!(forks.halted_at_ms, None, "{failure}");
+}
+
+#[test]
+fn a_check_at_the_answer_that_could_not_be_made_is_a_failure() {
+    a_failure_of_run_ahead_s_own_counts_once("check", |harness| {
+        harness.ask(RunAhead::Every);
+        harness.fork_submits("keep");
+        harness.agents.remove_agent(&agent().pane_id);
+
+        harness.post_answer(Some("keep"), "");
+
+        assert!(matches!(
+            harness.latest_path(),
+            TurnPath::Plain {
+                reason: PlainReason::Unchecked { .. }
+            }
+        ));
+    });
+}
+
+#[test]
+fn a_failed_switch_is_a_failure() {
+    a_failure_of_run_ahead_s_own_counts_once("switch", |harness| {
+        harness.answer_while_prepared("keep");
+
+        harness.forks.finish_switch(Err(SwitchFailure {
+            error: "the agent in the pane is working".into(),
+            typed: false,
+        }));
+    });
+}
+
+#[test]
+fn a_refusal_to_take_forks_is_a_failure_once_per_question() {
+    a_failure_of_run_ahead_s_own_counts_once("refusal", |harness| {
+        harness.forks.refuse_points("unknown option --frobnicate");
+        harness.ask(RunAhead::Every);
+
+        // Each idle of the agent tries again, and is refused again.
+        harness.forks.report(AgentStatus::Working);
+        harness.forks.report(AgentStatus::Idle);
+        harness.pump();
+    });
+}
+
+#[test]
+fn a_question_that_needs_no_fork_is_no_failure() {
+    let mut harness = Harness::start();
+    harness.forks.refuse_points("unknown option --frobnicate");
+
+    harness.ask(RunAhead::Recommended);
+
+    assert_eq!(harness.forks_saved().failed_in_a_row, 0);
+}
+
+#[test]
+fn an_agent_run_ahead_does_not_fork_is_no_failure() {
+    let mut harness = Harness::start();
+    harness
+        .forks
+        .unfork("run-ahead forks Claude Code, and the agent's pane runs codex");
+
+    harness.ask(RunAhead::Every);
+
+    assert_eq!(harness.forks_saved().failed_in_a_row, 0);
+}
+
+#[test]
+fn a_refusal_to_take_forks_that_repeats_on_every_question_stops_run_ahead_with_one_notice() {
+    let mut harness = Harness::start();
+    harness.forks.refuse_points("unknown option --frobnicate");
+    harness.ask(RunAhead::Every);
+    for version in 2..FAILURES_TO_HALT {
+        let (request, access) = harness.answer("");
+        assert!(applied(
+            harness.submit(&access, question(&request, version))
+        ));
+    }
+    assert_eq!(harness.forks_saved().halted_at_ms, None);
+    // The last question comes while the agent still works: run-ahead tries once it is idle.
+    let (request, access) = harness.answer("");
+    let mut working = agent();
+    working.agent_status = AgentStatus::Working;
+    harness.agents.upsert_agent(working);
+    assert!(applied(
+        harness.submit(&access, question(&request, FAILURES_TO_HALT))
+    ));
+    harness.agents.upsert_agent(agent());
+
+    harness.forks.report(AgentStatus::Idle);
+    harness.forks.report(AgentStatus::Working);
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+
+    let notices: Vec<_> = std::iter::from_fn(|| harness.events.try_recv().ok())
+        .filter_map(|event| {
+            event
+                .downcast_ref::<ui_events::ToastRequested>()
+                .map(|toast| toast.text.clone())
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "one notice: {notices:?}");
+    assert!(
+        notices[0].contains("unknown option --frobnicate"),
+        "the notice says why: {}",
+        notices[0]
+    );
+    assert!(harness.forks_saved().halted_at_ms.is_some());
+}
+
+#[test]
+fn switches_that_fail_on_every_question_stop_run_ahead_though_each_fork_kept_a_turn() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    for failure in 1..=FAILURES_TO_HALT {
+        let session = harness
+            .forks_saved()
+            .forks
+            .iter()
+            .rfind(|fork| fork.choice == "keep")
+            .unwrap()
+            .session
+            .clone();
+        let prepared = harness.fork_request(&session);
+        assert!(applied(
+            harness.submit_as_fork(&session, question(&prepared, 10 + failure))
+        ));
+        let request = harness.post_answer(Some("keep"), "");
+        harness.forks.finish_switch(Err(SwitchFailure {
+            error: format!("switch {failure} failed"),
+            typed: false,
+        }));
+        harness.pump();
+        if failure == FAILURES_TO_HALT {
+            break;
+        }
+        assert_eq!(harness.forks_saved().halted_at_ms, None, "{failure}");
+        // Retry sends the answer to the agent in the pane, which asks the next question.
+        harness.retry(&request);
+        let access = fork_line(&harness.delivered_prompt(), "Explore review access: ");
+        assert!(applied(
+            harness.submit(&access, question(&request, 1 + failure))
+        ));
+    }
+
+    let notices: Vec<_> = std::iter::from_fn(|| harness.events.try_recv().ok())
+        .filter_map(|event| {
+            event
+                .downcast_ref::<ui_events::ToastRequested>()
+                .map(|toast| toast.text.clone())
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "one notice: {notices:?}");
+    assert!(
+        notices[0].contains(&format!("switch {FAILURES_TO_HALT} failed")),
+        "the notice says why: {}",
+        notices[0]
+    );
+    assert!(harness.forks_saved().halted_at_ms.is_some());
+}
+
+#[test]
+fn a_prepared_turn_used_starts_the_count_of_failures_again() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let change = harness.forks_saved().forks[1].clone();
+    assert_eq!(change.choice, "change");
+    harness
+        .forks
+        .end_as(&change.session, "exit status: 1", false);
+    harness.pump();
+    assert_eq!(harness.forks_saved().failed_in_a_row, 1);
+    let (fork, _) = harness.fork_submits("keep");
+    harness.post_answer(Some("keep"), "");
+
+    harness.forks.finish_switch(Ok(harness.agent_on(&fork)));
+    harness.pump();
+
+    assert_eq!(
+        harness.latest_path(),
+        TurnPath::Prepared { session: fork },
+        "the prepared turn is used"
+    );
+    assert_eq!(harness.forks_saved().failed_in_a_row, 0);
 }
 
 #[test]

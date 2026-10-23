@@ -28,6 +28,12 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
   included, `fork-exec` refuses and `ClaudeForks` takes no fork, so every answer runs the plain
   chain, with the reason.
 - What the forks do is written to `run-ahead.log` in the plugin's state directory.
+- Run-ahead stops for the round after `FAILURES_TO_HALT` failures in a row, with one notice
+  that names the last: a fork that ends without a turn, a check at the answer that could not
+  be made, a failed switch, and a refusal to take forks where run-ahead itself failed, counted
+  once per question (an agent or a platform it never forks, `ForkHost::unforkable`, is none).
+  Only a prepared turn used starts the count again, not a fork that kept a turn: otherwise a
+  switch that fails on every question would never stop it.
 
 ## Guarantees across crates
 

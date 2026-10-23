@@ -292,9 +292,10 @@ impl ExploreSession {
                 },
                 Target::Fork => Continuation::Switched { at_ms: now },
             });
-            // The agent left the fork's session: it goes, as a fork the answer did not use.
-            if *target == Target::Origin {
-                record.discard(DiscardReason::Answered, now);
+            match target {
+                // The agent left the fork's session: it goes, as a fork the answer did not use.
+                Target::Origin => record.discard(DiscardReason::Answered, now),
+                Target::Fork => forks.prepared_turn_used(),
             }
         });
         if let Err(error) = saved {

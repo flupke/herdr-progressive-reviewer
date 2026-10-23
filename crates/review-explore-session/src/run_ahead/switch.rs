@@ -10,7 +10,7 @@
 
 use herdr_client::protocol::Agent;
 use review_run_ahead::{
-    Continuation, DiscardReason, ForkPoint, PlainReason, SwitchFailure, TurnPath,
+    Continuation, DiscardReason, Failure, ForkPoint, PlainReason, SwitchFailure, TurnPath,
 };
 use review_thread_service::{DispatchObserver, PromptError, PromptHold};
 
@@ -318,8 +318,10 @@ impl ExploreSession {
         );
     }
 
-    /// Records that the answer of `switching` runs the plain chain after all, for `reason`.
+    /// Records that the answer of `switching` runs the plain chain after all, for `reason`, and
+    /// counts the failure of run-ahead it stands for.
     fn record_plain(&mut self, switching: &Switching, reason: PlainReason) {
+        let failure = Failure::of_plain(&reason);
         let path = TurnPath::Plain { reason };
         let request = &switching.turn.request.request;
         self.show_path(&switching.asked.round, request, path.clone());
@@ -334,19 +336,28 @@ impl ExploreSession {
                 &format!("the answer's path was not recorded: {error}"),
             );
         }
+        if let Some(failure) = failure {
+            self.run_ahead_failed(&switching.asked.round, failure);
+        }
     }
 
-    /// Records where the switch of `switching` stands, on its fork's record; logs it when it was
-    /// not recorded, and errs with the reason, which only the start of a switch needs.
+    /// Records where the switch of `switching` stands, on its fork's record: once switched, the
+    /// round used the fork's prepared turn. Logs it when it was not recorded, and errs with the
+    /// reason, which only the start of a switch needs.
     fn record_continuation(
         &self,
         switching: &Switching,
         continued: Continuation,
     ) -> Result<(), String> {
+        let used = matches!(continued, Continuation::Switched { .. });
         let saved = self.update_forks(&switching.asked.round, |forks| {
-            forks
+            let recorded = forks
                 .fork_mut(&switching.fork.session)
-                .map(|record| record.continued = Some(continued))
+                .map(|record| record.continued = Some(continued));
+            if used && recorded.is_some() {
+                forks.prepared_turn_used();
+            }
+            recorded
         });
         let error = match saved {
             Ok(Some(())) => return Ok(()),

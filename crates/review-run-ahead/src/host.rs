@@ -109,7 +109,11 @@ pub trait ForkHost: Send + Sync {
     /// Whether the host can move `agent` to another session: it hears the agent's hooks.
     fn can_move(&self, agent: &Agent) -> bool;
 
-    /// Where forks of `agent`'s session start from now, or why it cannot be forked.
+    /// Why run-ahead never forks `agent`, whatever it tries: the agent is not one it forks, or
+    /// the platform or the reviewer lacks what forks need. `None` when it may fork it.
+    fn unforkable(&self, agent: &Agent) -> Option<String>;
+
+    /// Where forks of `agent`'s session start from now, or why they could not be taken.
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String>;
 
     /// The last conversation entry of the session `point` was taken from, as it is now.

@@ -21,6 +21,7 @@ pub use host::{
     SwitchTo,
 };
 pub use record::{
-    Continuation, Discard, DiscardReason, FAILURES_TO_HALT, ForkRecord, RoundForks, TokenUsage,
+    Continuation, Discard, DiscardReason, FAILURES_TO_HALT, Failure, ForkRecord, RoundForks,
+    TokenUsage,
 };
 pub use review_turn_path::{PlainReason, TurnPath};

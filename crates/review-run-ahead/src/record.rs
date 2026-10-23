@@ -6,12 +6,12 @@ use std::path::PathBuf;
 
 use agent_fork::ProcessStamp;
 use review_explore::InterviewUpdate;
-use review_turn_path::TurnPath;
+use review_turn_path::{PlainReason, TurnPath};
 use serde::{Deserialize, Serialize};
 
 use crate::answer::AnswerRecord;
 
-/// How many forks of a round may fail in a row before run-ahead stops for the round.
+/// How many failures of run-ahead a round may have in a row before run-ahead stops for it.
 pub const FAILURES_TO_HALT: u32 = 3;
 
 /// Every fork run-ahead started in one Explore round, oldest first, and the path each answer
@@ -21,14 +21,17 @@ pub struct RoundForks {
     pub forks: Vec<ForkRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<AnswerRecord>,
-    /// How many forks failed since the last one that kept a turn: each ended, or could not
-    /// start, without a turn, before the tool discarded it.
+    /// How many times run-ahead failed since the last prepared turn the round used.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub failed_in_a_row: u32,
-    /// When run-ahead stopped for the round, in milliseconds since the epoch, because
-    /// [`FAILURES_TO_HALT`] forks failed in a row. No fork is taken for the round after it.
+    /// When run-ahead stopped for the round, in milliseconds since the epoch, because it
+    /// failed [`FAILURES_TO_HALT`] times in a row. No fork is taken for the round after it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub halted_at_ms: Option<u64>,
+    /// The failure that stopped run-ahead for the round. `None` in records saved before it was
+    /// kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub halted_by: Option<Failure>,
 }
 
 #[expect(
@@ -57,20 +60,33 @@ impl RoundForks {
             .find(|answer| answer.request == request)
     }
 
-    /// Counts a fork that failed, at `at_ms`. Returns whether run-ahead stops for the round
-    /// now, because [`FAILURES_TO_HALT`] forks failed in a row.
-    pub fn fork_failed(&mut self, at_ms: u64) -> bool {
+    /// Counts `failure`, at `at_ms`. Returns whether run-ahead stops for the round now,
+    /// because it failed [`FAILURES_TO_HALT`] times in a row.
+    pub fn failed(&mut self, failure: Failure, at_ms: u64) -> bool {
         self.failed_in_a_row += 1;
         if self.halted_at_ms.is_some() || self.failed_in_a_row < FAILURES_TO_HALT {
             return false;
         }
         self.halted_at_ms = Some(at_ms);
+        self.halted_by = Some(failure);
         true
     }
 
-    /// A fork kept a turn: the forks that failed before it no longer count.
-    pub fn fork_kept_a_turn(&mut self) {
+    /// The round used a prepared turn: the failures before it no longer count.
+    pub fn prepared_turn_used(&mut self) {
         self.failed_in_a_row = 0;
+    }
+
+    /// Why no fork is taken for the round once run-ahead stopped for it, with the failure that
+    /// stopped it when the record keeps it; `None` while run-ahead runs.
+    pub fn halt_notice(&self) -> Option<String> {
+        self.halted_at_ms?;
+        let stopped =
+            format!("Run-ahead stopped for this round after {FAILURES_TO_HALT} failures in a row");
+        Some(match &self.halted_by {
+            Some(failure) => format!("{stopped}; the last: {failure}"),
+            None => stopped,
+        })
     }
 
     /// The request of the answer that continued as the fork `session`, if one did.
@@ -246,6 +262,56 @@ pub enum Continuation {
     Restarted { at_ms: u64 },
 }
 
+/// A failure of run-ahead in a round: what it spent gave the reviewer no prepared turn, and the
+/// reviewer was told of none of it but a quiet line. [`FAILURES_TO_HALT`] in a row stop
+/// run-ahead for the round.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "failure", rename_all = "snake_case")]
+pub enum Failure {
+    /// A fork ended, or could not start, without a turn, before the tool discarded it, as
+    /// `exit` says.
+    Fork { exit: String },
+    /// A check at the reviewer's answer could not be made, for `error`.
+    Unchecked { error: String },
+    /// The pane's agent could not continue as the fork the answer chose, for `error`.
+    SwitchFailed { error: String },
+    /// No fork could be taken for a question, for `why`. A refusal counts once per question.
+    NoForks { why: String },
+}
+
+impl Failure {
+    /// The failure an answer's turn that ran the plain chain for `reason` stands for, if any.
+    pub fn of_plain(reason: &PlainReason) -> Option<Self> {
+        match reason {
+            PlainReason::Unchecked { error } => Some(Self::Unchecked {
+                error: error.clone(),
+            }),
+            PlainReason::SwitchFailed { error } => Some(Self::SwitchFailed {
+                error: error.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fork { exit } => write!(f, "a fork ended without a turn: {exit}"),
+            Self::Unchecked { error } => {
+                write!(f, "a check of your answer could not be made: {error}")
+            }
+            Self::SwitchFailed { error } => {
+                write!(
+                    f,
+                    "the agent could not switch to the prepared turn: {error}"
+                )
+            }
+            Self::NoForks { why } => write!(f, "no fork could be taken: {why}"),
+        }
+    }
+}
+
 /// Why and when a fork was discarded.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Discard {
@@ -283,7 +349,7 @@ pub enum DiscardReason {
     ReviewerClosed,
     /// The reviewer that started it stopped without discarding it; a later reviewer did.
     ReviewerStopped,
-    /// Too many forks of the round failed in a row: run-ahead stopped for the round.
+    /// Run-ahead failed too many times in a row: it stopped for the round.
     TooManyFailures,
 }
 

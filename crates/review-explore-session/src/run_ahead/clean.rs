@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use review_run_ahead::{DiscardReason, ForkEnd, ForkPoint, ForkTrace};
+use review_run_ahead::{DiscardReason, Failure, ForkEnd, ForkPoint, ForkTrace};
 
 use super::{Event, RoundKey, RunAheadInput, TakenFork};
 use crate::{ExploreSession, Input};
@@ -183,8 +183,7 @@ impl ExploreSession {
     }
 
     /// The fork `session` of `round` ended: its record keeps how, and its tokens. A fork that
-    /// ended without a turn before it was discarded failed; too many in a row stop run-ahead
-    /// for the round.
+    /// ended without a turn before it was discarded failed: a failure of run-ahead.
     pub(super) fn run_ahead_ended(&mut self, round: &RoundKey, session: &str, end: &ForkEnd) {
         if let Some(fork) = self.run_ahead.fork_mut(session) {
             fork.ended = true;
@@ -196,10 +195,13 @@ impl ExploreSession {
             record.usage = Some(end.usage);
             let failed = record.ending_is_a_failure();
             let choice = record.choice.clone();
-            let halted = failed && forks.fork_failed(now);
-            Some((choice, failed, halted))
+            let exit = end.exit.clone();
+            let halt = (failed && forks.failed(Failure::Fork { exit }, now))
+                .then(|| forks.halt_notice())
+                .flatten();
+            Some((choice, failed, halt))
         });
-        if let Ok(Some((choice, failed, halted))) = saved {
+        if let Ok(Some((choice, failed, halt))) = saved {
             let usage = end.usage;
             self.run_ahead.host.log(&format!(
                 "the fork for {choice} ({session}) ended ({}{}): {} input, {} cache write, {} cache read, {} output tokens",
@@ -215,33 +217,59 @@ impl ExploreSession {
                     "the fork for {choice} failed: it ended without a turn"
                 ));
             }
-            if halted {
-                self.halt(round);
+            if let Some(notice) = halt {
+                self.halt(round, notice);
             }
         }
     }
 
-    /// Too many forks of the round failed in a row: run-ahead stops for the round. The forks of
-    /// the question that waits are discarded, the reviewer hears of it, and answers run the
-    /// plain chain until the round ends.
-    pub(super) fn halt(&mut self, round: &RoundKey) {
+    /// Counts `failure` of run-ahead in `round`: too many in a row stop run-ahead for the round.
+    pub(super) fn run_ahead_failed(&mut self, round: &RoundKey, failure: Failure) {
+        let now = review_explore::now_ms();
+        let line = format!("run-ahead failed: {failure}");
+        let saved = self.update_forks(round, |forks| {
+            forks
+                .failed(failure, now)
+                .then(|| forks.halt_notice())
+                .flatten()
+        });
+        self.run_ahead.log(&line);
+        match saved {
+            Ok(Some(notice)) => self.halt(round, notice),
+            Ok(None) => {}
+            Err(error) => self
+                .run_ahead
+                .log(&format!("the failure was not recorded: {error}")),
+        }
+    }
+
+    /// Run-ahead failed too many times in a row in `round`, as `notice` says: it stops for the
+    /// round. The forks of the question that waits are discarded, the reviewer hears of it once,
+    /// and answers run the plain chain until the round ends.
+    pub(super) fn halt(&mut self, round: &RoundKey, notice: String) {
+        self.run_ahead.log(&notice);
+        // A round the reviewer left stops quietly.
+        if self
+            .state
+            .round
+            .as_ref()
+            .is_some_and(|shown| shown.exploration.instance == round.instance)
+        {
+            let _ = self.events.send(ui_events::ToastRequested {
+                text: format!("{notice}. Your answers go to the agent in the pane."),
+                kind: toasts::ToastKind::Error,
+            });
+        }
         if self
             .run_ahead
             .armed
             .as_ref()
-            .is_none_or(|armed| armed.asked.round != *round)
+            .is_some_and(|armed| armed.asked.round == *round)
         {
-            return;
-        }
-        self.discard_taken(DiscardReason::TooManyFailures);
-        let refusal = super::take::halted();
-        self.run_ahead.log(&refusal);
-        let _ = self.events.send(ui_events::ToastRequested {
-            text: format!("{refusal}: your answers go to the agent in the pane"),
-            kind: toasts::ToastKind::Error,
-        });
-        if let Some(armed) = self.run_ahead.armed.as_mut() {
-            armed.refusal = Some(refusal);
+            self.discard_taken(DiscardReason::TooManyFailures);
+            if let Some(armed) = self.run_ahead.armed.as_mut() {
+                armed.refusal = Some(notice);
+            }
         }
     }
 

@@ -6,7 +6,7 @@
 
 use review_explore::{Alternative, TurnRequest};
 use review_explore_runner::Unreviewed;
-use review_run_ahead::{AnswerRecord, DiscardReason, PlainReason, TurnPath};
+use review_run_ahead::{AnswerRecord, DiscardReason, Failure, PlainReason, TurnPath};
 
 use super::switch::Switching;
 use super::{Armed, Asked};
@@ -238,9 +238,10 @@ impl ExploreSession {
         Ok(())
     }
 
-    /// Records the path `path` of the answer `request` to the question `asked`, and logs it.
-    /// The reviewer is shown the path of a plain chain at once: it shows with the turn once the
-    /// agent took it. Returns whether the pane's agent continues as a fork.
+    /// Records the path `path` of the answer `request` to the question `asked`, and logs it;
+    /// counts the failure of run-ahead it stands for. The reviewer is shown the path of a plain
+    /// chain at once: it shows with the turn once the agent took it. Returns whether the pane's
+    /// agent continues as a fork.
     fn record_answer(&mut self, asked: &Asked, request: &TurnRequest, path: &TurnPath) -> bool {
         let answer = request.answer.as_ref().expect("an answer");
         let record = AnswerRecord {
@@ -264,11 +265,15 @@ impl ExploreSession {
             self.run_ahead
                 .log(&format!("the answer's path was not recorded: {error}"));
         }
-        // A prepared turn shows once the pane's agent runs its fork's session.
-        if matches!(path, TurnPath::Prepared { .. }) {
-            return true;
-        }
+        let reason = match path {
+            // A prepared turn shows once the pane's agent runs its fork's session.
+            TurnPath::Prepared { .. } => return true,
+            TurnPath::Plain { reason } => reason,
+        };
         self.show_path(&asked.round, &request.request, path.clone());
+        if let Some(failure) = Failure::of_plain(reason) {
+            self.run_ahead_failed(&asked.round, failure);
+        }
         false
     }
 }
