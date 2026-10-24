@@ -17,6 +17,22 @@ integration test; `make test`, with or without `CRATES`, `make e2e-tui` and `mak
 it first (`cargo build -p stand-in-agent`). A bare `cargo nextest run -p reviewer` does not: it
 runs the program built last, or fails with that command when none was.
 
+## Real Claude Code in the stand-in's place
+
+The run-ahead contract check ([run-ahead](run-ahead.md#the-contract-check)) runs real Claude
+Code in the agent's pane, and its rehearsals run the stand-in there, with one test body. Real
+Claude Code runs `stand-in-agent observe` from hooks of its configuration
+(`stand_in_agent::observing_hooks`), which reports the prompts it reads and the sessions it
+starts and resumes as the stand-in agent reports them, so the body waits on the same events.
+A hook sees a prompt as it is submitted, not as a turn starts, and runs a process per event:
+each one connects as the agent, then a `Disconnected` follows. A fork inherits the agent's
+configuration, so it runs these hooks too: they report nothing under a process whose command
+line has `--fork-session`. A contract body sends the agent no
+markers, which would be prompts to real Claude Code: it waits on these events, Herdr's and the
+saved round. The stand-in's transcript holds each
+prompt it read, as Claude Code's does: a body checks which session a prompt reached by the
+turn's directory its prompt names.
+
 ## The Herdr test server
 
 `HerdrTestServer::start` returns once Herdr printed `herdr server running` on its stderr,

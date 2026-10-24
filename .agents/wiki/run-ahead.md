@@ -1,6 +1,6 @@
 # Run-ahead
 
-What run-ahead costs and needs, the guarantees that span its crates, how Claude Code and Herdr behave under it, and how to run its real Claude Code tests.
+What run-ahead costs and needs, the guarantees that span its crates, how Claude Code and Herdr behave under it, and its contract check with real Claude Code.
 
 Run-ahead forks the pane agent's session while a question waits (setting `RunAhead` in
 [`crates/review-explore-round-settings`](../../crates/review-explore-round-settings), pane key
@@ -89,7 +89,7 @@ say how each part works.
   ([threads](threads.md#delivery)): a pane holds a prompt's expectation and a resume's at once.
 - Settling rests on Claude Code taking what is typed while it loads a session after it, in
   order: once a settling `/resume` is typed and Herdr reports the agent there, an earlier late
-  resume cannot move it. This is not checked.
+  resume cannot move it. The contract check checks it (below).
 - The test stand-in for Claude Code reports a resumed session to Herdr as Herdr's own hook
   does, with a newer `--seq` and `--session-start-source resume`; without them Herdr kept
   reporting the first session.
@@ -117,15 +117,54 @@ Claude Code 2.1.292 does with it:
 - The hooks reach a reviewer only when `XDG_RUNTIME_DIR` is set, in the agent's pane and in
   the reviewer's.
 
-## Tests with a real Claude Code
+## The contract check
 
-Two tests in `reviewer` run real Claude Code turns on your subscription, at
-`claude-sonnet-5-5`, and are ignored by default:
+The stand-in plays Claude Code in the run-ahead tests, so they hold only while Claude Code
+behaves as the stand-in assumes. The bodies of `crates/reviewer/src/runtime/run_ahead/contract.tests.rs`
+check those assumptions, each step naming the one it rests on (`Assumption`): the fork's command
+line, a typed `/resume` that Herdr follows, typed input taken in order, the transcripts' place.
+Each body runs twice:
+
+- its rehearsal (`rehearse_*`) runs the stand-in, in `make check`: it finds the faults of the
+  test itself, its assertions, timing and input box, at no cost; not a timing fault that only
+  real Claude Code's pace brings out: the stand-in tells Herdr it works as soon as it reads a
+  prompt, so a missing wait for that passes the rehearsal;
+- its contract check (`real_claude_code_*`), ignored by default, runs real Claude Code in the
+  isolated Herdr's pane, at `claude-sonnet-5-5`, about ten turns on the subscription of the
+  token's account. A failure names the assumption that broke, and prints the agent's pane.
+
+The contract check has not had a real run yet: its first needs a token from
+`claude setup-token`. Until that run, the rehearsals are its only proof.
+
+Run the contract check once after an upgrade of Claude Code or of Herdr, or a change to the
+fork's command line (`claude-fork`'s `arguments.rs`, `pane.rs`, `host.rs`) or to the switch and
+the settling (`claude-fork`'s `switch.rs`, the session's `run_ahead/switch.rs` and
+`run_ahead/settle.rs`): one run, not one per ticket. The rehearsals guard the tests the rest of
+the time.
 
 ```sh
+claude setup-token   # once: a token of the account whose subscription pays
+export CLAUDE_CODE_OAUTH_TOKEN=<the token>
 cargo build -p reviewer --bin reviewer-control -p review-mcp-config --bin reviewer-mcp -p stand-in-agent
-cargo nextest run -p reviewer a_real_claude_code --run-ignored only
+cargo nextest run -p reviewer real_claude_code --run-ignored only
 ```
 
-They write the agent's and the forks' transcripts in your Claude Code configuration and delete
-them at the end.
+The agent and its forks log in with that token and run in a configuration of their own, under
+the test's Herdr directory and gone with it (`CLAUDE_CONFIG_DIR`, and `XDG_CACHE_HOME`, where
+Claude Code keeps its MCP servers' logs): the check never reads nor writes `~/.claude` nor
+`~/.cache`. Never copy the owner's credentials there. They take none of the test's `CLAUDE*`
+and `ANTHROPIC*` variables but the token: when the check runs under Claude Code, those of that
+session would load its plugins from `~/.claude` and reach the session. The configuration gets Herdr's session
+hook (`herdr integration install claude`), the reviewer's plugin with this build's
+`reviewer-control` (`claude plugin install`), the stand-in's observing hooks
+([test stand-ins](test-stand-ins.md)), and the permissions of an Explore turn ("don't ask", the
+submit tools). What it still touches is the owner's `claude` program, run as it is, with its
+updater off, the token's account, and `~/.local/share/applications/claude-code-url-handler.desktop`,
+which Claude Code writes when it is missing.
+
+The check sets in `.claude.json` what skips Claude Code 2.1.310's first-run screens in a new
+configuration directory: `hasCompletedOnboarding`, a theme, the project's
+`hasTrustDialogAccepted` and `hasCompletedProjectOnboarding`, and `hasSeenAutoDefaultNudge` and
+`hasSeenAutoModeEntryWarning`. Without `hasSeenAutoDefaultNudge`, the first prompt typed with
+"don't ask" on opens a dialog that offers auto mode, and that dialog takes the prompt and its
+Enter.

@@ -61,8 +61,10 @@ This holds for the tests that drive real processes too (a private Herdr, a stand
 jj or git, a language server, a spawned binary): they wait on what those report, such as a
 stand-in's event socket or Herdr's event stream. A test may block on an event without a
 timeout of its own: nextest ends any test still running after two minutes
-(`.config/nextest.toml`) and reports it, so a regression that loses the event fails
-instead of hanging. A local guard is worth it only to say what was awaited. Every Rust test runs
+(`.config/nextest.toml`; an hour for the run-ahead contract check, which waits on real
+turns) and reports it, so a regression that loses the event fails instead of hanging. A
+local guard is worth it only to say what was awaited. The one poll: the contract check waits until Herdr reports
+the real agent on its session, which Herdr publishes no event for. Every Rust test runs
 in `make test`; the Explore page's browser tests are the one suite apart.
 
 ## Auditing a crate

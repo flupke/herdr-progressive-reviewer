@@ -1,7 +1,8 @@
 //! The stand-in agent that the reviewer's tests and `make vision` sessions run in a Herdr pane:
 //! a program that plays an agent by name (Claude Code, Codex), and plays a fork of Claude Code's
 //! session when run-ahead starts it as one. It reports what it does on the event socket of
-//! `review_test_support::stand_in`, and takes its commands there.
+//! `review_test_support::stand_in`, and takes its commands there. Run by the hooks of a real
+//! Claude Code ([`observing_hooks`]), it reports what that agent does as the stand-in would.
 //!
 //! This library holds what a test or a vision session that runs the program agrees with it on:
 //! where Cargo builds it, the variables it reads, and the files it reads and writes. The program
@@ -16,6 +17,9 @@ pub const AGENT_SOURCE: &str = "progressive-reviewer-e2e";
 
 /// The program's name, as Cargo builds it.
 const PROGRAM: &str = "stand-in-agent";
+
+/// The program's first argument when a real Claude Code's hook runs it.
+pub const OBSERVE: &str = "observe";
 
 /// The variables the stand-in reads, beside Herdr's own and the event socket's
 /// (`review_test_support::stand_in::EVENTS_VARIABLE`).
@@ -52,6 +56,20 @@ pub fn program(profile: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// The hooks, in Claude Code's settings, with which a real Claude Code has `program` report the
+/// prompts it reads and the sessions it starts and resumes, as the stand-in agent reports them,
+/// on the event socket its environment names.
+pub fn observing_hooks(program: &Path) -> serde_json::Value {
+    // Claude Code runs a hook's command through the shell.
+    let program = program.to_string_lossy().replace('\'', r"'\''");
+    let hook = serde_json::json!([{"hooks": [{
+        "type": "command",
+        "command": format!("'{program}' {OBSERVE}"),
+        "timeout": 10,
+    }]}]);
+    serde_json::json!({"SessionStart": hook, "UserPromptSubmit": hook})
+}
+
 /// Installs `program` as `agent`, a link whose name Herdr detects the agent by, rather than a
 /// copy: every test that runs at once installs it.
 pub fn install(program: &Path, agent: &Path) -> std::io::Result<()> {
@@ -81,12 +99,6 @@ impl StandInDirectory {
     /// Claude Code's session hooks fail or come too late; the agent removes it.
     pub fn unreported_resume(&self) -> PathBuf {
         self.0.join("unreported-resume")
-    }
-
-    /// The real Claude Code that takes a fork's turn, when this file names it: its program on the
-    /// first line, then the flags it adds, one per line.
-    pub fn real_claude(&self) -> PathBuf {
-        self.0.join("real-claude")
     }
 
     /// What the fork of `session` recorded, by `kind`: its arguments (`args`), the names of its

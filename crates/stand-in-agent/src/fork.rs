@@ -5,9 +5,7 @@
 
 use std::fs;
 use std::io::{self, Read as _, Write as _};
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
 
 use review_test_support::stand_in::{StandInCommand, StandInConnection, StandInEvent, StandInRole};
 use stand_in_agent::{StandInDirectory, variables};
@@ -26,20 +24,6 @@ pub(crate) fn run(arguments: &[String]) {
     let directory = StandInDirectory::new(PathBuf::from(
         std::env::var_os(variables::DIRECTORY).expect("the stand-in's directory"),
     ));
-    if let Ok(real) = fs::read_to_string(directory.real_claude()) {
-        // The real Claude Code takes the fork's turn, with the pane's flags it names.
-        let mut real = real.lines();
-        let program = real.next().unwrap();
-        let from = arguments
-            .iter()
-            .position(|argument| argument == "-p")
-            .unwrap();
-        let error = Command::new(program)
-            .args(real)
-            .args(&arguments[from..])
-            .exec();
-        panic!("could not run {program}: {error}");
-    }
     let (session, parent) = (value("--session-id"), value("--resume"));
     let (report, commands) = StandInConnection::from_env(StandInRole::Fork {
         session: session.clone(),
