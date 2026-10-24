@@ -96,7 +96,9 @@ impl StandInDirectory {
     }
 
     /// This file keeps Herdr and the reviewer from hearing of the agent's next `/resume`, as when
-    /// Claude Code's session hooks fail or come too late; the agent removes it.
+    /// Claude Code's session hooks fail; the agent removes it. When it holds a number of
+    /// milliseconds, they hear of it that late instead, as when the hooks come late: the agent
+    /// reads nothing typed meanwhile.
     pub fn unreported_resume(&self) -> PathBuf {
         self.0.join("unreported-resume")
     }

@@ -226,7 +226,7 @@ impl AgentTurns {
                 state.screen = Some(text);
                 let _ = self.display.send(());
             }
-            StandInCommand::Submit | StandInCommand::End => {
+            StandInCommand::Submit | StandInCommand::End | StandInCommand::Crash => {
                 panic!("the stand-in agent got a fork's command: {command:?}")
             }
         }

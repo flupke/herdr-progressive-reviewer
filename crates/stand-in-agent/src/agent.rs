@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use herdr_client::protocol::PaneId;
 use review_test_support::stand_in::{StandInConnection, StandInEvent, StandInRole, marker_of};
@@ -138,8 +139,16 @@ impl AgentPrompts {
             self.report.report(&StandInEvent::ResumeReceived {
                 session: session.to_owned(),
             });
-            if fs::remove_file(self.directory.unreported_resume()).is_err() {
-                self.hooks.session_started(session, "resume");
+            let unreported = self.directory.unreported_resume();
+            match fs::read_to_string(&unreported) {
+                Err(_) => self.hooks.session_started(session, "resume"),
+                Ok(late) => {
+                    fs::remove_file(&unreported).unwrap();
+                    if let Ok(late) = late.trim().parse() {
+                        thread::sleep(Duration::from_millis(late));
+                        self.hooks.session_started(session, "resume");
+                    }
+                }
             }
             return None;
         }

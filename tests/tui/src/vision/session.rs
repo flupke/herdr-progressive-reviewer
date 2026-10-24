@@ -12,7 +12,7 @@ use review_repository::repository::RepoType;
 use serde_json::{Value, json};
 use vision_signal::{FrameMarker, acknowledgement_request};
 
-use herdr_client::client::HerdrClient;
+use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{AgentPort, PaneId};
 use review_test_support::stand_in::{StandInCommand, StandInEvent, StandInEvents, StandInRole};
 
@@ -36,12 +36,18 @@ const REVIEWER_SHARE: f64 = 0.75;
 /// idle.
 const IDLE_TITLE: &str = "✳ Ready";
 
+/// Claude Code's title while it works, which Herdr reads as working.
+const WORKING_TITLE: &str = "⠋ Working";
+
 /// What a session starts on.
 pub(crate) struct StartOptions {
     pub(crate) repository: RepoType,
     pub(crate) seed: Seed,
     /// Whether Herdr shows the session's workspace at once.
     pub(crate) focus: bool,
+    /// Whether the stand-in agent runs the hooks of the reviewer's Claude Code plugin, which
+    /// run-ahead needs.
+    pub(crate) agent_hooks: bool,
 }
 
 /// One input to the reviewer.
@@ -66,6 +72,8 @@ pub(crate) struct Session {
     events: StandInEvents,
     scratch: Scratch,
     reviewer_program: PathBuf,
+    /// Whether the stand-in agent runs the hooks of the reviewer's Claude Code plugin.
+    agent_hooks: bool,
     agent: ScriptedAgent,
     /// The latest acknowledgement request sent.
     requests: u64,
@@ -85,7 +93,14 @@ impl Session {
         let events = StandInEvents::listen(&scratch.events_socket());
         let (mut workspace, tab) = Workspace::create(herdr, scratch.root(), options.focus)?;
         let watch = FrameWatch::start(herdr, workspace.id().to_owned())?;
-        let panes = Self::open_panes(&mut workspace, &tab, &scratch, &reviewer, &events)?;
+        let panes = Self::open_panes(
+            &mut workspace,
+            &tab,
+            &scratch,
+            &reviewer,
+            options.agent_hooks,
+            &events,
+        )?;
         let agent = ScriptedAgent::new(scratch.turns(), scratch.mcp_port());
         let session = Self {
             watch,
@@ -94,6 +109,7 @@ impl Session {
             events,
             scratch,
             reviewer_program: reviewer,
+            agent_hooks: options.agent_hooks,
             agent,
             requests: 0,
         };
@@ -102,12 +118,14 @@ impl Session {
     }
 
     /// Replace the tab's layout with a new reviewer and stand-in agent, on a new session, and
-    /// return once the agent shows its idle title.
+    /// return once the agent shows its idle title. The agent runs the plugin's hooks with
+    /// `agent_hooks`.
     fn open_panes(
         workspace: &mut Workspace,
         tab: &str,
         scratch: &Scratch,
         reviewer: &Path,
+        agent_hooks: bool,
         events: &StandInEvents,
     ) -> Result<Panes> {
         let herdr = workspace.herdr();
@@ -137,7 +155,7 @@ impl Session {
                         "label": "stand-in agent",
                         "cwd": scratch.root(),
                         "command": scratch.agent_command(),
-                        "env": scratch.agent_environment(reviewer, &session),
+                        "env": scratch.agent_environment(reviewer, &session, agent_hooks),
                     },
                 },
             }),
@@ -194,6 +212,7 @@ impl Session {
             "repository": self.scratch.root(),
             "directory": self.scratch.directory(),
             "agent_swallows_prompts": self.scratch.stand_in().swallow(),
+            "agent_hooks": self.agent_hooks,
             "run_ahead_log": self.scratch.run_ahead_log(),
             "claude_config": self.scratch.claude_config(),
             "runtime": self.scratch.runtime(),
@@ -335,15 +354,15 @@ impl Session {
     /// The forks run-ahead started, once `count` did when it is given, waiting up to `guard`;
     /// the agent's sessions; and run-ahead's log.
     pub(crate) fn forks(&self, count: Option<usize>, guard: Duration) -> Result<Value> {
-        let received = match count {
-            Some(count) => self
-                .events
+        if let Some(count) = count {
+            self.events
                 .try_wait_until(&format!("{count} forks"), guard, |received| {
                     forks::forks(received).len() >= count
                 })
-                .map_err(|error| anyhow!(error))?,
-            None => self.events.try_received().map_err(|error| anyhow!(error))?,
-        };
+                .map_err(|error| anyhow!(error))?;
+        }
+        // A wait whose condition held at once took in none of the events that came since.
+        let received = self.events.try_received().map_err(|error| anyhow!(error))?;
         Ok(json!({
             "forks": forks::forks(&received),
             "agent": forks::agent_sessions(&received),
@@ -387,6 +406,117 @@ impl Session {
         Ok((result, self.settle()?))
     }
 
+    /// End the turn of the fork `session` without a submit, or make it crash when `crash`: it
+    /// exits with a failure and no result. Returns the screen once the fork's process ended.
+    pub(crate) fn fork_end(&mut self, session: &str, crash: bool) -> Result<Screen> {
+        let received = self.events.try_received().map_err(|error| anyhow!(error))?;
+        let fork = forks::forks(&received)
+            .into_iter()
+            .find(|fork| fork.session == session)
+            .with_context(|| format!("no fork has the session {session}"))?;
+        ensure!(!fork.exited, "the fork {session} has exited already");
+        let fork = StandInRole::Fork {
+            session: session.to_owned(),
+        };
+        let command = if crash {
+            StandInCommand::Crash
+        } else {
+            StandInCommand::End
+        };
+        self.events
+            .try_send(&fork, &command, REACTION_GUARD)
+            .map_err(|error| anyhow!(error))?;
+        self.events
+            .try_wait_until("the fork's exit", REACTION_GUARD, |received| {
+                received.iter().any(|reported| {
+                    reported.from == fork && reported.event == StandInEvent::Disconnected
+                })
+            })
+            .map_err(|error| anyhow!(error))?;
+        self.settle()
+    }
+
+    /// Make the agent's next `/resume` one that Herdr and the reviewer's hooks never hear of, as
+    /// when Claude Code's session hooks fail, or hear of only `heard_after` later: the next switch
+    /// to a fork waits for them, in vain or that long.
+    pub(crate) fn switch_unheard(&self, heard_after: Option<Duration>) -> Result<()> {
+        let stand_in = self.scratch.stand_in();
+        fs::create_dir_all(stand_in.path())?;
+        let late = heard_after.map_or_else(String::new, |late| late.as_millis().to_string());
+        fs::write(stand_in.unreported_resume(), late)?;
+        Ok(())
+    }
+
+    /// Show the stand-in agent working, with Claude Code's working title, or idle again, and
+    /// return once Herdr reports it so.
+    pub(crate) fn agent_working(&mut self, working: bool) -> Result<Screen> {
+        let pane = PaneId(self.panes.agent.clone());
+        let herdr = self.workspace.herdr();
+        let canceller = EventCanceller::default();
+        let statuses = herdr.subscribe_agent_status(&pane, &canceller)?;
+        let title = if working { WORKING_TITLE } else { IDLE_TITLE };
+        self.events
+            .try_send(
+                &StandInRole::Agent,
+                &StandInCommand::ShowTitle {
+                    title: title.into(),
+                },
+                REACTION_GUARD,
+            )
+            .map_err(|error| anyhow!(error))?;
+        let (reported, reports) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            statuses.forward(|status| {
+                let shown = status.started_on_prompt() == working;
+                if shown {
+                    let _ = reported.send(());
+                }
+                !shown
+            })
+        });
+        let shown = reports.recv_timeout(REACTION_GUARD);
+        canceller.cancel();
+        shown.map_err(|_| {
+            anyhow!(
+                "Herdr did not report the agent {} in {} ms",
+                if working { "working" } else { "idle" },
+                REACTION_GUARD.as_millis()
+            )
+        })?;
+        self.settle()
+    }
+
+    /// Type `text` in the stand-in agent's pane and submit it, as its user would, and return
+    /// once the agent read it: a prompt moves its conversation on.
+    pub(crate) fn agent_prompt(&mut self, text: &str) -> Result<Screen> {
+        ensure!(
+            !text.trim().is_empty(),
+            "the agent's prompt is empty: the agent would not read it"
+        );
+        let from = self
+            .events
+            .try_received()
+            .map_err(|error| anyhow!(error))?
+            .len();
+        let pane = self.panes.agent.clone();
+        self.send_text(&pane, &format!("\x1b[200~{text}\x1b[201~"))?;
+        self.send_keys(&pane, &["enter".to_owned()])?;
+        self.events
+            .try_wait_until("the agent's prompt", REACTION_GUARD, |received| {
+                received[from..].iter().any(|reported| {
+                    reported.from == StandInRole::Agent
+                        && matches!(
+                            reported.event,
+                            StandInEvent::PromptReceived { .. }
+                                | StandInEvent::PromptBlocked { .. }
+                                | StandInEvent::ResumeReceived { .. }
+                        )
+                })
+            })
+            .map_err(|error| anyhow!(error))?;
+        self.settle()
+    }
+
     pub(crate) fn explore_page(&self) -> Result<String> {
         let environment = self
             .scratch
@@ -408,14 +538,16 @@ impl Session {
     }
 
     /// Start the reviewer and its stand-in agent again, in new panes, on the same repository and
-    /// state.
-    pub(crate) fn reopen(&mut self) -> Result<Screen> {
+    /// state; the agent runs the plugin's hooks as `agent_hooks` says, or as before.
+    pub(crate) fn reopen(&mut self, agent_hooks: Option<bool>) -> Result<Screen> {
         self.stop_reviewer()?;
+        self.agent_hooks = agent_hooks.unwrap_or(self.agent_hooks);
         self.panes = Self::open_panes(
             &mut self.workspace,
             &self.panes.tab,
             &self.scratch,
             &self.reviewer_program,
+            self.agent_hooks,
             &self.events,
         )?;
         self.first_screen()

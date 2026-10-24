@@ -30,7 +30,7 @@ use super::session::{Input, Session, StartOptions};
 /// The longest a `wait_for` or `turn` may wait.
 const MAX_WAIT_MS: u64 = 60_000;
 
-const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent that run-ahead can fork; the user can watch it there. Every action (key, type, click, jev, reply) returns once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Text screens give each row as `row: text`, drop the spaces and box borders that end a row, and fold a run of empty rows, or a QR code, into one line that names its rows. Coordinates are zero-based terminal cells, columns counted from the start of a row's text. screen, start and reopen return the whole screen. Actions and wait_for return only the lines of rows that changed since the last screen returned, with changed_rows, the number of rows whose text changed; when no screen of the same size was returned before (the first action, or after a resize), they return the whole screen, without changed_rows. With run-ahead on (key z in the Explore tab), forks lists the forks of the question that waits, and fork_submit plays one. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
+const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent that run-ahead can fork; the user can watch it there. Every action (key, type, click, jev, reply) returns once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Text screens give each row as `row: text`, drop the spaces and box borders that end a row, and fold a run of empty rows, or a QR code, into one line that names its rows. Coordinates are zero-based terminal cells, columns counted from the start of a row's text. screen, start and reopen return the whole screen. Actions and wait_for return only the lines of rows that changed since the last screen returned, with changed_rows, the number of rows whose text changed; when no screen of the same size was returned before (the first action, or after a resize), they return the whole screen, without changed_rows. With run-ahead on (key z in the Explore tab), forks lists the forks of the question that waits; fork_submit, fork_end (no turn, or a crash) or nothing (still working) scripts each fork, switch_unheard makes the next switch to a fork fail, and agent_working, agent_prompt and start's agent_hooks make the agent busy, move its conversation on, or run it without the reviewer's plugin hooks. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
 
 /// The repository a session reviews.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
@@ -59,6 +59,18 @@ struct StartInput {
     /// the user switches to the "reviewer vision" workspace to watch.
     #[serde(default)]
     focus: bool,
+    /// Run the stand-in agent with the hooks of the reviewer's Claude Code plugin, which
+    /// run-ahead needs: true by default. Without them, run-ahead takes no fork and each answer
+    /// says to restart the agent.
+    agent_hooks: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ReopenInput {
+    /// Run the new stand-in agent with the hooks of the reviewer's Claude Code plugin, or
+    /// without; as before when left out.
+    agent_hooks: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -222,6 +234,40 @@ impl ForkTool {
             Self::SubmitConclusion => "submit_conclusion",
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ForkEndInput {
+    /// The fork's session, as forks lists it.
+    session: String,
+    /// Crash instead: the fork exits with a failure and prints no result, as a Claude Code that
+    /// crashed. False by default: the fork ends its turn without a submit.
+    #[serde(default)]
+    crash: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SwitchUnheardInput {
+    /// Herdr and the hooks hear of the resume this many milliseconds late, instead of never: a
+    /// switch heard within 20000 ms succeeds. At most 60000.
+    heard_after_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AgentWorkingInput {
+    /// Show the agent working (true) or idle again (false).
+    working: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AgentPromptInput {
+    /// What the user types in the agent's pane before Enter; `/resume <session>` resumes that
+    /// session.
+    text: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -419,7 +465,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a program named claude that Explore and review comments prompt, which reports its session and runs the reviewer's Claude Code plugin hooks, so run-ahead can fork it). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
+        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a program named claude that Explore and review comments prompt, which reports its session and runs the reviewer's Claude Code plugin hooks unless agent_hooks is false, so run-ahead can fork it). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
     )]
     async fn start(
         &self,
@@ -444,6 +490,7 @@ impl Server {
                 },
                 seed,
                 focus: input.focus,
+                agent_hooks: input.agent_hooks.unwrap_or(true),
             };
             let directory = setup.sessions.join(format!(
                 "{}-{}",
@@ -705,6 +752,69 @@ impl Server {
     }
 
     #[tool(
+        description = "End a fork's turn without a submit (no turn), or make it crash with crash (it exits with a failure and no result). Either way the fork's process ends, and the reviewer counts a failure of run-ahead: three in a row stop it for the round. A bare answer that waits for this fork, or comes after, goes to the agent in the pane. Returns the rows that changed once the fork's process ended; wait_for what the reviewer shows of it."
+    )]
+    async fn fork_end(
+        &self,
+        Parameters(input): Parameters<ForkEndInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("fork_end", json!(input), move |_, session| {
+            let screen = running(session)?.fork_end(&input.session, input.crash)?;
+            Ok(Outcome::reaction("ended", screen))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Make the stand-in agent's next /resume one that Herdr and the reviewer's hooks never hear of, as when Claude Code's session hooks fail, or hear of only heard_after_ms later, as when they come late; the agent reads nothing typed meanwhile. The next switch to a fork (a bare answer to a submitted choice) waits for them: unheard, it fails after 20 s, the turn shows as interrupted with Retry, and the agent is told to resume its own session again, which is heard. Stop waiting and Cancel answer can be played while the switch waits."
+    )]
+    async fn switch_unheard(
+        &self,
+        Parameters(input): Parameters<SwitchUnheardInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("switch_unheard", json!(input), move |_, session| {
+            if let Some(late) = input.heard_after_ms {
+                ensure!(
+                    late <= MAX_WAIT_MS,
+                    "heard_after_ms is at most {MAX_WAIT_MS}"
+                );
+            }
+            let heard_after = input.heard_after_ms.map(Duration::from_millis);
+            running(session)?.switch_unheard(heard_after)?;
+            Ok(Outcome::summary(json!({"status": "next switch unheard"})))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Show the stand-in agent working, with Claude Code's working title, or idle again, and return once Herdr reports it so, with the rows of the reviewer that changed. While it works, run-ahead takes no fork of a new question, and an answer finds it working; a prompt the reviewer sends it waits until it is idle."
+    )]
+    async fn agent_working(
+        &self,
+        Parameters(input): Parameters<AgentWorkingInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("agent_working", json!(input), move |_, session| {
+            let screen = running(session)?.agent_working(input.working)?;
+            Ok(Outcome::reaction("shown", screen))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Type a prompt in the stand-in agent's pane and press Enter, as its user would, and return once the agent read it, with the rows of the reviewer that changed. The agent takes a turn on it, which moves its conversation on past the forks of the question that waits."
+    )]
+    async fn agent_prompt(
+        &self,
+        Parameters(input): Parameters<AgentPromptInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("agent_prompt", json!(input), move |_, session| {
+            let screen = running(session)?.agent_prompt(&input.text)?;
+            Ok(Outcome::reaction("read", screen))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Run the Herdr action that opens the Explore page, as Herdr runs it in the session's workspace, with a browser that records the address instead of opening it. Returns that address, with its token, as page: open it in a browser on this machine, since the page draws itself from its socket (curl gets no round)."
     )]
     async fn explore_page(
@@ -735,15 +845,15 @@ impl Server {
     }
 
     #[tool(
-        description = "Start the reviewer and its stand-in agent again, in new panes of the session's tab, on the same repository and state, and return the reviewer's first screen and the new pane IDs."
+        description = "Start the reviewer and its stand-in agent again, in new panes of the session's tab, on the same repository and state, and return the reviewer's first screen and the new pane IDs. With agent_hooks, the new agent runs with or without the hooks of the reviewer's Claude Code plugin."
     )]
     async fn reopen(
         &self,
-        Parameters(_): Parameters<NoInput>,
+        Parameters(input): Parameters<ReopenInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run("reopen", json!({}), move |_, session| {
+        self.run("reopen", json!(input), move |_, session| {
             let session = running(session)?;
-            let screen = session.reopen()?;
+            let screen = session.reopen(input.agent_hooks)?;
             Ok(Outcome::screen("reopened", screen).with("session", session.describe()))
         })
         .await
@@ -839,6 +949,10 @@ fn build_reviewer(checkout: &std::path::Path) -> Result<PathBuf> {
             "--bin",
             "reviewer-control",
             "-p",
+            "stand-in-agent",
+            // `--bin` selects among every package's programs: without it, the stand-in's is
+            // not built.
+            "--bin",
             "stand-in-agent",
             "--message-format",
             "short",

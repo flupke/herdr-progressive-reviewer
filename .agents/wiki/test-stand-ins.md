@@ -14,7 +14,8 @@ its server's directory under the agent's name (`claude`, `codex`), which Herdr d
 by; started with Claude Code's `--fork-session`, it plays a fork. Cargo builds it for a test run
 of the whole workspace (`cargo nextest run --workspace`, `make mutants`), since its crate has an
 integration test; `make test`, with or without `CRATES`, `make e2e-tui` and `make vision` build
-it first (`cargo build -p stand-in-agent`). A bare `cargo nextest run -p reviewer` does not: it
+it first (`cargo build -p stand-in-agent`). A build that names programs with `--bin` names it
+too (`--bin stand-in-agent`): `--bin` selects among the programs of every package given. A bare `cargo nextest run -p reviewer` does not: it
 runs the program built last, or fails with that command when none was.
 
 ## Real Claude Code in the stand-in's place
@@ -71,7 +72,8 @@ The stand-in agent of a second pane connects as `StandInRole::SecondAgent`
 (`REVIEW_AGENT_E2E_ROLE=second`). The test's switches that must reach the agent before a
 prompt, in the order Herdr types them, stay files in the server's directory, which the agent
 reads as it reads the prompt: `swallow` makes it read each prompt without starting on it,
-`unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`.
+`unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`, or, when it
+holds a number of milliseconds, has them hear of it that late.
 
 The Claude Code stand-in of the run-ahead and hooked delivery tests (`REVIEW_AGENT_E2E_HOOKS`)
 runs the hooks of the reviewer's Claude Code plugin as Claude Code does, through the

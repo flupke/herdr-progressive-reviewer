@@ -21,7 +21,7 @@ pub(crate) struct Fork {
     /// It ended its turn by itself.
     finished: bool,
     /// Its process ended, however it ended: the reviewer stops a fork it discards.
-    exited: bool,
+    pub(crate) exited: bool,
 }
 
 /// The sessions of the agent in the pane.
