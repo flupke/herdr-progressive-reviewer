@@ -69,6 +69,9 @@ struct Harness {
     hooks: Option<Arc<agent_hooks::AgentHooks>>,
     files: Box<dyn ReviewRepositoryFixture>,
     state: TempDir,
+    /// What the pane was told of run-ahead's availability, among the events a submission
+    /// drained, not read yet.
+    run_ahead_unavailable: Vec<Option<String>>,
 }
 
 impl Harness {
@@ -141,6 +144,7 @@ impl Harness {
             hooks: None,
             files,
             state,
+            run_ahead_unavailable: Vec::new(),
         };
         let restored = harness.reopen();
         assert!(matches!(restored.result, Ok(None)));
@@ -300,6 +304,10 @@ impl Harness {
             {
                 self.exploration = Some(committed.round.exploration.clone());
                 committed.response.send(Ok(committed.applied)).unwrap();
+            }
+            if let Some(unavailable) = event.downcast_ref::<ui_events::ExploreRunAheadUnavailable>()
+            {
+                self.run_ahead_unavailable.push(unavailable.0.clone());
             }
         }
         pending.blocking_recv().expect("the session responds")

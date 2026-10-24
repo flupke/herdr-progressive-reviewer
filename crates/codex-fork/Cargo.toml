@@ -1,0 +1,23 @@
+[package]
+name = "codex-fork"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Forks of a Codex session on the agent's app-server daemon, for run-ahead."
+
+[dependencies]
+agent-hooks = { path = "../agent-hooks" }
+codex-daemon = { path = "../codex-daemon" }
+codex-hooks = { path = "../codex-hooks" }
+fork-guard = { path = "../fork-guard" }
+herdr-client = { path = "../herdr-client" }
+review-run-ahead = { path = "../review-run-ahead" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

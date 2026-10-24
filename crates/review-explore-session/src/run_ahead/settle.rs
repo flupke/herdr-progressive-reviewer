@@ -93,7 +93,7 @@ impl ExploreSession {
                     "{reason}: the agent goes back to the session {from} it ran before the fork {}",
                     fork.session
                 ));
-                Move::Resume(from.clone())
+                Move::resume(from.clone(), fork.trace())
             }
             Target::Fork => {
                 self.run_ahead.host.log(&format!(
@@ -213,8 +213,8 @@ impl ExploreSession {
         if self.run_ahead.host.can_move(agent) {
             return true;
         }
-        if self.run_ahead.host.unhooked(agent) {
-            self.agent_restarted(round, fork);
+        if let Some(why) = self.run_ahead.host.unhooked(agent) {
+            self.agent_restarted(round, fork, &why);
         } else {
             self.run_ahead.host.log(&format!(
                 "the agent may run the session of the fork {}, and cannot be moved: it stays \
@@ -226,8 +226,9 @@ impl ExploreSession {
     }
 
     /// The agent restarted since it was told to resume the session of the fork `fork` of
-    /// `round`: the fork is no longer the agent's, and goes.
-    fn agent_restarted(&mut self, round: &RoundKey, fork: &ForkRecord) {
+    /// `round`, and runs without the hooks a move needs, for `why`: the fork is no longer the
+    /// agent's, and goes.
+    fn agent_restarted(&mut self, round: &RoundKey, fork: &ForkRecord, why: &str) {
         let now = review_explore::now_ms();
         let saved = self.update_forks(round, |forks| {
             if let Some(record) = forks.fork_mut(&fork.session) {
@@ -243,8 +244,8 @@ impl ExploreSession {
         }
         self.discard_in_background(round, fork.trace());
         self.run_ahead.host.log(&format!(
-            "the agent restarted without the reviewer's Claude Code plugin since it was told to \
-             resume the session of the fork {}, which is discarded",
+            "the agent runs without the hooks a move needs since it was told to resume the \
+             session of the fork {}, which is discarded: {why}",
             fork.session
         ));
     }

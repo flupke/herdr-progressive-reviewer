@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex};
 
-use agent_fork::{ForkCommand, ProcessStamp};
+use agent_fork::ProcessStamp;
 use review_explore_page::RoundStage;
 use review_explore_round_settings::RunAhead;
 use review_run_ahead::{
     Continuation, DiscardReason, FAILURES_TO_HALT, ForkEnd, ForkHost, ForkPoint, ForkRecord,
-    ForkStart, ForkTrace, PaneWatch, PlainReason, RoundForks, StatusReport, SwitchFailure,
-    SwitchTo, TurnPath,
+    ForkStart, ForkTrace, HostFields, OwnedFork, PaneWatch, PlainReason, RoundForks, StatusReport,
+    SwitchFailure, SwitchTo, TurnPath,
 };
 
 use super::*;
@@ -33,6 +33,10 @@ pub(super) struct FakeForks {
 struct FakeHost {
     /// The last conversation entry of the agent's session, as it is now.
     entry: Option<String>,
+    /// The session the host knows the agent on, when it is not the one Herdr reports.
+    session: Option<String>,
+    /// How many forks it made.
+    created: u32,
     started: Vec<(String, String)>,
     ended: HashMap<String, Box<dyn FnOnce(ForkEnd) + Send>>,
     discarded: Vec<String>,
@@ -81,6 +85,11 @@ impl FakeForks {
     /// The agent's session moves: its last conversation entry is now `entry`.
     fn move_session(&self, entry: &str) {
         self.host().entry = Some(entry.into());
+    }
+
+    /// The host knows the agent on the session `session`, whatever Herdr reports.
+    fn know_session(&self, session: &str) {
+        self.host().session = Some(session.into());
     }
 
     /// Herdr reports `status` for the watched agent.
@@ -204,9 +213,18 @@ impl ForkHost for FakeForks {
         PaneWatch::new(())
     }
 
-    fn unhooked(&self, _agent: &Agent) -> bool {
+    fn session(&self, agent: &Agent) -> Option<String> {
+        self.host().session.clone().or_else(|| {
+            agent
+                .agent_session
+                .as_ref()
+                .map(|session| session.value.clone())
+        })
+    }
+
+    fn unhooked(&self, _agent: &Agent) -> Option<String> {
         let host = self.host();
-        host.unhooked && !host.deaf
+        (host.unhooked && !host.deaf).then(|| "the fake agent runs without its hooks".into())
     }
 
     fn can_move(&self, _agent: &Agent) -> bool {
@@ -224,17 +242,13 @@ impl ForkHost for FakeForks {
             return Err(why.clone());
         }
         drop(host);
+        let mut fields = HostFields::default();
+        fields.set("point", "fake");
         Ok(ForkPoint {
-            session: agent.agent_session.as_ref().unwrap().value.clone(),
+            session: self.session(agent).unwrap(),
             entry: self.host().entry.clone(),
-            transcripts: "/fake/projects".into(),
             model: None,
-            command: ForkCommand {
-                program: "claude".into(),
-                arguments: Vec::new(),
-                directory: "/".into(),
-                environment: Vec::new(),
-            },
+            host: fields,
         })
     }
 
@@ -242,19 +256,34 @@ impl ForkHost for FakeForks {
         self.host().entry.clone()
     }
 
+    fn create(&self, point: &ForkPoint) -> Result<OwnedFork, String> {
+        assert_eq!(point.host.get::<String>("point").as_deref(), Some("fake"));
+        let mut host = self.host();
+        host.created += 1;
+        let mut fields = HostFields::default();
+        fields.set("made", host.created);
+        Ok(OwnedFork {
+            session: uuid::Uuid::new_v4().to_string(),
+            host: fields,
+        })
+    }
+
     fn start(
         &self,
         start: ForkStart<'_>,
+        prompt: String,
         ended: Box<dyn FnOnce(ForkEnd) + Send>,
-    ) -> Result<ProcessStamp, String> {
+    ) -> Result<HostFields, String> {
+        assert!(start.fork.host.has("made"), "a fork the host made");
         let mut host = self.host();
         host.started.push((
-            start.session.to_owned(),
-            review_test_support::turn::with_turn(&start.prompt),
+            start.fork.session.to_owned(),
+            review_test_support::turn::with_turn(&prompt),
         ));
-        host.ended.insert(start.session.to_owned(), ended);
-        let pid = 100_000 + u32::try_from(host.started.len()).unwrap();
-        Ok(ProcessStamp { pid, started: 1 })
+        host.ended.insert(start.fork.session.to_owned(), ended);
+        let mut fields = HostFields::default();
+        fields.set("started", host.started.len());
+        Ok(fields)
     }
 
     fn discard(&self, fork: ForkTrace<'_>, done: Box<dyn FnOnce() + Send>) {
@@ -277,7 +306,7 @@ impl ForkHost for FakeForks {
         self.changed.notify_all();
     }
 
-    fn resume(&self, _pane: &PaneId, session: &str, done: SwitchDone) {
+    fn resume(&self, _pane: &PaneId, _from: ForkTrace<'_>, session: &str, done: SwitchDone) {
         self.host().resumes.push((session.to_owned(), done));
         self.changed.notify_all();
     }
@@ -379,7 +408,11 @@ fn every_choice_gets_a_fork_told_that_answer_with_its_own_request_answer_and_acc
     for ((session, prompt), record) in started.iter().zip(&saved.forks) {
         assert_eq!(&record.session, session);
         assert_eq!(record.question, "q1");
-        assert_eq!(record.process.unwrap().started, 1);
+        assert!(
+            record.host.has("made") && record.host.has("started"),
+            "the record keeps what the host made the fork with and started it with: {:?}",
+            record.host
+        );
         assert_eq!(fork_line(prompt, "Explore round: "), instance);
         assert_eq!(fork_line(prompt, "Selected option ID: "), record.choice);
         assert_eq!(fork_line(prompt, "Question: "), "q1 (version 1)");
@@ -530,6 +563,38 @@ fn an_answer_discards_every_fork_and_their_calls_are_refused_from_then_on() {
         harness
             .submit_as_fork(&started[0].0, question(&request, 2))
             .is_err()
+    );
+}
+
+#[test]
+fn a_call_that_names_a_fork_s_session_is_the_fork_s_whatever_access_it_gives() {
+    let mut harness = Harness::start();
+    let (_, pane_access) = harness.ask(RunAhead::Every);
+    let session = harness.forks.started()[0].0.clone();
+    let request = harness.fork_request(&session);
+    let before = harness.saved();
+
+    // A Codex fork that gives the access value its history holds, the agent's.
+    let kept = harness.submit_from(&pane_access, question(&request, 2), true, Some(&session));
+
+    assert_eq!(shown(kept), (true, Some("Q2".into())));
+    assert_eq!(harness.saved(), before, "the round does not change");
+    assert_eq!(
+        harness.forks_saved().forks[0]
+            .turn
+            .as_ref()
+            .unwrap()
+            .request,
+        request.request
+    );
+
+    harness.answer("Keep it.");
+    let refused = harness
+        .submit_from(&pane_access, question(&request, 2), true, Some(&session))
+        .unwrap_err();
+    assert!(
+        refused.contains("no longer needed"),
+        "a discarded fork's session calls in vain: {refused}"
     );
 }
 
@@ -884,6 +949,18 @@ impl Harness {
 
     /// The paths of turns the pane heard of since the test last read the session's events, by
     /// request, oldest first.
+    /// What the pane was told of run-ahead's availability since the test last read the
+    /// session's events, in order.
+    fn availability_heard(&mut self) -> Vec<Option<String>> {
+        let mut heard = std::mem::take(&mut self.run_ahead_unavailable);
+        while let Ok(event) = self.events.try_recv() {
+            if let Some(event) = event.downcast_ref::<ui_events::ExploreRunAheadUnavailable>() {
+                heard.push(event.0.clone());
+            }
+        }
+        heard
+    }
+
     fn paths_heard(&self) -> Vec<(String, TurnPath)> {
         let mut heard = Vec::new();
         while let Ok(event) = self.events.try_recv() {
@@ -1222,6 +1299,38 @@ fn an_answer_after_the_agent_s_session_moved_goes_to_the_agent() {
             harness.forks.move_session("after-a-talk");
             (Some("keep"), "")
         },
+    );
+}
+
+#[test]
+fn an_answer_after_the_session_the_host_knows_moved_goes_to_the_agent() {
+    an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
+        &PlainReason::SessionMoved,
+        |harness| {
+            // Herdr still reports the agent where the forks were taken.
+            harness.forks.know_session("resumed-elsewhere");
+            (Some("keep"), "")
+        },
+    );
+}
+
+#[test]
+fn a_bare_answer_uses_its_fork_while_the_host_knows_the_agent_where_the_forks_were_taken() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let (fork, _) = harness.fork_submits("keep");
+    // Herdr reports another pane's session for the agent, as it can under a shared daemon.
+    let forked_from = harness.forks.session(&agent()).unwrap();
+    harness.forks.know_session(&forked_from);
+    harness.agent_on("another-pane-s-session");
+
+    harness.post_answer(Some("keep"), "");
+
+    assert_eq!(
+        harness.forks.switches(),
+        [fork],
+        "{:?}",
+        harness.forks.log()
     );
 }
 
@@ -2365,6 +2474,24 @@ fn a_question_that_needs_no_fork_is_no_failure() {
 }
 
 #[test]
+fn the_pane_hears_why_run_ahead_is_not_available_for_the_agent_and_when_it_is_again() {
+    let mut harness = Harness::start();
+    harness.forks.unhook();
+    harness.ask(RunAhead::Every);
+    assert_eq!(
+        harness.availability_heard(),
+        [Some("the fake agent runs without its hooks".to_owned())]
+    );
+
+    harness.forks.host().unhooked = false;
+    let (request, access) = harness.answer("");
+    assert!(applied(harness.submit(&access, question(&request, 2))));
+
+    assert_eq!(harness.availability_heard(), [None]);
+    assert_eq!(harness.forks.started().len(), 2);
+}
+
+#[test]
 fn an_agent_run_ahead_does_not_fork_is_no_failure() {
     let mut harness = Harness::start();
     harness
@@ -2513,9 +2640,7 @@ fn a_reviewer_does_not_fork_a_question_that_another_running_reviewer_forks() {
                 answer: None,
                 session: "another-reviewer-s-fork".into(),
                 from: Some("conversation".into()),
-                transcripts: "/fake/projects".into(),
                 reviewer: other.stamp(),
-                process: None,
                 taken_at_ms: 1,
                 turn: None,
                 submitted_at_ms: None,
@@ -2524,6 +2649,7 @@ fn a_reviewer_does_not_fork_a_question_that_another_running_reviewer_forks() {
                 discarded: None,
                 cleaned: false,
                 continued: None,
+                host: HostFields::default(),
             });
         })
         .unwrap();

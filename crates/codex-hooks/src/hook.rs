@@ -39,19 +39,50 @@ enum Payload {
         session_id: String,
         prompt: String,
     },
+    PreToolUse {
+        session_id: String,
+        tool_name: String,
+        #[serde(default)]
+        tool_input: serde_json::Value,
+    },
     /// An event the plugin does not register.
     #[serde(other)]
     Other,
 }
 
-/// Records that the session of `payload` runs the hook, and asks the reviewers of `root`
-/// whether they block its prompt; returns the decision Codex reads, when one does.
+/// Answers the event `payload` with the reviewers of `root`; returns the decision Codex reads,
+/// when one is made.
 fn hook(root: &HookRoot, payload: &[u8]) -> Option<String> {
-    let Payload::UserPromptSubmit { session_id, prompt } =
-        serde_json::from_slice::<Payload>(payload).ok()?
-    else {
-        return None;
-    };
+    match serde_json::from_slice::<Payload>(payload).ok()? {
+        Payload::UserPromptSubmit { session_id, prompt } => {
+            prompt_submitted(root, session_id, prompt)
+        }
+        Payload::PreToolUse {
+            session_id,
+            tool_name,
+            tool_input,
+        } => {
+            // Every tool call of every session of the user comes here: one file check.
+            if !root.is_codex_fork(&session_id) {
+                return None;
+            }
+            let reason = crate::guard::refusal(&tool_name, &tool_input)?;
+            Some(
+                serde_json::json!({"hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }})
+                .to_string(),
+            )
+        }
+        Payload::Other => None,
+    }
+}
+
+/// Records that the session `session_id` runs the hook, and asks the reviewers of `root`
+/// whether they block its prompt `prompt`; returns the decision Codex reads, when one does.
+fn prompt_submitted(root: &HookRoot, session_id: String, prompt: String) -> Option<String> {
     let _ = root.record_codex_session(&session_id);
     let report = Report {
         pane: None,

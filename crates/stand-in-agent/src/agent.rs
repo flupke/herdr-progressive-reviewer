@@ -159,11 +159,12 @@ impl AgentPrompts {
             return Some(prompt.to_owned());
         }
         self.transcript.turn(prompt);
+        let swallowed = self.turns.swallows();
         // The agent reads the turn's files as it reads the prompt that names them.
         self.report.report(&StandInEvent::PromptReceived {
             text: review_test_support::turn::with_turn(prompt),
         });
-        self.turns.prompt_read();
+        self.turns.prompt_read(swallowed);
         None
     }
 }

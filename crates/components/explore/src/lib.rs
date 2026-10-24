@@ -653,6 +653,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_not_opened);
         subscriptions.subscribe(Self::page_settings_loaded);
         subscriptions.subscribe(Self::round_settings_loaded);
+        subscriptions.subscribe(Self::run_ahead_unavailable);
         subscriptions.subscribe(Self::page_off_network);
         subscriptions.subscribe(Self::tunnel_reported);
         subscriptions.subscribe(Self::start_block_set);

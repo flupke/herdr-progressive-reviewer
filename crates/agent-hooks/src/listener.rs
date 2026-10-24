@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use herdr_client::protocol::{Agent, AgentPort, PaneId};
 
-use crate::directory::{HookDirectory, HookedSession};
+use crate::directory::{HookDirectory, HookRoot, HookedSession};
 use crate::wire::{AgentEvent, Answer, Report, SessionSource};
 
 /// How long a reviewer waits for the line of a hook that connected.
@@ -164,12 +164,30 @@ impl AgentHooks {
     }
 
     /// The agent of `pane` named `session` as its own in a call to the reviewer's tools, as
-    /// Codex does: the reviewer expects its prompts there from now on.
+    /// Codex does, or the reviewer moved it there: the reviewer expects its prompts there from
+    /// now on. A Codex fork's session, which calls the reviewer's tools too, is never the pane's.
     pub fn name_session(&self, pane: &PaneId, session: &str) {
+        if self.directory.root().is_codex_fork(session) {
+            return;
+        }
         self.codex_sessions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(pane.clone(), session.to_owned());
+    }
+
+    /// The session the Codex agent of `pane` was named on last, if any.
+    pub fn named_session(&self, pane: &PaneId) -> Option<String> {
+        self.codex_sessions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(pane)
+            .cloned()
+    }
+
+    /// Where the hooks of every reviewer of the user reach them, Codex forks' marks included.
+    pub fn root(&self) -> HookRoot {
+        self.directory.root()
     }
 
     /// `agent` as its hooks name it, when it runs them, which `port` helps tell. A Claude Code

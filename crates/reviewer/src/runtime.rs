@@ -197,7 +197,7 @@ impl Runtime {
                 run_ahead: RunAheadSetup {
                     tools: claude_fork::ForkTools::beside_current_exe()?,
                     log: Some(self.state_dir.join("run-ahead.log")),
-                    waits: claude_fork::ForkWaits::default(),
+                    waits: review_run_ahead::ForkWaits::default(),
                     talk_quiet: explore_session::TALK_QUIET,
                 },
             },

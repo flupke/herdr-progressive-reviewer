@@ -638,8 +638,13 @@ fn a_prompt_typed_to_the_agent_moves_its_conversation_past_the_forks() {
     let session = &mut fixture.session;
     ask_with_run_ahead(session);
     forks_of_the_question(session);
+    // The agent writes the prompt into its conversation and starts no turn on it: the answer
+    // finds it idle, its conversation past the forks, whatever the answer's pace.
+    let swallow = session.scratch.stand_in().swallow();
+    fs::write(&swallow, "").unwrap();
 
     session.agent_prompt("What are you doing?").unwrap();
+    fs::remove_file(&swallow).unwrap();
 
     let screen = answer_bare_and_ask_again(session);
     assert!(

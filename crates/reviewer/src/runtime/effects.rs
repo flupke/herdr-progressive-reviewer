@@ -70,26 +70,30 @@ pub(super) struct RunAheadSetup {
     /// Where run-ahead writes its log; `None` writes none.
     pub(super) log: Option<PathBuf>,
     /// How long the forks' host waits on Herdr and on the forks.
-    pub(super) waits: claude_fork::ForkWaits,
+    pub(super) waits: review_run_ahead::ForkWaits,
     /// How long the reviewer's talk with the agent in the round conversation stays quiet
     /// before run-ahead takes forks again.
     pub(super) talk_quiet: std::time::Duration,
 }
 
 impl RunAheadSetup {
-    /// The forks of the agents `agents` reports, which hears the agents' hooks through `hooks`.
+    /// The forks of the agents `agents` reports, Claude Code's and Codex's, which hears the
+    /// agents' hooks through `hooks`.
     fn forks(
         self,
         agents: &HerdrClient,
         hooks: Result<Arc<AgentHooks>, String>,
-    ) -> Arc<claude_fork::ClaudeForks> {
-        Arc::new(claude_fork::ClaudeForks::new(
+    ) -> Arc<agent_forks::AgentForks> {
+        let log = review_run_ahead::RunAheadLog::at(self.log);
+        let codex = codex_fork::CodexForks::new(
             agents.clone(),
-            self.tools,
-            self.log,
+            log.clone(),
             self.waits,
-            hooks,
-        ))
+            hooks.as_ref().ok().cloned(),
+        );
+        let claude =
+            claude_fork::ClaudeForks::new(agents.clone(), self.tools, log, self.waits, hooks);
+        Arc::new(agent_forks::AgentForks::new(claude, codex))
     }
 }
 

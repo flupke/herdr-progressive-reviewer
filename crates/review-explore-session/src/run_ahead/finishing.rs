@@ -97,7 +97,6 @@ impl ExploreSession {
                 asked: asked.clone(),
                 dispatch: self.dispatch_of(&turn.request, &turn.attempt, None),
                 turn: turn.clone(),
-                point,
                 fork,
                 files,
                 hold: self.prompts.hold(),
@@ -107,7 +106,6 @@ impl ExploreSession {
             Err(reason) => {
                 self.discard_forks(
                     &asked.round,
-                    &point,
                     std::slice::from_ref(&fork),
                     DiscardReason::Answered,
                 );
@@ -199,7 +197,6 @@ impl ExploreSession {
     fn discard_finishing_fork(&mut self, finishing: &Finishing, reason: DiscardReason) {
         self.discard_forks(
             &finishing.asked.round,
-            &finishing.point,
             std::slice::from_ref(&finishing.fork),
             reason,
         );

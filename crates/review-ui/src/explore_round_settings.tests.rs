@@ -115,3 +115,24 @@ fn the_pane_shows_run_ahead_as_saved_and_its_button_moves_it_on() {
 
     assert_eq!(saved_run_ahead(&actions), Some(RunAhead::Off));
 }
+
+#[test]
+fn the_run_ahead_setting_says_why_run_ahead_is_not_available_for_the_agent_until_it_is() {
+    let mut fixture = ExploreUi::start_screen(BASE, POLICY);
+    let why = "the Codex agent runs without the app-server daemon (--no-daemon)";
+
+    fixture
+        .app
+        .publish(ui_events::ExploreRunAheadUnavailable(Some(why.into())));
+    let text = fixture.text();
+    assert!(
+        text.contains("Run-ahead is not available for this agent: the Codex agent runs"),
+        "{text}"
+    );
+
+    fixture
+        .app
+        .publish(ui_events::ExploreRunAheadUnavailable(None));
+    let text = fixture.text();
+    assert!(!text.contains("not available"), "{text}");
+}

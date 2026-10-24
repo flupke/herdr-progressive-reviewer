@@ -1,0 +1,17 @@
+[package]
+name = "agent-forks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Run-ahead's host for the agent of the pane, Claude Code or Codex."
+
+[dependencies]
+claude-fork = { path = "../claude-fork" }
+codex-fork = { path = "../codex-fork" }
+herdr-client = { path = "../herdr-client" }
+review-run-ahead = { path = "../review-run-ahead" }
+
+[lints]
+workspace = true

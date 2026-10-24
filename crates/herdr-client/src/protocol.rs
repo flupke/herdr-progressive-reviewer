@@ -239,6 +239,22 @@ impl AgentStatus {
     }
 }
 
+/// A session an agent started, as its Herdr hook reports it.
+#[derive(Clone, Copy, Debug)]
+pub struct SessionReport<'a> {
+    /// Who reports it, such as `herdr:codex` for Herdr's own Codex hook.
+    pub source: &'a str,
+    /// The agent's name, such as `codex`.
+    pub agent: &'a str,
+    /// Orders the reports of `source`: a report with an older one than Herdr holds is ignored.
+    /// Herdr's hooks give the time in nanoseconds since the epoch.
+    pub seq: u64,
+    pub session: &'a str,
+    /// Why the agent started the session, in its hook's words: `startup`, `resume`, `clear`,
+    /// `compact` or `fork`. Herdr replaces the session it knows for some of them only.
+    pub start: &'a str,
+}
+
 /// A native agent session identity reported by Herdr.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct AgentSession {

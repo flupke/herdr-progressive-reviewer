@@ -16,9 +16,8 @@ use agent_fork::{ProcessStamp, RunningFork, stop_recorded};
 use agent_hooks::{AgentHooks, Heard};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{Agent, AgentPort, PaneId};
-use review_run_ahead::SwitchFailure;
+use review_run_ahead::{ForkWaits, SwitchFailure, resume_block};
 
-use crate::host::ForkWaits;
 use crate::stream::Signal;
 
 /// A fork that runs, and the signal of the answer to its submit.
@@ -141,34 +140,25 @@ impl Resume<'_> {
     /// typed in its pane in order, so once the command is typed, the agent ends on this session
     /// even after an earlier `/resume`.
     pub(crate) fn run(self) -> Result<Agent, SwitchFailure> {
-        let failed = |error: String| SwitchFailure {
-            error,
-            typed: false,
-        };
-        let hooks = self
-            .hooks
-            .ok_or_else(|| failed("the reviewer does not listen to the agent's hooks".into()))?;
-        let agent = self.pane.agent().map_err(failed)?;
+        let hooks = self.hooks.ok_or_else(|| {
+            SwitchFailure::untyped("the reviewer does not listen to the agent's hooks")
+        })?;
+        let agent = self.pane.agent().map_err(SwitchFailure::untyped)?;
         if !agent.agent_status.waits_for_prompt() {
-            return Err(failed("the agent in the pane is working".into()));
+            return Err(SwitchFailure::untyped("the agent in the pane is working"));
         }
         let Some(hooked) = hooks.hooked(self.pane.herdr, &agent) else {
-            return Err(failed(
-                "the agent in the pane runs without the reviewer's Claude Code plugin".into(),
+            return Err(SwitchFailure::untyped(
+                "the agent in the pane runs without the reviewer's Claude Code plugin",
             ));
         };
         let command = format!("/resume {}", self.session);
         let deadline = Instant::now() + self.limit;
-        let block = format!(
-            "The progressive reviewer stopped this prompt: it typed `{command}` while text \
-             waited in the input box, and both would have run as one prompt. Clear the input \
-             box before you Retry the answer in the reviewer."
-        );
-        let expectation = hooks.expect_resume(&hooked, self.session, &block);
+        let expectation = hooks.expect_resume(&hooked, self.session, &resume_block(&command));
         self.pane
             .herdr
             .submit_prompt(self.pane.pane, &command)
-            .map_err(|error| failed(error.to_string()))?;
+            .map_err(|error| SwitchFailure::untyped(error.to_string()))?;
         let late = |what: &str| SwitchFailure {
             error: format!(
                 "{what} the agent on the session {} within {} s",
@@ -179,23 +169,9 @@ impl Resume<'_> {
         };
         match expectation.wait(deadline.saturating_duration_since(Instant::now())) {
             Some(Heard::Resumed) => {}
-            // The text and the command made one prompt, which never ran: the agent did not
-            // move.
-            Some(Heard::Blocked { prompt }) if prompt.contains(&command) => {
-                return Err(failed(
-                    "text in the agent's input box joined the /resume, so the reviewer stopped \
-                     both; clear the agent's input box, then Retry"
-                        .into(),
-                ));
-            }
-            // A prompt of someone else: the command may still run.
-            Some(Heard::Blocked { .. }) => {
-                return Err(SwitchFailure {
-                    error: "a prompt reached the agent while it resumed the session, and the \
-                            reviewer stopped it"
-                        .into(),
-                    typed: true,
-                });
+            // Text in the input box joined the command, or a prompt of someone else came.
+            Some(Heard::Blocked { prompt }) => {
+                return Err(SwitchFailure::blocked(&prompt, &command));
             }
             // An expectation of a resume hears nothing of a prompt it waits for.
             Some(Heard::Submitted | Heard::Joined { .. } | Heard::Stopped) | None => {

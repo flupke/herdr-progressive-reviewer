@@ -9,6 +9,7 @@ description = "The reviewer's Codex plugin, whose hook confirms the prompts the 
 
 [dependencies]
 agent-hooks = { path = "../agent-hooks" }
+fork-guard = { path = "../fork-guard" }
 eyre.workspace = true
 serde.workspace = true
 serde_json.workspace = true

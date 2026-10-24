@@ -32,6 +32,10 @@ pub struct HookRoot(PathBuf);
 /// The directory of the [`HookRoot`] where Codex's hook records the sessions it runs in.
 const CODEX_SESSIONS: &str = "codex";
 
+/// The directory of the [`HookRoot`] where reviewers mark the sessions of their Codex forks,
+/// which the plugin's `PreToolUse` hook guards.
+const CODEX_FORKS: &str = "codex-forks";
+
 /// The extension of a reviewer's socket.
 const SOCKET: &str = "sock";
 
@@ -236,6 +240,34 @@ impl HookRoot {
     pub(crate) fn runs_codex_hook(&self, session: &str) -> bool {
         self.0
             .join(CODEX_SESSIONS)
+            .join(hex(session.as_bytes()))
+            .exists()
+    }
+
+    /// Marks the session `session` as a Codex fork's, which the plugin's guard keeps to reading
+    /// code and submitting its turn, until [`Self::unmark_codex_fork`].
+    pub fn mark_codex_fork(&self, session: &str) -> io::Result<()> {
+        let forks = self.0.join(CODEX_FORKS);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&forks)?;
+        fs::write(forks.join(hex(session.as_bytes())), "")
+    }
+
+    /// The session `session` is no Codex fork's from now on: the agent may run it.
+    pub fn unmark_codex_fork(&self, session: &str) -> io::Result<()> {
+        match fs::remove_file(self.0.join(CODEX_FORKS).join(hex(session.as_bytes()))) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether a reviewer marked the session `session` as a Codex fork's: a file check, which
+    /// every tool call of every Codex session of the user makes.
+    pub fn is_codex_fork(&self, session: &str) -> bool {
+        self.0
+            .join(CODEX_FORKS)
             .join(hex(session.as_bytes()))
             .exists()
     }

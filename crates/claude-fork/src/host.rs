@@ -2,59 +2,25 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
 
-use agent_fork::{Launcher, ProcessStamp, Wrapper};
+use agent_fork::{Launcher, Wrapper};
 use agent_hooks::AgentHooks;
-use herdr_client::client::{EventCanceller, HerdrClient};
-use herdr_client::protocol::{Agent, AgentPort, AgentStatus, PaneId, PaneProcess};
+use herdr_client::client::HerdrClient;
+use herdr_client::protocol::{Agent, AgentPort, PaneId, PaneProcess};
 use review_run_ahead::{
-    ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport, SwitchFailure,
-    SwitchTo,
+    ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, ForkWaits, HostFields, OwnedFork,
+    PaneWatch, RunAheadLog, StatusReport, SwitchFailure, SwitchTo,
 };
 
+use crate::fields;
 use crate::guard::SUBMITS;
 use crate::pane::PaneClaude;
 use crate::stream::StreamTally;
 use crate::switch::{AgentPane, ForkProcess, LiveFork, Resume, Switch};
 use crate::transcripts::Transcripts;
-
-/// How long the host waits for Herdr and for its forks. Production uses the defaults; tests set
-/// them small.
-#[derive(Clone, Copy, Debug)]
-pub struct ForkWaits {
-    /// How long a switch waits for the answer to the fork's submit to reach the fork, which
-    /// then writes it in its transcript, before it stops the fork anyway.
-    pub answer: Duration,
-    /// How long a switch waits, once the agent was told to resume the fork's session, for the
-    /// agent's hook to say that it did, and for Herdr to report it there, ready for a prompt.
-    pub resume: Duration,
-    /// How long the agent's move back to the session its forks were taken from waits, as
-    /// [`Self::resume`] does.
-    pub settle: Duration,
-    /// How often a switch asks Herdr where the agent stands, once the agent's hook said that it
-    /// resumed the session: Herdr sends no event when an agent's session changes.
-    pub resume_poll: Duration,
-    /// How long a status watch waits before it subscribes again after Herdr dropped it.
-    pub resubscribe: Duration,
-}
-
-impl Default for ForkWaits {
-    fn default() -> Self {
-        Self {
-            answer: Duration::from_secs(10),
-            resume: Duration::from_secs(20),
-            settle: Duration::from_secs(20),
-            resume_poll: Duration::from_millis(100),
-            resubscribe: Duration::from_secs(1),
-        }
-    }
-}
 
 /// The programs forks need from the reviewer's installation: `reviewer-control`, whose
 /// `fork-exec` ties a fork's life to the reviewer's and whose `fork-guard` is the forks' hook.
@@ -97,8 +63,7 @@ pub struct ClaudeForks {
     herdr: HerdrClient,
     tools: ForkTools,
     launcher: Launcher,
-    /// Run-ahead's log; `None` writes none.
-    log: Option<PathBuf>,
+    log: RunAheadLog,
     waits: ForkWaits,
     /// What the hooks of the agents say, when the reviewer listens to them.
     hooks: Option<Arc<AgentHooks>>,
@@ -115,7 +80,7 @@ impl ClaudeForks {
     pub fn new(
         herdr: HerdrClient,
         tools: ForkTools,
-        log: Option<PathBuf>,
+        log: RunAheadLog,
         waits: ForkWaits,
         hooks: Result<Arc<AgentHooks>, String>,
     ) -> Self {
@@ -200,53 +165,24 @@ fn is_claude(process: &PaneProcess) -> bool {
             .is_some_and(|program| program.rsplit('/').next() == Some("claude"))
 }
 
-/// Ends a status watch when dropped.
-struct CancelOnDrop(EventCanceller);
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.0.cancel();
-    }
-}
-
 impl ForkHost for ClaudeForks {
     fn watch(&self, pane: &PaneId, report: StatusReport) -> PaneWatch {
-        let canceller = EventCanceller::default();
-        let (herdr, pane, stop) = (self.herdr.clone(), pane.clone(), canceller.clone());
-        let resubscribe = self.waits.resubscribe;
-        thread::spawn(move || {
-            let mut dropped = false;
-            while !stop.is_cancelled() {
-                // The agent may have worked while the subscription was down: say so, and the
-                // status that follows tells where it stands now.
-                if std::mem::take(&mut dropped) {
-                    report(AgentStatus::Working);
-                }
-                let watched = herdr
-                    .subscribe_agent_status(&pane, &stop)
-                    .and_then(|statuses| {
-                        statuses.forward(|status| {
-                            report(status);
-                            true
-                        })
-                    });
-                match watched {
-                    Ok(()) | Err(herdr_client::Error::Cancelled) => return,
-                    Err(_) => {
-                        dropped = true;
-                        thread::sleep(resubscribe);
-                    }
-                }
-            }
-        });
-        PaneWatch::new(CancelOnDrop(canceller))
+        PaneWatch::herdr(&self.herdr, pane, self.waits.resubscribe, report)
     }
 
-    fn unhooked(&self, agent: &Agent) -> bool {
+    fn session(&self, agent: &Agent) -> Option<String> {
+        agent
+            .agent_session
+            .as_ref()
+            .map(|session| session.value.clone())
+    }
+
+    fn unhooked(&self, agent: &Agent) -> Option<String> {
         // An agent run-ahead cannot fork for another reason has that reason, which `point`
         // gives.
         self.forkable(agent)
             .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent).is_none())
+            .then(|| "the agent runs without the reviewer's Claude Code plugin: restart it".into())
     }
 
     fn can_move(&self, agent: &Agent) -> bool {
@@ -278,25 +214,35 @@ impl ForkHost for ClaudeForks {
         Ok(ForkPoint {
             session,
             entry: last.entry,
-            transcripts: transcripts.root().to_owned(),
             model: last.model.or(pane.model),
-            command: pane.command,
+            host: fields::point(transcripts.root(), &pane.command),
         })
     }
 
     fn last_entry(&self, point: &ForkPoint) -> Option<String> {
-        Transcripts::at(point.transcripts.clone())
+        Transcripts::at(fields::transcripts(&point.host)?)
             .last_entry(&point.session)?
             .entry
+    }
+
+    fn create(&self, point: &ForkPoint) -> Result<OwnedFork, String> {
+        let transcripts =
+            fields::transcripts(&point.host).ok_or("the point names no transcript directory")?;
+        Ok(OwnedFork {
+            session: uuid::Uuid::new_v4().to_string(),
+            host: fields::fork(transcripts),
+        })
     }
 
     fn start(
         &self,
         start: ForkStart<'_>,
+        prompt: String,
         ended: Box<dyn FnOnce(ForkEnd) + Send>,
-    ) -> Result<ProcessStamp, String> {
+    ) -> Result<HostFields, String> {
         let point = start.point;
-        let mut command = point.command.clone();
+        let mut command =
+            fields::command(&point.host).ok_or("the point names no Claude Code command")?;
         command.arguments.extend(
             [
                 "-p",
@@ -304,7 +250,7 @@ impl ForkHost for ClaudeForks {
                 &point.session,
                 "--fork-session",
                 "--session-id",
-                start.session,
+                start.fork.session,
                 "--output-format",
                 "stream-json",
                 "--verbose",
@@ -320,7 +266,7 @@ impl ForkHost for ClaudeForks {
             command.arguments.extend(["--model".into(), model.into()]);
         }
         let program = command.program.display().to_string();
-        let (live, session) = (Arc::clone(&self.live), start.session.to_owned());
+        let (live, session) = (Arc::clone(&self.live), start.fork.session.to_owned());
         let ended = Box::new(move |end| {
             live.lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -331,26 +277,28 @@ impl ForkHost for ClaudeForks {
         let answered = tally.submit_answered();
         let fork = self
             .launcher
-            .spawn(command, start.prompt, Box::new(tally))
+            .spawn(command, prompt, Box::new(tally))
             .map_err(|error| format!("cannot start {program}: {error}"))?;
         let stamp = fork.stamp();
         self.live().insert(
-            start.session.to_owned(),
+            start.fork.session.to_owned(),
             LiveFork {
                 process: Arc::new(fork),
                 answered,
             },
         );
-        Ok(stamp)
+        Ok(fields::started(stamp))
     }
 
     fn discard(&self, fork: ForkTrace<'_>, done: Box<dyn FnOnce() + Send>) {
         let running = self.live().remove(fork.session);
-        let (session, process) = (fork.session.to_owned(), fork.process);
-        let transcripts = Transcripts::at(fork.transcripts.to_owned());
+        let (session, process) = (fork.session.to_owned(), fields::process(fork.host));
+        let transcripts = fields::transcripts(fork.host).map(Transcripts::at);
         let discard = thread::spawn(move || {
             ForkProcess::of(running, process).stop(&session);
-            transcripts.delete(&session);
+            if let Some(transcripts) = transcripts {
+                transcripts.delete(&session);
+            }
             done();
         });
         let mut discards = self.discards.lock().unwrap_or_else(PoisonError::into_inner);
@@ -363,7 +311,10 @@ impl ForkHost for ClaudeForks {
         switch: SwitchTo<'_>,
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     ) {
-        let fork = ForkProcess::of(self.live().remove(switch.fork.session), switch.fork.process);
+        let fork = ForkProcess::of(
+            self.live().remove(switch.fork.session),
+            fields::process(switch.fork.host),
+        );
         let (herdr, pane, session) = (
             self.herdr.clone(),
             switch.pane.clone(),
@@ -388,6 +339,7 @@ impl ForkHost for ClaudeForks {
     fn resume(
         &self,
         pane: &PaneId,
+        _from: ForkTrace<'_>,
         session: &str,
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     ) {
@@ -409,24 +361,6 @@ impl ForkHost for ClaudeForks {
     }
 
     fn log(&self, line: &str) {
-        let Some(path) = &self.log else {
-            return;
-        };
-        let now = time::OffsetDateTime::now_utc();
-        let line = format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} UTC [pid {}] {line}\n",
-            now.year(),
-            u8::from(now.month()),
-            now.day(),
-            now.hour(),
-            now.minute(),
-            now.second(),
-            now.millisecond(),
-            std::process::id(),
-        );
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            // One write per line, so the lines of several threads do not interleave.
-            let _ = file.write_all(line.as_bytes());
-        }
+        self.log.write(line);
     }
 }

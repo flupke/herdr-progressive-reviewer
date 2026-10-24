@@ -9,6 +9,7 @@ use std::time::Duration;
 use herdr_client::protocol::PaneProcess;
 
 use crate::follow::{Follow, SessionEvent};
+use crate::rpc::{Incoming, Replier, Rpc};
 
 /// The control socket of a Codex app-server daemon, which carries its JSON-RPC in WebSocket
 /// text frames.
@@ -104,6 +105,25 @@ impl Daemon {
         Ok(Self {
             socket: directory.join(socket),
         })
+    }
+
+    /// The daemon whose control socket is `socket`.
+    pub fn at(socket: PathBuf) -> Self {
+        Self { socket }
+    }
+
+    /// Where the daemon's control socket is.
+    pub fn socket(&self) -> &Path {
+        &self.socket
+    }
+
+    /// Connects to the daemon, and hands `handler` what the daemon says from then on, on a
+    /// thread of the connection's own, until the returned connection is dropped.
+    pub fn connect(
+        &self,
+        handler: impl FnMut(Incoming, &Replier) + Send + 'static,
+    ) -> Result<Rpc, String> {
+        Rpc::connect(&self.socket, handler)
     }
 
     /// Joins the session `session` on a thread of its own, and hands `report` what it hears

@@ -10,7 +10,7 @@
 
 use herdr_client::protocol::Agent;
 use review_run_ahead::{
-    Continuation, DiscardReason, Failure, ForkPoint, PlainReason, SwitchFailure, TurnPath,
+    Continuation, DiscardReason, Failure, PlainReason, SwitchFailure, TurnPath,
 };
 use review_thread_service::{DispatchObserver, PromptError, PromptHold};
 
@@ -28,8 +28,7 @@ pub(super) struct Switching {
     /// The reviewer's answer's turn, as saved, and what records its delivery.
     pub(super) turn: SavedTurn,
     pub(super) dispatch: DurableDispatch,
-    /// The fork, with where it was taken from and the files its prompt names.
-    pub(super) point: ForkPoint,
+    /// The fork, and the files its prompt names.
     pub(super) fork: TakenFork,
     pub(super) files: ForkFiles,
     /// No prompt reaches the agent while it switches, the thread service's included.
@@ -105,7 +104,7 @@ impl ExploreSession {
             switching.asked.round.clone(),
             switching.turn.request.request.clone(),
         );
-        Move::switch(switching.fork.trace(&switching.point)).start_once_drained(
+        Move::switch(switching.fork.trace()).start_once_drained(
             &self.run_ahead.host,
             &switching.hold,
             &switching.asked.pane,
@@ -330,7 +329,6 @@ impl ExploreSession {
     pub(super) fn discard_switching_fork(&mut self, switching: &Switching) {
         self.discard_forks(
             &switching.asked.round,
-            &switching.point,
             std::slice::from_ref(&switching.fork),
             DiscardReason::Answered,
         );

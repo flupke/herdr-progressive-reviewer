@@ -67,7 +67,7 @@ impl EffectsFixture {
             run_ahead: RunAheadSetup {
                 tools: test_fork_tools(),
                 log: Some(state.path().join("run-ahead.log")),
-                waits: claude_fork::ForkWaits::default(),
+                waits: review_run_ahead::ForkWaits::default(),
                 talk_quiet: Duration::ZERO,
             },
         };

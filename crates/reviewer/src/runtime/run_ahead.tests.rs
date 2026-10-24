@@ -12,6 +12,8 @@ use review_run_ahead::{Continuation, DiscardReason, RoundForks};
 use super::explore_flow::ExploreFlow;
 use super::*;
 
+#[path = "run_ahead/codex.tests.rs"]
+mod codex;
 #[path = "run_ahead/contract.tests.rs"]
 mod contract;
 
@@ -57,10 +59,10 @@ struct RunAheadFlow {
 
 /// How long the forks' host waits in a test: as in production, but it asks Herdr where the
 /// agent stands more often.
-fn test_waits() -> claude_fork::ForkWaits {
-    claude_fork::ForkWaits {
+fn test_waits() -> review_run_ahead::ForkWaits {
+    review_run_ahead::ForkWaits {
         resume_poll: Duration::from_millis(10),
-        ..claude_fork::ForkWaits::default()
+        ..review_run_ahead::ForkWaits::default()
     }
 }
 
@@ -70,7 +72,7 @@ impl RunAheadFlow {
     }
 
     /// The flow with the agent `stand_in`, whose forks' host waits as `waits` say.
-    fn start_with(stand_in: StandIn, waits: claude_fork::ForkWaits) -> Self {
+    fn start_with(stand_in: StandIn, waits: review_run_ahead::ForkWaits) -> Self {
         let repository_files = repository_fixture(RepoType::Git);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
         let herdr =
@@ -115,7 +117,7 @@ impl RunAheadFlow {
             .saved()
             .forks
             .iter()
-            .filter(|fork| fork.process.is_some())
+            .filter(|fork| claude_fork::process(&fork.host).is_some())
             .map(|fork| fork.session.clone())
             .collect();
         assert!(
@@ -188,7 +190,12 @@ impl RunAheadFlow {
         self.saved()
             .forks
             .iter()
-            .map(|fork| (fork.session.clone(), fork.process.expect("a started fork")))
+            .map(|fork| {
+                (
+                    fork.session.clone(),
+                    claude_fork::process(&fork.host).expect("a started fork"),
+                )
+            })
             .collect()
     }
 }
@@ -277,7 +284,7 @@ fn forks_of_the_agent_take_each_answer_s_turn_which_is_kept_and_an_answer_stops_
         let prompt = run.fork_file(session, "prompt");
         assert_eq!(prompt_line(&prompt, "Selected option ID: "), fork.choice);
         assert_ne!(prompt_line(&prompt, "Explore review access: "), pane_access);
-        let process = fork.process.unwrap();
+        let process = claude_fork::process(&fork.host).unwrap();
         assert_eq!(
             process_group(process.pid),
             process_group(std::process::id()),
@@ -611,7 +618,7 @@ fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_o
     // as in production.
     let mut run = RunAheadFlow::start_with(
         StandIn::Forkable,
-        claude_fork::ForkWaits {
+        review_run_ahead::ForkWaits {
             resume: Duration::ZERO,
             ..test_waits()
         },
