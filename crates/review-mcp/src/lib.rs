@@ -31,6 +31,9 @@ pub struct Request {
     /// An opaque capability supplied in the reviewer's Herdr wakeup message.
     pub access: String,
     pub operation: Operation,
+    /// The agent session the call came from, as the agent names it in the call's metadata:
+    /// Codex's `_meta.threadId`. `None` for an agent that names none, such as Claude Code.
+    pub agent_session: Option<String>,
     response: oneshot::Sender<Result<Response, String>>,
 }
 
@@ -55,6 +58,7 @@ impl Request {
             Self {
                 access,
                 operation,
+                agent_session: None,
                 response,
             },
             received,

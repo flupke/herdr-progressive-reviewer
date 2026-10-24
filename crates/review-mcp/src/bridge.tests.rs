@@ -175,3 +175,62 @@ fn forwarded_results_carry_the_result_type_the_current_protocol_requires() {
         });
     drop(server);
 }
+
+#[test]
+fn the_reviewer_hears_the_agent_session_that_a_call_names() {
+    let repository = tempfile::tempdir().unwrap();
+    let lease = review_test_support::TestPort::new();
+    let endpoint = Endpoint::for_repository(repository.path(), Some(lease.number())).unwrap();
+    let sessions = Arc::new(Mutex::new(Vec::new()));
+    let server = {
+        let sessions = Arc::clone(&sessions);
+        Server::start(endpoint, move |request| {
+            sessions.lock().unwrap().push(request.agent_session.clone());
+            request.respond(Ok(Response::Threads(Vec::new())));
+            Ok(())
+        })
+        .unwrap()
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (agent, transport) = tokio::io::duplex(8192);
+            let serving = tokio::spawn(async move {
+                Bridge {
+                    endpoint: Ok(endpoint),
+                }
+                .serve(transport)
+                .await
+                .unwrap()
+            });
+            let client = ClientInfo::default().serve(agent).await.unwrap();
+            let bridge = serving.await.unwrap();
+            let call = CallToolRequestParams::new("list_threads")
+                .with_arguments(json!({"review":"probe"}).as_object().unwrap().clone());
+            // As Codex 0.162.1 names its session, with the progress token of its own hop.
+            let named = serde_json::from_value(json!({
+                "threadId": "01a16ddc-190d-72d1-81f3-f64faca37ee8",
+                "sessionId": "01a16ddc-190d-72d1-81f3-f64faca37ee8",
+                "progressToken": 1,
+            }))
+            .unwrap();
+            for meta in [Some(named), None] {
+                let mut call = call.clone();
+                call.meta = meta;
+                let result = client.call_tool(call).await.unwrap();
+                assert_eq!(result.is_error, Some(false));
+            }
+            client.cancel().await.unwrap();
+            bridge.waiting().await.unwrap();
+        });
+    drop(server);
+    assert_eq!(
+        *sessions.lock().unwrap(),
+        [
+            Some("01a16ddc-190d-72d1-81f3-f64faca37ee8".to_owned()),
+            None
+        ]
+    );
+}

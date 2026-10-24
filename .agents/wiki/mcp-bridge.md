@@ -14,6 +14,10 @@ Reviewer wakes the agent after a comment is posted:
 reviewer --agent.prompt--> Herdr's Unix socket --> agent's terminal
 ```
 
+- The bridge forwards each call's `_meta`, without the protocol's own keys and the progress
+  token: Codex names the agent's session there (`threadId`), which the reviewer gets as
+  `Request::agent_session` ([Codex's daemon](codex-daemon.md)). Under Codex's daemon, the
+  bridge runs in the daemon's process, with its environment.
 - The reviewer wakes the agent through Herdr's `agent.prompt`
   ([Review threads](threads.md), "Delivery").
 - Where the tool is hosted is decided in
@@ -60,4 +64,5 @@ reviewer --agent.prompt--> Herdr's Unix socket --> agent's terminal
 
 - They use isolated Codex and Claude configuration and a local model fixture, and call no
   model API.
-- Verified with Codex 0.154.0 and Claude Code 2.1.220.
+- Verified with Codex 0.154.0 and Claude Code 2.1.220; the Codex daemon test with Codex
+  0.162.1.

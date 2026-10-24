@@ -32,6 +32,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 - [Explore agent contract](explore-agent-contract.md): why the prompts and tools are shaped as they are, and what a submission guarantees.
 - [Explore recovery](explore-recovery.md): what is never saved, what a crash can lose, and the durable record of each delivery.
 - [Run-ahead](run-ahead.md): what forks cost and need, the guarantees across crates, how Herdr and Claude Code behave, the reviewer's Claude Code plugin, the real Claude Code tests.
+- [Codex's app-server daemon](codex-daemon.md): its socket and what a client hears, resumes and restarts, its hooks and forks, running a Codex TUI in a test.
 - [Explore settings](explore-settings.md): where the settings are saved, and when another reviewer sees a change.
 - [Explore statistics](explore-statistics.md): how to run `reviewer-control stats`, and the limits of its numbers.
 

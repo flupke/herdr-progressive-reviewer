@@ -460,6 +460,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-daemon"
+version = "0.2.0"
+dependencies = [
+ "herdr-client",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tungstenite 0.28.0",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4285,7 +4296,9 @@ dependencies = [
 name = "review-mcp-config"
 version = "0.2.0"
 dependencies = [
+ "codex-daemon",
  "fs2",
+ "herdr-client",
  "review-mcp",
  "review-repository",
  "review-test-support",

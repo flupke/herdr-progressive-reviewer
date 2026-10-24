@@ -1,0 +1,18 @@
+[package]
+name = "codex-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "A client of the Codex app-server daemon that follows the session of a Codex agent in a Herdr pane."
+
+[dependencies]
+herdr-client = { path = "../herdr-client" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tungstenite.workspace = true
+
+[lints]
+workspace = true

@@ -15,6 +15,8 @@ tempfile.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
+codex-daemon = { path = "../codex-daemon" }
+herdr-client = { path = "../herdr-client" }
 review-test-support = { path = "../review-test-support" }
 test-case.workspace = true
 
