@@ -1,0 +1,13 @@
+{
+  "name": "herdr-progressive-reviewer",
+  "plugins": [
+    {
+      "name": "progressive-reviewer",
+      "source": {
+        "source": "local",
+        "path": "./plugin"
+      },
+      "description": "Confirms the prompts the progressive reviewer types to a Codex agent, and blocks text left in the input box that joined one."
+    }
+  ]
+}

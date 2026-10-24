@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
 
+pub mod codex;
 mod port;
 pub use port::TestPort;
 mod detection_rules;

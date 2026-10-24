@@ -65,6 +65,8 @@ struct Harness {
     threads: review_thread_service::Worker,
     /// The agent's forks, as run-ahead starts them.
     forks: run_ahead::FakeForks,
+    /// The reviewer's end of the agents' hooks that a reopened session gets.
+    hooks: Option<Arc<agent_hooks::AgentHooks>>,
     files: Box<dyn ReviewRepositoryFixture>,
     state: TempDir,
 }
@@ -119,6 +121,7 @@ impl Harness {
                 page: publisher,
                 forks: Arc::new(run_ahead::FakeForks::default()),
                 talk_quiet: TALK_QUIET,
+                hooks: None,
             }),
             events,
             event_sender,
@@ -135,6 +138,7 @@ impl Harness {
             delivered: 0,
             threads,
             forks: run_ahead::FakeForks::default(),
+            hooks: None,
             files,
             state,
         };
@@ -172,6 +176,7 @@ impl Harness {
             page: publisher,
             forks: Arc::new(self.forks.clone()),
             talk_quiet: TALK_QUIET,
+            hooks: self.hooks.clone(),
         });
         let unit = self.unit.clone();
         self.session.checkpoint_changed(&unit);
@@ -272,7 +277,20 @@ impl Harness {
         operation: Operation,
         acknowledge: bool,
     ) -> Result<Response, String> {
-        let (request, pending) = Request::new(access.to_owned(), operation);
+        self.submit_from(access, operation, acknowledge, None)
+    }
+
+    /// Submit as the agent, in a call that names the agent's session `session` if any, as
+    /// Codex does; without `acknowledge` the UI drops each committed round.
+    fn submit_from(
+        &mut self,
+        access: &str,
+        operation: Operation,
+        acknowledge: bool,
+        session: Option<&str>,
+    ) -> Result<Response, String> {
+        let (mut request, pending) = Request::new(access.to_owned(), operation);
+        request.agent_session = session.map(str::to_owned);
         self.session.handle(Input::Submission(Box::new(request)));
         // The session published the round it committed while it handled the submission; its
         // response waits for the acknowledgement, at most fifteen seconds.
@@ -1102,4 +1120,40 @@ fn resetting_a_latest_round_left_read_only_closes_it() {
 
     assert!(harness.history().closed);
     assert!(harness.reopen().result.unwrap().is_none());
+}
+
+#[test]
+fn an_explore_call_names_the_codex_agent_s_session_once_its_access_holds() {
+    let runtime = tempfile::tempdir().unwrap();
+    let directory = agent_hooks::HookDirectory::for_server(
+        runtime.path(),
+        std::path::Path::new("/run/herdr.sock"),
+    );
+    let hooks = Arc::new(agent_hooks::AgentHooks::listen(&directory).unwrap());
+    for session in ["thread-1", "thread-2"] {
+        directory.root().record_codex_session(session).unwrap();
+    }
+    let mut harness = Harness::start();
+    harness.hooks = Some(Arc::clone(&hooks));
+    harness.reopen();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+
+    let stale = harness.submit_from("stale", question(&first, 1), true, Some("thread-2"));
+    assert!(stale.is_err());
+    assert_eq!(hooks.hooked(&harness.agents, &agent()), None);
+    assert!(applied(harness.submit_from(
+        &access,
+        question(&first, 1),
+        true,
+        Some("thread-1")
+    )));
+
+    assert_eq!(
+        hooks.hooked(&harness.agents, &agent()),
+        Some(agent_hooks::HookedAgent::Codex {
+            session: "thread-1".into()
+        })
+    );
 }

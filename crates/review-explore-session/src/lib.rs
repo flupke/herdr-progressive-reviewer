@@ -104,6 +104,9 @@ pub struct Collaborators {
     /// How long the reviewer's talk with the agent in the round conversation stays quiet
     /// before run-ahead takes forks again: [`TALK_QUIET`], less in tests.
     pub talk_quiet: std::time::Duration,
+    /// The reviewer's end of the agents' hooks, which learns the session a Codex agent names in
+    /// its calls; `None` when the reviewer does not listen to them.
+    pub hooks: Option<Arc<agent_hooks::AgentHooks>>,
 }
 
 /// The Explore session of one reviewer process.
@@ -118,6 +121,7 @@ pub struct ExploreSession {
     inbox: Inbox,
     turns: Option<TurnLog>,
     page: RoundPublisher,
+    hooks: Option<Arc<agent_hooks::AgentHooks>>,
     /// The citations of the question the page shows.
     citations: page::PageCitations,
     /// The citations of the earlier questions the page shows from the round rail.
@@ -273,6 +277,7 @@ impl ExploreSession {
             page,
             forks,
             talk_quiet,
+            hooks,
         } = collaborators;
         Self {
             repository,
@@ -292,6 +297,7 @@ impl ExploreSession {
             turn_files: None,
             start_block: None,
             run_ahead: run_ahead::RunAheadState::new(forks, talk_quiet),
+            hooks,
             state: State::default(),
         }
     }

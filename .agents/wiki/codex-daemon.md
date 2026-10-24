@@ -1,7 +1,7 @@
 # Codex's app-server daemon
 
-How Codex's daemon, its hooks and its forks behave, what `crates/codex-daemon` relies on, and
-the gotchas of running a Codex TUI in a test. Checked with Codex 0.162.1 (and a daemon that
+How Codex's daemon, its hooks and its forks behave, what `crates/codex-daemon` relies on, the
+reviewer's Codex plugin, and the gotchas of running a Codex TUI in a test. Checked with Codex 0.162.1 (and a daemon that
 updated itself to 0.164.0) and Herdr 0.9.5. Why the reviewer hears Codex this way is in
 [ADR 0009](../adr/0009-hear-codex-through-its-app-server-daemon.md).
 
@@ -59,8 +59,42 @@ updated itself to 0.164.0) and Herdr 0.9.5. Why the reviewer hears Codex this wa
 - A scratch home's hooks run once trusted: write each `currentHash` of `hooks/list` as
   `[hooks.state."<key>"] trusted_hash` in its `config.toml`; auto mode refuses
   `--dangerously-bypass-hook-trust`.
+- A session keeps the hooks it was loaded with: a hook trusted, untrusted or installed later
+  changes nothing for it until the daemon loads it again. `hooks/list` says what a new session
+  would run.
+- `UserPromptSubmit` carries the exact text, with no paste wrapper; a bare `/resume <id>` fires
+  no hook. Text left in the input box and a typed `/resume <id>` run as one prompt,
+  `<text>/resume <id>`, on the session the TUI was on: blocked, the agent stays there. A blocked
+  prompt reaches the session's clients as `turn/started`, `hook/completed` with
+  `status: "blocked"`, then `turn/completed`, with no `userMessage`.
 - MCP servers run in the daemon too, with its environment: the bridge's
   `HERDR_REVIEWER_MCP_PORT` has to be in the daemon's.
+
+## The reviewer's Codex plugin
+
+Why its hook goes by session, to every reviewer of the user, is in
+[ADR 0010](../adr/0010-hear-codex-s-prompts-by-session.md); `crates/codex-hooks` says how it is
+installed. What Codex 0.162.1 does with it:
+
+- `codex plugin marketplace add <dir>` records a local marketplace by its path, and refuses one
+  of the same name from another path until `codex plugin marketplace remove`. `codex plugin add`
+  copies the plugin into `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>/<version>`, again on
+  each run, and enables it in `config.toml`; `codex plugin remove` deletes the copy but leaves
+  `hooks.state`.
+- A plugin's hook gets no option of the user's: `make install` writes the marketplace into
+  `bin/codex-plugin` with the checkout's `reviewer-control` in the hook's command, which Codex
+  runs as `$SHELL -lc <command>`, with `PLUGIN_ROOT` and `PLUGIN_DATA`.
+- `codex plugin add` leaves the hook untrusted, and an untrusted hook never runs. The trust key,
+  `progressive-reviewer@herdr-progressive-reviewer:hooks/hooks.json:user_prompt_submit:0:0`,
+  holds no version; its hash changes with the command. `config/batchWrite` with `upsert` on
+  `hooks.state` trusts it; no edit removes a key (`null` is refused), so the uninstall writes
+  the user layer's `hooks.state` again without it (`replace`, with the layer's version from
+  `config/read` and `includeLayers`).
+- On stdio, `codex app-server` takes one JSON-RPC message per line, without `jsonrpc`.
+- `crates/reviewer/tests/codex_hooks.rs` installs it in a scratch home, as `make install` does,
+  and drives a real Codex TUI on an app server started outside its Herdr. It reaches the
+  reviewer's MCP server by its URL, without the bridge, and writes the marketplace beside the
+  test build's `reviewer-control`.
 
 ## Forks
 
@@ -80,9 +114,10 @@ updated itself to 0.164.0) and Herdr 0.9.5. Why the reviewer hears Codex this wa
 
 ## A Codex TUI in a test
 
-`crates/review-mcp-config/tests/codex_daemon.rs` runs one in a Herdr test server, on an
-unmanaged app server and a scratch home, with a local model fixture; it calls no model API, and
-runs in `make test` with the native client tests. What it works around:
+`crates/review-mcp-config/tests/codex_daemon.rs` and `crates/reviewer/tests/codex_hooks.rs` run
+one in a Herdr test server, on an unmanaged app server and a scratch home, with a local model
+fixture (`review_test_support::codex`); they call no model API, and run in `make test`. What
+they work around:
 
 - The TUI on `--remote unix://` never starts a managed daemon, which would download updates,
   even while the test restarts the server.

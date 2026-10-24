@@ -39,14 +39,11 @@ fn prompt_agent(
         herdr_client::Error::AgentNotStarted { .. } => PromptError::NotStarted,
         error => PromptError::Unknown(error.to_string()),
     };
-    let Some(hooks) = hooks.filter(|hooks| hooks.hooked(port, agent)) else {
+    let Some((hooks, hooked)) = hooks.and_then(|hooks| Some((hooks, hooks.hooked(port, agent)?)))
+    else {
         return port.prompt_agent(&agent.pane_id, text).map_err(unknown);
     };
-    let session = agent
-        .agent_session
-        .as_ref()
-        .map(|session| session.value.as_str());
-    let expectation = hooks.expect_prompt(&agent.pane_id, session, text, BLOCKED);
+    let expectation = hooks.expect_prompt(&hooked, text, BLOCKED);
     port.submit_prompt(&agent.pane_id, text).map_err(unknown)?;
     match expectation.wait(HOOK_LIMIT) {
         Some(Heard::Submitted) => Ok(()),
@@ -261,6 +258,7 @@ impl std::fmt::Debug for PromptHold {
 pub(super) struct Courier {
     parcels: Sender<Parcel>,
     gate: Arc<PromptGate>,
+    hooks: Option<Arc<AgentHooks>>,
 }
 
 impl Courier {
@@ -275,6 +273,7 @@ impl Courier {
         let courier = Self {
             parcels: sender,
             gate: Arc::clone(&gate),
+            hooks: hooks.clone(),
         };
         // Not joined: a prompt in flight may wait for its agent for seconds, and its outcome
         // still reaches its owner after the worker stops.
@@ -290,6 +289,12 @@ impl Courier {
             }
         });
         courier
+    }
+
+    /// The reviewer's end of the agents' hooks, which confirm the prompts to the agents that run
+    /// them, when the reviewer listens to them.
+    pub(super) fn hooks(&self) -> Option<&AgentHooks> {
+        self.hooks.as_deref()
     }
 
     /// Send `text` to `agent` after the prompts sent before it, unless `cancelled` is set by

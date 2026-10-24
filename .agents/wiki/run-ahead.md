@@ -116,6 +116,10 @@ Claude Code 2.1.292 does with it:
   hooks.
 - The hooks reach a reviewer only when `XDG_RUNTIME_DIR` is set, in the agent's pane and in
   the reviewer's.
+- The reviewer's Codex plugin offers the block a switch of a Codex agent needs:
+  `AgentHooks::expect_resume` on `HookedAgent::Codex` blocks every prompt of the agent's
+  session, text left in the input box that joined the typed `/resume` included. Its hook reports no resume: the
+  daemon confirms the switch ([Codex's daemon](codex-daemon.md#the-reviewers-codex-plugin)).
 
 ## The contract check
 

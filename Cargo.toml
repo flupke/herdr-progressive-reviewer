@@ -9,6 +9,7 @@ members = [
     "crates/claude-fork",
     "crates/claude-hooks",
     "crates/codex-daemon",
+    "crates/codex-hooks",
     "crates/review-run-ahead",
     "crates/review-turn-path",
     "crates/review-explore",

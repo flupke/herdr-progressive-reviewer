@@ -246,12 +246,12 @@ impl ForkHost for ClaudeForks {
         // An agent run-ahead cannot fork for another reason has that reason, which `point`
         // gives.
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| !hooks.hooked(&self.herdr, agent))
+            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent).is_none())
     }
 
     fn can_move(&self, agent: &Agent) -> bool {
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent))
+            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent).is_some())
     }
 
     fn unforkable(&self, agent: &Agent) -> Option<String> {

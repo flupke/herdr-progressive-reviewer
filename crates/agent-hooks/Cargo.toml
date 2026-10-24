@@ -16,6 +16,7 @@ serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+herdr-client = { path = "../herdr-client", features = ["memory"] }
 tempfile.workspace = true
 
 [lints]

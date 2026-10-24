@@ -1,0 +1,9 @@
+{
+  "name": "progressive-reviewer",
+  "version": "0.1.0",
+  "description": "Confirms the prompts the progressive reviewer, a Herdr plugin, types to a Codex agent, and blocks text left in the input box that joined one. With no reviewer open, its hook does nothing.",
+  "author": {
+    "name": "Luper Rouch"
+  },
+  "license": "MIT"
+}

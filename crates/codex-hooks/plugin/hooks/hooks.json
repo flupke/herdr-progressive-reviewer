@@ -1,0 +1,16 @@
+{
+  "description": "The hook hands each prompt, with the agent's session, to every reviewer of the user. make install names the checkout's reviewer-control in its command.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "reviewer-control codex-hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

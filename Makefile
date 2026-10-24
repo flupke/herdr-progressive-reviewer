@@ -132,6 +132,9 @@ mutants:
 # The reviewer's Claude Code plugin (crates/claude-hooks), whose hooks tell run-ahead what the
 # agent does: its marketplace is a directory of this checkout, and its hooks run this checkout's
 # reviewer-control. An agent started before the install runs without them until it restarts.
+# The reviewer's Codex plugin (crates/codex-hooks) is written in bin/codex-plugin, its hook
+# trusted in the Codex home's config.toml; a Codex session loaded before the install runs
+# without it until Codex's daemon loads it again.
 CLAUDE_MARKETPLACE = herdr-progressive-reviewer
 CLAUDE_PLUGIN = progressive-reviewer@$(CLAUDE_MARKETPLACE)
 
@@ -140,9 +143,11 @@ install: build
 	bin/reviewer-control mcp-install
 	claude plugin marketplace add "$(CURDIR)/crates/claude-hooks"
 	claude plugin install $(CLAUDE_PLUGIN) --config control="$(CURDIR)/bin/reviewer-control"
+	bin/reviewer-control codex-plugin install
 	herdr plugin link . --enabled
 
 uninstall:
 	herdr plugin unlink herdr.progressive-reviewer
 	claude plugin uninstall $(CLAUDE_PLUGIN)
 	claude plugin marketplace remove $(CLAUDE_MARKETPLACE)
+	bin/reviewer-control codex-plugin uninstall

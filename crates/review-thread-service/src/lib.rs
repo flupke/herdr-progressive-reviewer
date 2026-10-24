@@ -102,7 +102,7 @@ impl Worker {
     /// Serve MCP at `endpoint`. Explore operations go straight to `explore`, which
     /// belongs to the Explore session; this worker handles only review threads. The prompts to
     /// an agent that runs the reviewer's hooks are confirmed through `hooks`, when the reviewer
-    /// listens to them.
+    /// listens to them, which learn the session a Codex agent names in its calls.
     pub fn start(
         store: ReviewStore,
         port: impl AgentPort + 'static,

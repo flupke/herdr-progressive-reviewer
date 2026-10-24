@@ -25,8 +25,16 @@ the unanswered work, with each pending thread's full conversation as context.
   types the prompt without Herdr's wait, and it counts as delivered once the hook reports the
   typed text, on the session Herdr reports. Claude Code 2.1.309 runs the hook within
   milliseconds of the submission, also for a prompt it queues while it works.
+- A Codex agent confirms each prompt through the hook of the reviewer's Codex plugin, on the
+  session it named last in a call to the reviewer's tools, to the thread service or the Explore
+  session, when the hook recorded that it runs there
+  ([ADR 0010](../adr/0010-hear-codex-s-prompts-by-session.md)). Until its first call, or on a
+  session loaded before the install, Herdr's status decides. A blocked prompt runs no turn:
+  Codex 0.162.1 shows "Blocked by hook" with the reason, keeps the prompt in its history and
+  empties the input box.
 - Text left in the agent's input box joins the typed prompt into one. While the reviewer
-  waits for its prompt, the hook blocks any other prompt of that pane: the joined one, whose
+  waits for its prompt, the hook blocks any other prompt of that pane (of that session, for
+  Codex): the joined one, whose
   delivery then fails with the text left (`PromptError::Blocked`) and waits for Retry, and
   one typed by someone else, after which the reviewer waits on for its own. A blocked prompt runs no turn; Claude
   Code 2.1.309 shows the reason and puts the prompt back in the input box, so the user clears

@@ -1,0 +1,21 @@
+[package]
+name = "codex-hooks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The reviewer's Codex plugin, whose hook confirms the prompts the reviewer types to a Codex agent, and its installation."
+
+[dependencies]
+agent-hooks = { path = "../agent-hooks" }
+eyre.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+herdr-client = { path = "../herdr-client", features = ["memory"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

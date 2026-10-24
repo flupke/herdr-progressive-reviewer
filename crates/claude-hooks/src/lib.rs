@@ -83,7 +83,7 @@ fn hook(pane: &PaneId, directory: &HookDirectory, payload: &[u8]) -> Option<Stri
             };
             let _ = directory.record(pane, &started);
             directory.tell(&Report {
-                pane: pane.clone(),
+                pane: Some(pane.clone()),
                 event: AgentEvent::SessionStarted {
                     session: session_id,
                     source,
@@ -93,7 +93,7 @@ fn hook(pane: &PaneId, directory: &HookDirectory, payload: &[u8]) -> Option<Stri
         }
         Payload::UserPromptSubmit { prompt, session_id } => {
             let report = Report {
-                pane: pane.clone(),
+                pane: Some(pane.clone()),
                 event: AgentEvent::PromptSubmitted {
                     prompt: unwrap_pastes(&prompt),
                     session: session_id,

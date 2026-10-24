@@ -3,11 +3,13 @@
 use herdr_client::protocol::PaneId;
 use serde::{Deserialize, Serialize};
 
-/// An event of the agent of a Herdr pane, as its hook reports it.
+/// An event of an agent, as its hook reports it.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Report {
-    /// The pane of the agent.
-    pub pane: PaneId,
+    /// The pane of the agent, which Claude Code's hooks name. Codex's hooks cannot tell their
+    /// pane, and name none: their event names the agent's session instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane: Option<PaneId>,
     pub event: AgentEvent,
 }
 
@@ -21,8 +23,8 @@ pub enum AgentEvent {
         source: SessionSource,
     },
     /// The text `prompt` was submitted to the agent, on the session `session`: the agent takes
-    /// a turn on it unless a reviewer blocks it. A command of Claude Code's own, such as
-    /// `/resume`, is no prompt. A hook older than the session field reports none.
+    /// a turn on it unless a reviewer blocks it. A command of the agent's own, such as
+    /// `/resume`, is no prompt. A Claude Code hook older than the session field reports none.
     PromptSubmitted {
         prompt: String,
         #[serde(default)]
