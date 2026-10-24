@@ -177,31 +177,35 @@ impl Scratch {
     }
 
     /// The environment the stand-in agent runs with, on its new session `session`: it plays
-    /// Claude Code, reports on the session's event socket and runs the hooks of the reviewer's
-    /// Claude Code plugin through the `reviewer-control` beside `reviewer`. Herdr reads its state
-    /// from its titles, as Claude Code's: once a session is reported as Claude Code's, Herdr
-    /// ignores the state the agent would report under a source of its own.
+    /// Claude Code, reports on the session's event socket and, with `hooks`, runs the hooks of
+    /// the reviewer's Claude Code plugin through the `reviewer-control` beside `reviewer`. Herdr
+    /// reads its state from its titles, as Claude Code's: once a session is reported as Claude
+    /// Code's, Herdr ignores the state the agent would report under a source of its own.
     pub(crate) fn agent_environment(
         &self,
         reviewer: &Path,
         session: &str,
+        hooks: bool,
     ) -> BTreeMap<String, String> {
-        BTreeMap::from([
+        let mut environment = BTreeMap::from([
             (EVENTS_VARIABLE, path_string(&self.events_socket())),
             (variables::DIRECTORY, path_string(self.stand_in().path())),
             (variables::AGENT, "claude".to_owned()),
             (variables::SESSION, session.to_owned()),
             (variables::REPORT_LIFECYCLE, "0".to_owned()),
-            (
-                variables::HOOKS,
-                path_string(&reviewer.with_file_name("reviewer-control")),
-            ),
             ("CLAUDE_CONFIG_DIR", path_string(&self.claude_config())),
             ("XDG_RUNTIME_DIR", path_string(self.runtime())),
-        ])
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
-        .collect()
+        ]);
+        if hooks {
+            environment.insert(
+                variables::HOOKS,
+                path_string(&reviewer.with_file_name("reviewer-control")),
+            );
+        }
+        environment
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect()
     }
 
     /// The program of the reviewer's pane: `reviewer`, without the paid classifier's key, in

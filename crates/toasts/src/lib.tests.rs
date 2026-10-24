@@ -130,6 +130,50 @@ fn a_long_toast_appears_after_the_delay_it_was_given() {
     );
 }
 
+#[test]
+fn a_toast_wider_than_the_screen_wraps_and_the_toast_before_stacks_above_it() {
+    let mut toasts = ToastState::default();
+    toasts.push("saved", ToastKind::Info);
+    toasts.push(
+        "Run-ahead stopped for this round after 3 failures in a row; your answers go to the agent",
+        ToastKind::Error,
+    );
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 12));
+
+    toasts.render(buffer.area, &mut buffer, palette());
+
+    let rows: Vec<String> = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect();
+    let screen = rows.join("\n");
+    let words = |row: &str| -> Vec<String> {
+        row.split(|c: char| c == '│' || c.is_whitespace())
+            .filter(|word| !word.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let shown: Vec<String> = rows.iter().flat_map(|row| words(row)).collect();
+    for word in
+        "Run-ahead stopped for this round after 3 failures in a row; your answers go to the agent"
+            .split(' ')
+    {
+        assert!(
+            shown.contains(&word.to_owned()),
+            "{word} is missing:\n{screen}"
+        );
+    }
+    let saved = rows.iter().position(|row| row.contains("saved")).unwrap();
+    let stopped = rows
+        .iter()
+        .position(|row| row.contains("Run-ahead"))
+        .unwrap();
+    assert!(saved < stopped, "{screen}");
+}
+
 fn palette() -> Palette {
     ui_theme::Theme::default().palette
 }

@@ -9,6 +9,7 @@ license.workspace = true
 ui-frame = { path = "../ui-frame" }
 ui-theme = { path = "../ui-theme" }
 ratatui.workspace = true
+unicode-width.workspace = true
 uuid.workspace = true
 
 [lints]

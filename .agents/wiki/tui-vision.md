@@ -125,9 +125,49 @@ next `turn` returns it.
   turn a conclusion. A fork's question must ask about a topic not decided yet: the reviewer
   refuses one on the topic just answered (`Do not ask again on a topic just decided`), and a
   topic's `status` is `open`, `accepted` or `needs_follow_up`.
+- `forks` lists every event the stand-ins reported by the time it returns: read the agent's
+  sessions there after the action you wait for, since a Herdr report comes before the event.
 - The Explore page is a client that draws itself from a socket: `curl` shows no round. Open its
   address (`explore_page`) in the dev shell's headless Chromium (`E2E_CHROMIUM`), with Playwright
-  from `tests/explore-page` once `make e2e-explore-deps` installed it.
+  from `tests/explore-page` once `make e2e-explore-deps` installed it, or read its text with
+  `"$E2E_CHROMIUM" --headless --virtual-time-budget=8000 --dump-dom <address>`.
+
+### Scripting the forks and the switch
+
+Per question, the driver chooses what each fork does, once `forks` listed it:
+
+- submits its turn: `fork_submit`;
+- is still working at the answer: nothing; the bare answer waits for it;
+- ends without a turn: `fork_end`; crashes: `fork_end` with `crash` (exit status 1, no result).
+  Both count a failure of run-ahead, as a switch that fails does: the third in a row stops
+  run-ahead for the round, with a toast, and the round's later answers say `nothing was
+  prepared`. Only a prepared turn used starts the count again;
+
+and before the answer, what the switch to a fork does: `switch_unheard` makes the agent's next
+`/resume` unheard, so the switch fails after its 20 s, the turn waits for Retry (`r`) and the agent
+resumes its own session; with `heard_after_ms` it is heard that late and succeeds. Stop waiting
+and Cancel answer play while it waits.
+
+How to reach each `Not prepared` line, the same in the pane and on the Explore page:
+
+| Line ends with | How |
+| --- | --- |
+| restart the agent to load … plugin | `start` or `reopen` with `agent_hooks: false` |
+| you added a comment / you answered None of the above | the answer itself |
+| you sent the agent back to the drawing board / you wrote in the chat | sent from the Explore page, which alone has both; the pane shows the line too |
+| the agent was working | `agent_working` true before the answer, false after it |
+| the agent's conversation moved on | `agent_prompt` after the forks started |
+| the lines left to review changed | a new changed line in the scratch repository |
+| nothing was prepared for this question | run-ahead stopped for the round, or the agent working when the question came |
+| only the recommended choice is prepared | setting `the recommended choice`, another choice answered |
+| the turn for this choice did not finish | `fork_end`, before the answer or while it waits |
+| you stopped waiting for it | Stop waiting while the answer waits for its fork, or during the switch after it |
+| the agent could not switch to the prepared turn | `switch_unheard`, then Retry |
+| you stopped waiting while it was being used | `switch_unheard` with `heard_after_ms`, Stop waiting during that switch, then Retry |
+
+Two lines have no way there: `the round changed after it was prepared`, since every input of a
+turn but the unreviewed lines is fixed when the round starts, and `the turn for this choice was not
+ready yet`, which only an earlier version recorded.
 
 ## Regression tests from explorations
 

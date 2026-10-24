@@ -1,7 +1,7 @@
 //! A fork of the stand-in: it records its arguments, environment and prompt in its directory,
-//! copies its parent's transcript, then works until it is told to end its turn or the reviewer
-//! stops it. Once told to submit its turn, its output says that its submit has its answer. It
-//! reports each step on the event socket, and takes its commands there.
+//! copies its parent's transcript, then works until it is told to end its turn or to crash, or
+//! the reviewer stops it. Once told to submit its turn, its output says that its submit has its
+//! answer. It reports each step on the event socket, and takes its commands there.
 
 use std::fs;
 use std::io::{self, Read as _, Write as _};
@@ -63,6 +63,10 @@ pub(crate) fn run(arguments: &[String]) {
     for command in commands {
         match command {
             StandInCommand::End => break,
+            StandInCommand::Crash => {
+                eprintln!("stand-in fork: crashed as it was told to");
+                std::process::exit(1);
+            }
             StandInCommand::Submit if !answered => {
                 answered = true;
                 println!(

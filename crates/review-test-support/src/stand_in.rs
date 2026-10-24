@@ -112,6 +112,8 @@ pub enum StandInCommand {
     Submit,
     /// Fork: end its turn, and exit.
     End,
+    /// Fork: exit at once with a failure and no result, as a Claude Code that crashed.
+    Crash,
 }
 
 /// One event, and the stand-in that reported it.
