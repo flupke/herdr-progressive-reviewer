@@ -31,6 +31,15 @@ struct Service {
 
 impl Service {
     fn start() -> Self {
+        Self::start_with(None, |agents| Arc::new(agents))
+    }
+
+    /// A service that confirms its prompts through `hooks`, if any, and reaches the agents
+    /// through the port that `port` makes of them.
+    fn start_with(
+        hooks: Option<Arc<agent_hooks::AgentHooks>>,
+        port: impl FnOnce(InMemoryAgents) -> Arc<dyn AgentPort>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
         let agents = InMemoryAgents::default();
@@ -54,7 +63,7 @@ impl Service {
             _ => {}
         };
         let (sender, inputs) = std::sync::mpsc::channel();
-        let port: Arc<dyn AgentPort> = Arc::new(agents.clone());
+        let port = port(agents.clone());
         let mut state = State::new(
             store,
             port.clone(),
@@ -62,7 +71,7 @@ impl Service {
             true,
             Box::new(publish),
             sender,
-            crate::delivery::Courier::start(port, Arc::default(), None),
+            crate::delivery::Courier::start(port, Arc::default(), hooks),
         );
         state.command(Command::Thread(ThreadCommand::Load(UNIT.into())));
         Self {
@@ -128,7 +137,20 @@ impl Service {
     }
 
     fn fetch(&mut self, access: &str) -> Result<Vec<ReviewThread>, String> {
-        match self.state.request(access, &Operation::GetNewMessages)? {
+        self.fetch_on(access, None)
+    }
+
+    /// Fetches the new messages with `access`, in a call that names the agent's session
+    /// `session` if any, as Codex does.
+    fn fetch_on(
+        &mut self,
+        access: &str,
+        session: Option<&str>,
+    ) -> Result<Vec<ReviewThread>, String> {
+        match self
+            .state
+            .request(access, &Operation::GetNewMessages, session)?
+        {
             Response::NewMessages(threads) => Ok(threads),
             _ => unreachable!("fetching returns the new messages"),
         }
@@ -143,7 +165,7 @@ impl Service {
             in_reply_to,
         );
         self.state
-            .request(access, &Operation::Reply(post))
+            .request(access, &Operation::Reply(post), None)
             .map(|_| ())
     }
 
@@ -700,4 +722,99 @@ fn a_vision_turn_log_records_each_comments_wakeup_with_its_access_value() {
             .contains(&format!("`{access}`")),
         "{turn}"
     );
+}
+
+#[test]
+fn a_wakeup_to_a_codex_agent_is_confirmed_on_the_session_its_calls_named() {
+    let runtime = tempfile::tempdir().unwrap();
+    let directory = agent_hooks::HookDirectory::for_server(
+        runtime.path(),
+        std::path::Path::new("/run/herdr.sock"),
+    );
+    let hooks = Arc::new(agent_hooks::AgentHooks::listen(&directory).unwrap());
+    let root = directory.root();
+    root.record_codex_session("thread-1").unwrap();
+    let (typing, typed) = std::sync::mpsc::channel();
+    let mut service = Service::start_with(Some(hooks), |agents| {
+        Arc::new(TypedAgents {
+            agents,
+            typed: Mutex::new(typing),
+        })
+    });
+    let thread = service.start_thread("Rename this");
+    let (_, access) = only_wakeup(&service.poll());
+    // Herdr's session for a Codex pane can be another pane's: the call names the agent's own.
+    service.fetch_on(&access, Some("thread-1")).unwrap();
+    service.comment(&thread, "And document it");
+    // The agent's hook, once the wakeup is typed after text left in its input box.
+    let hook = std::thread::spawn(move || {
+        let typed: String = typed
+            .recv_timeout(Duration::from_secs(30))
+            .expect("no wakeup was typed for the hook to confirm");
+        root.ask(
+            &agent_hooks::Report {
+                pane: None,
+                event: agent_hooks::AgentEvent::PromptSubmitted {
+                    prompt: format!("my words{}", typed.trim_end()),
+                    session: Some("thread-1".into()),
+                },
+            },
+            Duration::from_secs(30),
+        )
+    });
+
+    service.poll();
+
+    assert!(
+        hook.join().unwrap().is_some(),
+        "the hook blocked the prompt"
+    );
+    let outcomes = service.wakeup_outcomes();
+    let failure = outcomes
+        .last()
+        .unwrap()
+        .as_ref()
+        .expect("the wakeup failed");
+    assert!(
+        failure.error.ends_with("The text left there: my words"),
+        "{failure:?}"
+    );
+}
+
+/// The agents, telling the text of each prompt typed without Herdr's wait, as the reviewer
+/// types the prompts its hooks confirm.
+struct TypedAgents {
+    agents: InMemoryAgents,
+    typed: Mutex<std::sync::mpsc::Sender<String>>,
+}
+
+impl AgentPort for TypedAgents {
+    fn session_snapshot(&self) -> herdr_client::Result<herdr_client::protocol::SessionSnapshot> {
+        self.agents.session_snapshot()
+    }
+
+    fn list_agents(&self) -> herdr_client::Result<Vec<Agent>> {
+        self.agents.list_agents()
+    }
+
+    fn get_agent(&self, pane_id: &PaneId) -> herdr_client::Result<Option<Agent>> {
+        self.agents.get_agent(pane_id)
+    }
+
+    fn pane_process_info(
+        &self,
+        pane_id: &PaneId,
+    ) -> herdr_client::Result<herdr_client::protocol::PaneProcessInfo> {
+        self.agents.pane_process_info(pane_id)
+    }
+
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        self.agents.submit_prompt(pane_id, text)?;
+        let _ = self.typed.lock().unwrap().send(text.to_owned());
+        Ok(())
+    }
+
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        self.agents.prompt_agent(pane_id, text)
+    }
 }

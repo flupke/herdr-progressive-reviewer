@@ -185,6 +185,7 @@ impl Effects {
             comments.log_turns(turns.clone());
         }
         let talk_quiet = run_ahead.talk_quiet;
+        let explore_hooks = hooks.as_ref().ok().cloned();
         let forks = run_ahead.forks(&agents, hooks);
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
@@ -199,6 +200,7 @@ impl Effects {
             page,
             forks,
             talk_quiet,
+            hooks: explore_hooks,
         });
         let mut worker = Worker {
             repository: repository.clone(),

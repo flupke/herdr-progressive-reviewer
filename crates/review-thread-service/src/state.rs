@@ -103,7 +103,11 @@ impl State {
                 let _ = done.send(());
             }
             Input::Mcp(request) => {
-                let result = self.request(&request.access, &request.operation);
+                let result = self.request(
+                    &request.access,
+                    &request.operation,
+                    request.agent_session.as_deref(),
+                );
                 request.respond(result);
             }
             Input::Notified {
@@ -443,12 +447,22 @@ impl State {
             .request(sequence, retry);
     }
 
-    fn request(&mut self, access: &str, operation: &Operation) -> Result<Response, String> {
+    /// Serves an agent's call with `access`, which names the agent's session `session` if the
+    /// agent names one, as Codex does.
+    fn request(
+        &mut self,
+        access: &str,
+        operation: &Operation,
+        session: Option<&str>,
+    ) -> Result<Response, String> {
         let access =
             self.access.get(access).cloned().ok_or(
                 "Unknown review access value; use the value in the latest reviewer wakeup",
             )?;
-        access.current_agent(&*self.port)?;
+        let agent = access.current_agent(&*self.port)?;
+        if let (Some(hooks), Some(session)) = (self.courier.hooks(), session) {
+            hooks.name_session(&agent.pane_id, session);
+        }
         let book = self.load(&access.review_unit)?;
         match operation {
             Operation::SubmitQuestion(_)

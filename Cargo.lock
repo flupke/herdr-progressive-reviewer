@@ -471,6 +471,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-hooks"
+version = "0.2.0"
+dependencies = [
+ "agent-hooks",
+ "eyre",
+ "herdr-client",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4192,6 +4204,7 @@ name = "review-explore-session"
 version = "0.2.0"
 dependencies = [
  "agent-fork",
+ "agent-hooks",
  "component-core",
  "crossbeam-channel",
  "eyre",
@@ -4546,6 +4559,7 @@ dependencies = [
  "agent-hooks",
  "claude-fork",
  "claude-hooks",
+ "codex-hooks",
  "component-core",
  "crossbeam-channel",
  "crossterm 0.29.0",

@@ -152,11 +152,11 @@ impl Resume<'_> {
         if !agent.agent_status.waits_for_prompt() {
             return Err(failed("the agent in the pane is working".into()));
         }
-        if !hooks.hooked(self.pane.herdr, &agent) {
+        let Some(hooked) = hooks.hooked(self.pane.herdr, &agent) else {
             return Err(failed(
                 "the agent in the pane runs without the reviewer's Claude Code plugin".into(),
             ));
-        }
+        };
         let command = format!("/resume {}", self.session);
         let deadline = Instant::now() + self.limit;
         let block = format!(
@@ -164,7 +164,7 @@ impl Resume<'_> {
              waited in the input box, and both would have run as one prompt. Clear the input \
              box before you Retry the answer in the reviewer."
         );
-        let expectation = hooks.expect_resume(self.pane.pane, self.session, &block);
+        let expectation = hooks.expect_resume(&hooked, self.session, &block);
         self.pane
             .herdr
             .submit_prompt(self.pane.pane, &command)

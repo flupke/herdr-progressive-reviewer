@@ -33,7 +33,7 @@ impl Control {
             Some("toggle") => PaneAction::Toggle,
             _ => {
                 eyre::bail!(
-                    "usage: reviewer-control <open|close|toggle|explore-page|mcp-install [codex|claude]|stats>"
+                    "usage: reviewer-control <open|close|toggle|explore-page|mcp-install [codex|claude]|codex-plugin <install|uninstall>|stats>"
                 );
             }
         };
@@ -67,6 +67,18 @@ impl Control {
     }
 }
 
+/// Installs or uninstalls the reviewer's Codex plugin, whose hook runs this program.
+fn codex_plugin() -> eyre::Result<()> {
+    let control = env::current_exe()?;
+    match env::args().nth(2).as_deref() {
+        Some("install") => codex_hooks::install(&control),
+        Some("uninstall") => codex_hooks::uninstall(&control),
+        _ => Err(eyre::eyre!(
+            "usage: reviewer-control codex-plugin <install|uninstall>"
+        )),
+    }
+}
+
 fn main() -> eyre::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("mcp-install") => mcp_config::install(),
@@ -81,6 +93,12 @@ fn main() -> eyre::Result<()> {
             claude_hooks::run_hook();
             Ok(())
         }
+        // The hook of the reviewer's Codex plugin, on every prompt of every Codex session.
+        Some(codex_hooks::SUBCOMMAND) => {
+            codex_hooks::run_hook();
+            Ok(())
+        }
+        Some("codex-plugin") => codex_plugin(),
         _ => Control::from_env()?.run(),
     }
 }

@@ -1,5 +1,6 @@
 //! [`HookDirectory`]: where the reviewers of one Herdr server listen for the hooks of its
-//! agents, and how a hook reaches them.
+//! agents, and how a hook reaches them; [`HookRoot`]: the directories of every Herdr server,
+//! for a hook that cannot tell its server.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -20,6 +21,16 @@ use crate::wire::{Answer, Report};
 /// the reviewers of its own server only, since the directory is named after Herdr's socket.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HookDirectory(PathBuf);
+
+/// The directory under the user's runtime directory that holds the [`HookDirectory`] of every
+/// Herdr server, readable by the user alone. Codex's hooks run in its app-server daemon, with
+/// the environment of whichever terminal started it, so they cannot tell their Herdr server:
+/// they reach every reviewer of the user here, by the agent's session, which is unique.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HookRoot(PathBuf);
+
+/// The directory of the [`HookRoot`] where Codex's hook records the sessions it runs in.
+const CODEX_SESSIONS: &str = "codex";
 
 /// The extension of a reviewer's socket.
 const SOCKET: &str = "sock";
@@ -44,7 +55,12 @@ impl HookDirectory {
     /// directory `runtime`, named after a digest of that socket's path.
     pub fn for_server(runtime: &Path, herdr_socket: &Path) -> Self {
         let digest = Sha256::digest(herdr_socket.as_os_str().as_encoded_bytes());
-        Self(runtime.join("herdr-reviewer").join(hex(&digest[..6])))
+        Self(HookRoot::new(runtime).0.join(hex(&digest[..6])))
+    }
+
+    /// The directory of every Herdr server, this one's included.
+    pub fn root(&self) -> HookRoot {
+        HookRoot(self.0.parent().unwrap_or(&self.0).to_owned())
     }
 
     /// The directory of the Herdr server this process runs under, from `XDG_RUNTIME_DIR` and
@@ -70,11 +86,7 @@ impl HookDirectory {
     /// `report` submits, within `limit` in all: why one blocks it, if one does. A reviewer that
     /// cannot be reached, or does not answer in time, does not block it.
     pub fn ask(&self, report: &Report, limit: Duration) -> Option<String> {
-        let line = line(report)?;
-        let deadline = Instant::now() + limit;
-        self.sockets()
-            .iter()
-            .find_map(|socket| ask(socket, &line, deadline).ok().flatten())
+        ask_each(&self.sockets(), report, limit)
     }
 
     /// Records that the agent of `pane` started `started` with the hooks, and forgets the
@@ -179,6 +191,56 @@ impl HookDirectory {
     }
 }
 
+impl HookRoot {
+    /// The directory under the runtime directory `runtime`.
+    pub(crate) fn new(runtime: &Path) -> Self {
+        Self(runtime.join("herdr-reviewer"))
+    }
+
+    /// The directory under the user's runtime directory, from `XDG_RUNTIME_DIR`; `None` without
+    /// it.
+    pub fn from_env() -> Option<Self> {
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|path| !path.is_empty())?;
+        Some(Self::new(Path::new(&runtime)))
+    }
+
+    /// Asks every reviewer of the user, whatever its Herdr server, whether it blocks the prompt
+    /// that `report` submits, as [`HookDirectory::ask`] asks those of one server.
+    pub fn ask(&self, report: &Report, limit: Duration) -> Option<String> {
+        let Ok(entries) = fs::read_dir(&self.0) else {
+            return None;
+        };
+        let sockets: Vec<PathBuf> = entries
+            .flatten()
+            .flat_map(|entry| HookDirectory(entry.path()).sockets())
+            .collect();
+        ask_each(&sockets, report, limit)
+    }
+
+    /// Records that Codex's hook runs in the session `session`: a session keeps the hooks it was
+    /// loaded with, so only the hook itself can tell.
+    pub fn record_codex_session(&self, session: &str) -> io::Result<()> {
+        let sessions = self.0.join(CODEX_SESSIONS);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&sessions)?;
+        let record = sessions.join(hex(session.as_bytes()));
+        if record.exists() {
+            return Ok(());
+        }
+        fs::write(record, "")
+    }
+
+    /// Whether Codex's hook recorded that it runs in the session `session`.
+    pub(crate) fn runs_codex_hook(&self, session: &str) -> bool {
+        self.0
+            .join(CODEX_SESSIONS)
+            .join(hex(session.as_bytes()))
+            .exists()
+    }
+}
+
 /// How the names of the records of `pane` start: its ID in hexadecimal, since a pane ID holds
 /// any character, then a dash, before the process ID.
 fn record_prefix(pane: &PaneId) -> String {
@@ -198,6 +260,16 @@ fn line(report: &Report) -> Option<Vec<u8>> {
     let mut line = serde_json::to_vec(report).ok()?;
     line.push(b'\n');
     Some(line)
+}
+
+/// Asks the reviewer of each of `sockets` in turn whether it blocks the prompt that `report`
+/// submits, within `limit` in all, until one does.
+fn ask_each(sockets: &[PathBuf], report: &Report, limit: Duration) -> Option<String> {
+    let line = line(report)?;
+    let deadline = Instant::now() + limit;
+    sockets
+        .iter()
+        .find_map(|socket| ask(socket, &line, deadline).ok().flatten())
 }
 
 /// Writes `line` to the reviewer that listens on `socket`, within `limit`; returns the

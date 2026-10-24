@@ -13,23 +13,15 @@ impl ExploreSession {
         let Some(request) = self.run_ahead_call(request) else {
             return;
         };
-        if let Err(error) = self.authorize(&request.access) {
-            let revising = matches!(request.operation, Operation::ReviseQuestion(_));
-            let other_access = revising
-                && self.state.storage_error.is_none()
-                && !self.state.historical
-                && self.state.access != request.access;
-            request.respond(Err(if other_access {
-                // Each answer the reviewer sends renews the access.
-                "This is not the Explore review access of the round now. Use the one of your \
-                 latest Explore prompt, not the comments wakeup's. If you did, the round moved \
-                 on since that prompt: the reviewer answered, cancelled an answer or reopened. \
-                 Ask the new version in your next Explore turn"
-                    .into()
-            } else {
-                error.to_string()
-            }));
-            return;
+        let agent = match self.authorize(&request.access) {
+            Ok(agent) => agent,
+            Err(error) => {
+                self.refuse(request, &error);
+                return;
+            }
+        };
+        if let (Some(hooks), Some(session)) = (&self.hooks, &request.agent_session) {
+            hooks.name_session(&agent.pane_id, session);
         }
         if let Operation::ReviseQuestion(revision) = &request.operation {
             let revision = (**revision).clone();
@@ -44,6 +36,25 @@ impl ExploreSession {
             }
         };
         self.submit(request, &update);
+    }
+
+    /// Answers `request`, whose access [`Self::authorize`] refused for `error`.
+    fn refuse(&self, request: Request, error: &eyre::Report) {
+        let revising = matches!(request.operation, Operation::ReviseQuestion(_));
+        let other_access = revising
+            && self.state.storage_error.is_none()
+            && !self.state.historical
+            && self.state.access != request.access;
+        request.respond(Err(if other_access {
+            // Each answer the reviewer sends renews the access.
+            "This is not the Explore review access of the round now. Use the one of your \
+             latest Explore prompt, not the comments wakeup's. If you did, the round moved \
+             on since that prompt: the reviewer answered, cancelled an answer or reopened. \
+             Ask the new version in your next Explore turn"
+                .into()
+        } else {
+            error.to_string()
+        }));
     }
 
     fn submit(&mut self, request: Request, update: &review_explore::InterviewUpdate) {
@@ -170,7 +181,8 @@ impl ExploreSession {
         Ok((applied, round))
     }
 
-    fn authorize(&mut self, access: &str) -> eyre::Result<()> {
+    /// Checks that `access` is the round's now, and returns the round's agent.
+    fn authorize(&mut self, access: &str) -> eyre::Result<herdr_client::protocol::Agent> {
         eyre::ensure!(
             self.state.storage_error.is_none(),
             "Explore storage is unavailable: {}",
@@ -214,7 +226,7 @@ impl ExploreSession {
                 },
             )?;
         }
-        Ok(())
+        Ok(agent)
     }
 }
 

@@ -1,13 +1,27 @@
 use std::path::Path;
 use std::time::Duration;
 
-use agent_hooks::{AgentHooks, Heard, HookedSession};
+use agent_hooks::{AgentHooks, Heard, HookedAgent, HookedSession};
 use serde_json::Value;
 
 use super::*;
 
 /// How long a test waits for an event that a failing test never gets.
 const GUARD: Duration = Duration::from_secs(30);
+
+/// The agent of `pane`, as the plugin's hooks name it.
+fn in_pane(pane: &PaneId) -> HookedAgent {
+    in_session(pane, "session")
+}
+
+/// The agent of `pane` on the session `session` that Herdr reports, as the plugin's hooks name
+/// it.
+fn in_session(pane: &PaneId, session: &str) -> HookedAgent {
+    HookedAgent::Pane {
+        pane: pane.clone(),
+        session: Some(session.into()),
+    }
+}
 
 /// A reviewer listening in a new directory.
 fn reviewer() -> (tempfile::TempDir, HookDirectory, AgentHooks) {
@@ -28,7 +42,7 @@ fn session_start(session: &str, source: &str) -> String {
 fn a_session_claude_code_resumed_reaches_the_reviewer_that_expects_it() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_resume(&pane, "fork", "blocked");
+    let expectation = hooks.expect_resume(&in_pane(&pane), "fork", "blocked");
 
     hook(
         &pane,
@@ -63,8 +77,8 @@ fn a_session_the_agent_started_is_recorded_for_a_reviewer_opened_later() {
 fn a_subagent_s_session_is_not_the_agent_s() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_resume(&pane, "fork", "blocked");
-    let marker = hooks.expect_resume(&PaneId("w:p9".into()), "marker", "blocked");
+    let expectation = hooks.expect_resume(&in_pane(&pane), "fork", "blocked");
+    let marker = hooks.expect_resume(&in_pane(&PaneId("w:p9".into())), "marker", "blocked");
     let mut subagent: Value = serde_json::from_str(&session_start("fork", "resume")).unwrap();
     subagent["agent_id"] = "a1".into();
 
@@ -104,8 +118,11 @@ fn prompt_submit(prompt: &str) -> String {
 fn a_prompt_submitted_while_the_reviewer_expects_a_session_is_blocked_with_its_reason() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation =
-        hooks.expect_resume(&pane, "fork", "Text in the box met the reviewer's /resume.");
+    let expectation = hooks.expect_resume(
+        &in_pane(&pane),
+        "fork",
+        "Text in the box met the reviewer's /resume.",
+    );
 
     let decision = hook(
         &pane,
@@ -151,7 +168,7 @@ fn wrapped_paste(before: &str) -> String {
 fn a_long_prompt_claude_code_reports_as_a_paste_is_the_one_the_reviewer_typed() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_prompt(&pane, Some("session"), LONG, "blocked");
+    let expectation = hooks.expect_prompt(&in_session(&pane, "session"), LONG, "blocked");
 
     let decision = hook(
         &pane,
@@ -167,7 +184,7 @@ fn a_long_prompt_claude_code_reports_as_a_paste_is_the_one_the_reviewer_typed() 
 fn text_left_in_the_input_box_before_a_long_prompt_is_blocked() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_prompt(&pane, Some("session"), LONG, "blocked");
+    let expectation = hooks.expect_prompt(&in_session(&pane, "session"), LONG, "blocked");
 
     let decision = hook(
         &pane,
@@ -188,7 +205,7 @@ fn text_left_in_the_input_box_before_a_long_prompt_is_blocked() {
 fn the_typed_prompt_in_another_session_of_the_pane_is_blocked() {
     let (_runtime, directory, hooks) = reviewer();
     let pane = PaneId("w:p1".into());
-    let expectation = hooks.expect_prompt(&pane, Some("agent"), "Reply with ok", "blocked");
+    let expectation = hooks.expect_prompt(&in_session(&pane, "agent"), "Reply with ok", "blocked");
 
     let decision = hook(&pane, &directory, prompt_submit("Reply with ok").as_bytes());
 
