@@ -466,6 +466,7 @@ impl Session {
         RoundStage::AgentWorking {
             request: self.turn_id(),
             sent_at_ms: self.sent_at_ms,
+            finishing_since_ms: None,
             answer: self.turn_answer.clone(),
         }
     }
@@ -999,8 +1000,8 @@ pub(crate) enum RunAheadPath {
     /// A fork took the turn while the reviewer thought about the answer, and the agent
     /// continued as it.
     Prepared,
-    /// The agent took the turn itself: the fork of the answer's choice had not finished.
-    NotReady,
+    /// The agent took the turn itself: the fork of the answer's choice ended without it.
+    NoTurn,
 }
 
 impl RunAheadPath {
@@ -1010,8 +1011,8 @@ impl RunAheadPath {
             Self::Prepared => Some(TurnPath::Prepared {
                 session: "fork".into(),
             }),
-            Self::NotReady => Some(TurnPath::Plain {
-                reason: PlainReason::StillWorking,
+            Self::NoTurn => Some(TurnPath::Plain {
+                reason: PlainReason::NoTurn,
             }),
         }
     }
@@ -1049,7 +1050,7 @@ impl Step {
         (
             "question-not-prepared",
             Self::Question {
-                path: RunAheadPath::NotReady,
+                path: RunAheadPath::NoTurn,
             },
         ),
         (
@@ -1114,6 +1115,7 @@ impl Sessions {
         let stage = latest_question.clone().unwrap_or(RoundStage::AgentWorking {
             request: "turn-0".into(),
             sent_at_ms,
+            finishing_since_ms: None,
             answer: None,
         });
         let round = RoundPublisher::default();

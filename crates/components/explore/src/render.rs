@@ -362,7 +362,10 @@ impl ExploreComponent {
         }
         if self.status_turn == Some(index) && !self.status.is_empty() {
             layout.gap();
-            layout.text(&self.status, palette.warning, None);
+            match self.finishing_line() {
+                Some(line) => layout.text(line, palette.dim, None),
+                None => layout.text(&self.status, palette.warning, None),
+            }
             self.status_controls(layout, palette);
         }
     }

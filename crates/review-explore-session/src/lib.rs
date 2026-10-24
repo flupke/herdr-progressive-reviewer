@@ -352,14 +352,23 @@ impl ExploreSession {
             Command::CancelAnswer(answer) => {
                 let _ = self.cancel_answer(answer, cancel::Cancel::Latest);
             }
-            Command::Cancel => {
-                self.cancel_record();
-                self.state.start.settle();
-                self.state.renew_access();
-                self.state.prompt = None;
-                self.state.pending = None;
-                self.state.implementation = None;
-            }
+            Command::Cancel => self.stop_waiting(),
+        }
+    }
+
+    /// Stops waiting for the start or the agent's turn under way. An answer that waited for the
+    /// fork of its choice goes to the agent in the pane instead, as a Retry would send it.
+    fn stop_waiting(&mut self) {
+        let waited = self.run_ahead_stop_waiting();
+        self.cancel_record();
+        self.state.start.settle();
+        self.state.renew_access();
+        self.state.prompt = None;
+        self.state.pending = None;
+        self.state.implementation = None;
+        // The pane learns the outcome from the events the session sends.
+        if let Some(request) = waited {
+            let _ = self.retry(request);
         }
     }
 

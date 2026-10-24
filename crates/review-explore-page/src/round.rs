@@ -45,6 +45,10 @@ pub enum RoundStage {
         /// When the turn's latest attempt went out to the agent, in milliseconds since the
         /// epoch; `None` while it waits to go out.
         sent_at_ms: Option<u64>,
+        /// When the fork whose turn the agent continues with started it, in milliseconds since
+        /// the epoch, while the reviewer's bare answer waits for that fork to submit it: the
+        /// agent finishes a turn it started while the reviewer was thinking.
+        finishing_since_ms: Option<u64>,
         /// The reviewer's answer that the turn carries; `None` for a turn that carries none,
         /// such as the kickoff.
         answer: Option<Box<SentAnswer>>,

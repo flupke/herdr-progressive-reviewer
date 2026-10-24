@@ -10,8 +10,8 @@ pub use explore::{
     ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageStart, ExplorePageStopped,
     ExplorePageTunnel, ExplorePositionsChanged, ExplorePositionsRestored, ExplorePosted,
     ExploreProgress, ExploreRestored, ExploreRoundSettingsLoaded, ExploreStartBlock,
-    ExploreStorageFailed, ExploreSubmission, ExploreTurnPath, ExploreViewports,
-    ImplementationProgress,
+    ExploreStorageFailed, ExploreSubmission, ExploreTurnFinishing, ExploreTurnPath,
+    ExploreViewports, ImplementationProgress,
 };
 pub use threads::{
     EventSettled, NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

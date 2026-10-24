@@ -11,6 +11,10 @@ impl ExploreComponent {
             self.show_start_screen();
             return;
         }
+        let stopped = self.stopped_status(
+            "Stopped waiting on the Explore page. Your answer and text remain available; Retry \
+             sends them again.",
+        );
         let Some(exploration) = &mut self.exploration else {
             return;
         };
@@ -20,9 +24,7 @@ impl ExploreComponent {
                 exploration.cancel();
                 self.durable.posting = None;
                 self.progress = Progress::Retryable;
-                self.status = "Stopped waiting on the Explore page. Your answer and text remain \
-                               available; Retry sends them again."
-                    .into();
+                self.status = stopped.into();
             }
             _ => {}
         }

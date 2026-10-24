@@ -102,6 +102,7 @@ impl ExploreComponent {
         if self.reset.lapses_by(event.now) {
             self.reset.cancel();
         }
+        self.finishing_tick(event);
     }
 }
 
