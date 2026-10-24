@@ -37,7 +37,8 @@ use herdr_client::protocol::{Agent, AgentStatus, PaneId};
 use review_explore::{InterviewUpdate, Question, TurnRequest};
 use review_explore_runner::TurnInstructions;
 use review_run_ahead::{
-    DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch, SwitchFailure, TurnPath,
+    DiscardReason, ForkEnd, ForkHost, ForkPoint, HostFields, OwnedFork, PaneWatch, SwitchFailure,
+    TurnPath,
 };
 use review_types::ReviewUnit;
 
@@ -98,7 +99,7 @@ pub(crate) struct RunAheadState {
     generation: u64,
     /// The question that waits, and its forks.
     armed: Option<Armed>,
-    /// The access values of the forks discarded: their calls are refused.
+    /// The access values and the sessions of the forks discarded: their calls are refused.
     discarded: HashSet<String>,
     /// The bare answer that waits for the fork of its choice to submit its turn.
     finishing: Option<finishing::Finishing>,
@@ -126,6 +127,8 @@ pub(crate) struct RunAheadState {
     talk_quiet: std::time::Duration,
     /// Counts the quiet waits started, so that the end of one stopped since is ignored.
     quiet_waits: u64,
+    /// Why run-ahead is not available for the rounds' agent, as the pane was told last.
+    unavailable: Option<String>,
 }
 
 /// A question that waits, and the agent watched for its forks.
@@ -221,7 +224,8 @@ struct TakenFork {
     /// instructions.
     request: TurnRequest,
     turn: TurnInstructions,
-    process: Option<ProcessStamp>,
+    /// What the fork's host keeps of it.
+    host: HostFields,
     /// The turn the fork submitted, kept for its choice.
     kept: Option<InterviewUpdate>,
     /// Whether its process ended.
@@ -246,6 +250,7 @@ impl RunAheadState {
             close_wait: clean::CLOSE_WAIT,
             talk_quiet,
             quiet_waits: 0,
+            unavailable: None,
         }
     }
 
@@ -261,9 +266,11 @@ impl RunAheadState {
         &self.paths
     }
 
-    /// The fork that holds `access`, and its round, among those of the question that waits, the
-    /// one an answer waits for and the one the pane's agent is switching to.
-    fn fork_with_access(&self, access: &str) -> Option<(&TakenFork, &RoundKey)> {
+    /// The fork that made a call with `access`, from the session `session` when the call names
+    /// one, and its round, among those of the question that waits, the one an answer waits for
+    /// and the one the pane's agent is switching to. A call that names a fork's session, as
+    /// Codex's do, is that fork's, whatever access it gives.
+    fn fork_of_call(&self, access: &str, session: Option<&str>) -> Option<(&TakenFork, &RoundKey)> {
         let waiting = self.armed.as_ref().into_iter().flat_map(|armed| {
             armed
                 .taken
@@ -282,7 +289,7 @@ impl RunAheadState {
         waiting
             .chain(finishing)
             .chain(switching)
-            .find(|(fork, _)| fork.access == access)
+            .find(|(fork, _)| fork.access == access || session == Some(fork.session.as_str()))
     }
 
     /// The fork `session`, among those of the question that waits and the one an answer waits
@@ -312,12 +319,11 @@ impl RunAheadState {
 }
 
 impl TakenFork {
-    /// What stops the fork and removes what it left, its transcript among those of `point`.
-    fn trace<'a>(&'a self, point: &'a ForkPoint) -> review_run_ahead::ForkTrace<'a> {
+    /// What stops the fork and removes what it left.
+    fn trace(&self) -> review_run_ahead::ForkTrace<'_> {
         review_run_ahead::ForkTrace {
             session: &self.session,
-            process: self.process,
-            transcripts: &point.transcripts,
+            host: &self.host,
         }
     }
 }
@@ -392,6 +398,17 @@ impl ExploreSession {
     #[cfg(test)]
     pub(crate) fn wait_on_close(&mut self, wait: std::time::Duration) {
         self.run_ahead.close_wait = wait;
+    }
+
+    /// Tells the pane why run-ahead is not available for the rounds' agent, or that it is,
+    /// when that changed.
+    fn run_ahead_available(&mut self, unavailable: Option<String>) {
+        if self.run_ahead.unavailable != unavailable {
+            self.run_ahead.unavailable.clone_from(&unavailable);
+            let _ = self
+                .events
+                .send(ui_events::ExploreRunAheadUnavailable(unavailable));
+        }
     }
 
     /// Shows the reviewer the path `path` the turn `request` of `round` took: the pane and the
@@ -581,8 +598,8 @@ impl ExploreSession {
                 .get_agent(&armed.asked.pane)
                 .ok()
                 .flatten()
-                .and_then(|agent| agent.agent_session)
-                .is_none_or(|session| session.value != taken.point.session);
+                .and_then(|agent| self.run_ahead.host.session(&agent))
+                .is_none_or(|session| session != taken.point.session);
         if moved {
             self.run_ahead
                 .log("the agent's session moved since the forks were taken: taking them again");
@@ -592,23 +609,24 @@ impl ExploreSession {
     }
 }
 
-/// Where the agent of a pane goes: a session it resumes, or a fork's session it switches to.
+/// Where the agent of a pane goes: back to a session it ran before the fork whose session it
+/// may run, or to a fork's session.
 enum Move {
-    Resume(String),
-    Switch {
-        session: String,
-        process: Option<ProcessStamp>,
-        transcripts: std::path::PathBuf,
-    },
+    Resume { session: String, from: OwnedFork },
+    Switch(OwnedFork),
 }
 
 impl Move {
     /// The switch to the fork `trace` names.
     fn switch(trace: review_run_ahead::ForkTrace<'_>) -> Self {
-        Self::Switch {
-            session: trace.session.to_owned(),
-            process: trace.process,
-            transcripts: trace.transcripts.to_owned(),
+        Self::Switch(OwnedFork::of(trace))
+    }
+
+    /// The move back to `session`, from the fork `from` names.
+    fn resume(session: String, from: review_run_ahead::ForkTrace<'_>) -> Self {
+        Self::Resume {
+            session,
+            from: OwnedFork::of(from),
         }
     }
 
@@ -626,19 +644,11 @@ impl Move {
         std::thread::spawn(move || {
             drained.wait();
             match &self {
-                Self::Resume(session) => host.resume(&pane, session, done),
-                Self::Switch {
-                    session,
-                    process,
-                    transcripts,
-                } => host.switch(
+                Self::Resume { session, from } => host.resume(&pane, from.trace(), session, done),
+                Self::Switch(fork) => host.switch(
                     review_run_ahead::SwitchTo {
                         pane: &pane,
-                        fork: review_run_ahead::ForkTrace {
-                            session,
-                            process: *process,
-                            transcripts,
-                        },
+                        fork: fork.trace(),
                     },
                     done,
                 ),

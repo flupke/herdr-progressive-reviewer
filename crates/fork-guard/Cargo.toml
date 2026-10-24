@@ -1,0 +1,11 @@
+[package]
+name = "fork-guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The rules of a run-ahead fork's guard: the reviewer's submit tools, and the shell commands that only read."
+
+[lints]
+workspace = true

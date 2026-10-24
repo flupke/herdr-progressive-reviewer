@@ -2,11 +2,12 @@
 //! Explore page's: the writing style of the texts the agent writes for the reviewer, and which
 //! choices run-ahead prepares. A control changes at once and is saved alone with the
 //! reviewer's other settings; the pane then shows the settings as saved. A round keeps the
-//! style it started with; run-ahead applies from the next question.
+//! style it started with; run-ahead applies from the next question. When run-ahead is not
+//! available for the rounds' agent, the setting says why.
 
 use review_explore_round_settings::{ExploreRoundSettings, RunAhead, WritingStyle};
 use ui_actions::{Action, SettingsAction};
-use ui_events::ExploreRoundSettingsLoaded;
+use ui_events::{ExploreRoundSettingsLoaded, ExploreRunAheadUnavailable};
 use ui_shortcuts::ExploreSettingShortcut;
 use ui_theme::Palette;
 
@@ -17,6 +18,8 @@ use super::{Control, ExploreComponent};
 #[derive(Default)]
 pub(super) struct RoundSettings {
     saved: ExploreRoundSettings,
+    /// Why run-ahead is not available for the rounds' agent, as the session said last.
+    run_ahead_unavailable: Option<String>,
 }
 
 impl RoundSettings {
@@ -67,6 +70,13 @@ impl RoundSettings {
                 Control::Setting(ExploreSettingShortcut::RunAhead),
             ),
         ]);
+        if let Some(why) = &self.run_ahead_unavailable {
+            layout.text(
+                format!("Run-ahead is not available for this agent: {why}."),
+                palette.dim,
+                None,
+            );
+        }
     }
 }
 
@@ -74,6 +84,13 @@ impl ExploreComponent {
     /// Shows the settings for the rounds as saved.
     pub(super) fn round_settings_loaded(&mut self, event: &ExploreRoundSettingsLoaded) {
         self.round_settings.saved = event.0;
+    }
+
+    /// Says why run-ahead is not available for the rounds' agent, or that it is again.
+    pub(super) fn run_ahead_unavailable(&mut self, event: &ExploreRunAheadUnavailable) {
+        self.round_settings
+            .run_ahead_unavailable
+            .clone_from(&event.0);
     }
 
     /// The settings for the rounds at the end of every screen of the pane, before the

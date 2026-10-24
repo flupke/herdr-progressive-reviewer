@@ -401,3 +401,28 @@ fn a_codex_agent_runs_the_hooks_once_its_hook_recorded_the_session_it_named() {
         "another pane's agent named nothing"
     );
 }
+
+#[test]
+fn a_codex_fork_s_session_is_never_named_the_pane_s() {
+    let (runtime, _directory, hooks) = reviewer();
+    let root = HookRoot::new(runtime.path());
+    hooks.name_session(&pane("w:p1"), "thread-1");
+
+    root.mark_codex_fork("fork-1").unwrap();
+    hooks.name_session(&pane("w:p1"), "fork-1");
+    assert_eq!(
+        hooks.named_session(&pane("w:p1")).as_deref(),
+        Some("thread-1")
+    );
+    assert!(root.is_codex_fork("fork-1"));
+
+    // Once the agent may run it, the fork's session is the agent's.
+    root.unmark_codex_fork("fork-1").unwrap();
+    hooks.name_session(&pane("w:p1"), "fork-1");
+    assert_eq!(
+        hooks.named_session(&pane("w:p1")).as_deref(),
+        Some("fork-1")
+    );
+    assert!(!root.is_codex_fork("fork-1"));
+    root.unmark_codex_fork("fork-1").unwrap();
+}

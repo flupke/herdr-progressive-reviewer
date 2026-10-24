@@ -1,14 +1,14 @@
 # Run-ahead
 
-What run-ahead costs and needs, the guarantees that span its crates, how Claude Code and Herdr behave under it, and its contract check with real Claude Code.
+What run-ahead costs and needs, the guarantees that span its crates, how Claude Code and Herdr behave under it, and its contract check with real Claude Code. How Codex's daemon behaves with forks is in [Codex's app-server daemon](codex-daemon.md#forks).
 
 Run-ahead forks the pane agent's session while a question waits (setting `RunAhead` in
 [`crates/review-explore-round-settings`](../../crates/review-explore-round-settings), pane key
 `z`). A bare answer continues as the fork of its choice once that fork submitted its turn, and
 waits for a fork still at work; Stop waiting, or a fork that ends without its turn, gives the
 answer to the agent in the pane. Any other answer runs the plain chain. The module headers of
-`agent-fork`, `claude-fork`, `review-run-ahead` and `crates/review-explore-session/src/run_ahead.rs`
-say how each part works.
+`agent-fork`, `claude-fork`, `codex-fork`, `agent-forks`, `fork-guard`, `review-run-ahead` and
+`crates/review-explore-session/src/run_ahead.rs` say how each part works.
 
 ## Cost and needs
 
@@ -20,7 +20,19 @@ say how each part works.
   conversation stayed quiet for a minute (`TALK_QUIET`, injected through
   `Collaborators::talk_quiet`).
 - Each fork costs about one agent turn; it reads the agent's prompt cache.
-- It needs Claude Code in the agent's pane, started with options run-ahead knows and
+- It needs Claude Code or Codex in the agent's pane. `agent-forks` picks the host by the agent
+  Herdr reports, and a fork's calls by the fields its host keeps of it (`HostFields`, flattened
+  into the fork's record: a record saved before keeps `transcripts` and `process` at its top
+  level, as Claude Code's host reads them). The host says which session the agent is on, for
+  the checks at the answer and after the agent worked: Herdr's report for Claude Code, and for
+  Codex the session the agent named last in a call to the reviewer's tools, moved by the
+  reviewer's own switches, never Herdr's ([ADR 0009](../adr/0009-hear-codex-through-its-app-server-daemon.md)).
+  When forks cannot be taken for the agent, the run-ahead setting in the pane says why
+  (`ExploreRunAheadUnavailable`); the Explore page shows no run-ahead setting.
+- Codex needs its daemon (not `--no-daemon` nor a remote app server), and the reviewer's Codex
+  plugin, whose prompt hook ran in the agent's session and whose fork guard is installed and
+  trusted ([ADR 0011](../adr/0011-keep-a-codex-fork-read-only-with-the-plugin-s-guard.md)).
+- Claude Code needs to be started with options run-ahead knows and
   without a `--settings` of its own, and with the hooks of the reviewer's Claude Code plugin
   (below): the switch waits for them. An agent runs with them when the session Herdr reports
   is the one the plugin's `SessionStart` hook recorded for its pane, from a process still in
@@ -29,7 +41,9 @@ say how each part works.
   restart the agent. Only Linux has the parent-death signal: elsewhere, macOS
   included, `fork-exec` refuses and `ClaudeForks` takes no fork, so every answer runs the plain
   chain, with the reason.
-- What the forks do is written to `run-ahead.log` in the plugin's state directory, and
+- What the forks do, Claude Code's and Codex's, is written to `run-ahead.log` in the plugin's
+  state directory (a Codex fork's tokens from `thread/tokenUsage/updated`, its
+  `cachedInputTokens` as read from the cache), and
   `reviewer-control stats` says whether it pays ([statistics](explore-statistics.md)).
 - Run-ahead stops for the round after `FAILURES_TO_HALT` failures in a row, with one notice
   that names the last: a fork that ends without a turn, a check at the answer that could not
@@ -40,8 +54,10 @@ say how each part works.
 
 ## Guarantees across crates
 
-- A fork stays in the reviewer's process group, so the hang-up of the pane's terminal reaches
-  it too: never give it a process group or a session of its own.
+- A Claude Code fork stays in the reviewer's process group, so the hang-up of the pane's
+  terminal reaches it too: never give it a process group or a session of its own. A Codex fork
+  lives in the daemon, not in the reviewer's process: the closing reviewer discards it, and a
+  reopened one interrupts and deletes those a stopped one left, from the daemon its record names.
 - A reopened reviewer discards the forks a stopped reviewer left in the rounds of every review
   of the repository (`ReviewStore::rounds_with_forks`; forks of a reviewer that still runs stay
   its own). A question that forks of another running reviewer answer is not forked again: the
@@ -51,9 +67,17 @@ say how each part works.
   `PromptSender::hold`, which keeps the thread service's courier, and so the round
   conversation's wakeups and the prompts to every other agent, from sending until the switch
   or the settling ends.
-- A fork's guard (`claude-fork`'s `PreToolUse` hook) refuses every jj command without
+- A fork's guard (`fork-guard`'s rules, in `claude-fork`'s `PreToolUse` hook and in the
+  Codex plugin's) refuses every jj command without
   `--ignore-working-copy`, so the jj commands the Explore instructions name
   (`crates/review-explore-runner/src/rules/sources-jj.md`) must keep that option.
+- A call that names a fork's session in `_meta.threadId`, as Codex's do, is that fork's
+  whatever access value it gives: it never reaches the round, and never names the pane's
+  session (`AgentHooks::name_session` skips the sessions marked as forks).
+- A Codex fork's session keeps its read-only settings and its guard's mark until the host hands
+  it over: before the agent resumes it, in a switch or a settling, the mark is lifted and the
+  session takes back the agent's settings, so that the agent's own tools run as before. A fork
+  whose turn did not end once interrupted is never handed over: the switch fails first.
 - Claude Code runs a fork's shell commands in the user's shell, Bash or Zsh, with the user's
   options: the guard must read a command as both would.
 - The agent and the round name each answer alike: while a question waits, the session reserves
@@ -75,9 +99,9 @@ say how each part works.
   and sends no event when a session changes (checked in Herdr 0.9.3: a session report emits
   `pane.updated` only when the agent's name changes), so the switch then asks Herdr every
   100 ms until it reports the agent on that session, idle. Both waits end 20 s after the
-  `/resume`. `claude_fork::ForkWaits` holds these durations, the 10 s wait for a submit's
-  answer and the 1 s before a dropped status watch subscribes again; the reviewer's
-  `RunAheadSetup` passes the defaults, and lets a test pass small ones.
+  `/resume`. `review_run_ahead::ForkWaits` holds these durations, the 10 s wait for a submit's
+  answer and the 1 s before a dropped status watch subscribes again, for both hosts; the
+  reviewer's `RunAheadSetup` passes the defaults, and lets a test pass small ones.
 - Text left in Claude Code's input box joins a typed `/resume` into one prompt, `<text>
   /resume <session>`, which fires `UserPromptSubmit`; a command alone fires none. So while a
   switch or a settling waits for the session, the reviewer blocks every prompt of that pane,
@@ -120,11 +144,15 @@ Claude Code 2.1.292 does with it:
   `AgentHooks::expect_resume` on `HookedAgent::Codex` blocks every prompt of the agent's
   session, text left in the input box that joined the typed `/resume` included. Its hook reports no resume: the
   daemon confirms the switch ([Codex's daemon](codex-daemon.md#the-reviewers-codex-plugin)).
+  Then the host reports the fork's session to Herdr itself, as Herdr's Codex hook will at the
+  next turn ([ADR 0012](../adr/0012-report-a-codex-agent-s-resumed-session-to-herdr.md)).
 
 ## The contract check
 
 The stand-in plays Claude Code in the run-ahead tests, so they hold only while Claude Code
-behaves as the stand-in assumes. The bodies of `crates/reviewer/src/runtime/run_ahead/contract.tests.rs`
+behaves as the stand-in assumes. Codex needs no contract check: the run-ahead tests of
+`crates/reviewer/src/runtime/run_ahead/codex.tests.rs` run a real Codex TUI on the local model
+fixture, in `make test` ([Codex's daemon](codex-daemon.md#a-codex-tui-in-a-test)). The bodies of `crates/reviewer/src/runtime/run_ahead/contract.tests.rs`
 check those assumptions, each step naming the one it rests on (`Assumption`): the fork's command
 line, a typed `/resume` that Herdr follows, typed input taken in order, the transcripts' place.
 Each body runs twice:

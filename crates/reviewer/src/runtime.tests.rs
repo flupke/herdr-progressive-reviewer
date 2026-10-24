@@ -83,6 +83,18 @@ impl IsolatedHerdrServer {
         )
     }
 
+    /// The server, with its agent's workspace, where `run` starts a real agent in the pane.
+    fn start_real(
+        repository_root: &Path,
+        agent: &str,
+        run: impl FnOnce(&HerdrTestServer, &PaneId),
+    ) -> Self {
+        let mut server = Self::create(repository_root, agent, |_| Vec::new());
+        server.real_agent = true;
+        run(&server.server, &server.pane_id);
+        server
+    }
+
     /// A Claude Code stand-in with the session `session` that run-ahead can fork, as
     /// `stand_in` says: the stand-in agent, named `claude`, which plays a fork when it is started
     /// as one.
@@ -650,7 +662,21 @@ impl ReviewFlowFixture {
         herdr: IsolatedHerdrServer,
         adjust: impl FnOnce(&mut effects::Setup),
     ) -> Self {
-        let port = review_test_support::TestPort::new();
+        Self::start_on_port(
+            repository_files,
+            herdr,
+            review_test_support::TestPort::new(),
+            adjust,
+        )
+    }
+
+    /// The same, with the reviewer's MCP server on `port`, which the agent was told of.
+    fn start_on_port(
+        repository_files: Box<dyn review_test_support::ReviewRepositoryFixture>,
+        herdr: IsolatedHerdrServer,
+        port: review_test_support::TestPort,
+        adjust: impl FnOnce(&mut effects::Setup),
+    ) -> Self {
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
                 .unwrap();

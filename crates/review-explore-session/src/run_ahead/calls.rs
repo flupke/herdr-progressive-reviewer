@@ -1,6 +1,7 @@
-//! A fork's calls to the reviewer: its access value lets it submit a question or a conclusion
-//! for the request it was forked for, and nothing else. What it submits is checked as the
-//! agent's turns are, then kept for its choice and shown to nobody.
+//! A fork's calls to the reviewer: its access value, or its session that a Codex call names,
+//! lets it submit a question or a conclusion for the request it was forked for, and nothing
+//! else. What it submits is checked as the agent's turns are, then kept for its choice and shown
+//! to nobody.
 
 use review_explore::InterviewUpdate;
 use review_mcp::{Operation, Request, Response};
@@ -15,13 +16,16 @@ const DISCARDED: &str = "This turn is no longer needed: the reviewer's round mov
 impl ExploreSession {
     /// Answers the call `request` when a fork made it; hands back any other call.
     pub(crate) fn run_ahead_call(&mut self, request: Request) -> Option<Request> {
-        if self.run_ahead.discarded.contains(&request.access) {
+        let session = request.agent_session.as_deref();
+        if self.run_ahead.discarded.contains(&request.access)
+            || session.is_some_and(|session| self.run_ahead.discarded.contains(session))
+        {
             request.respond(Err(DISCARDED.into()));
             return None;
         }
         let Some((fork, round)) = self
             .run_ahead
-            .fork_with_access(&request.access)
+            .fork_of_call(&request.access, session)
             .map(|(fork, round)| (fork.clone(), round.clone()))
         else {
             return Some(request);

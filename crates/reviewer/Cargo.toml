@@ -11,9 +11,11 @@ jev-evals = ["dep:serde"]
 [dependencies]
 vision-turns = { path = "../vision-turns" }
 agent-fork = { path = "../agent-fork" }
+agent-forks = { path = "../agent-forks" }
 agent-hooks = { path = "../agent-hooks" }
 claude-fork = { path = "../claude-fork" }
 claude-hooks = { path = "../claude-hooks" }
+codex-fork = { path = "../codex-fork" }
 codex-hooks = { path = "../codex-hooks" }
 review-explore = { path = "../review-explore" }
 review-explore-page = { path = "../review-explore-page" }
@@ -21,6 +23,7 @@ review-explore-page-host = { path = "../review-explore-page-host" }
 review-explore-page-settings = { path = "../review-explore-page-settings" }
 review-explore-session = { path = "../review-explore-session" }
 review-explore-stats = { path = "../review-explore-stats" }
+review-run-ahead = { path = "../review-run-ahead" }
 review-significance = { path = "../review-significance" }
 toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
@@ -56,10 +59,10 @@ serde = { workspace = true, optional = true }
 tiktoken-rs = "0.12"
 
 [dev-dependencies]
+codex-daemon = { path = "../codex-daemon" }
 # The tests learn that the thread worker sent every prompt it was asked to.
 review-thread-service = { path = "../review-thread-service", features = ["flush"] }
 review-explore-round-settings = { path = "../review-explore-round-settings" }
-review-run-ahead = { path = "../review-run-ahead" }
 review-round-conversation = { path = "../review-round-conversation" }
 uuid.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }

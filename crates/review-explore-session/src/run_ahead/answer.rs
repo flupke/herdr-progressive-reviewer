@@ -63,18 +63,12 @@ impl ExploreSession {
         let path = match (chosen, taken) {
             (Ok(index), Some(mut taken)) => {
                 let fork = taken.forks.remove(index);
-                self.discard_forks(
-                    &asked.round,
-                    &taken.point,
-                    &taken.forks,
-                    DiscardReason::Answered,
-                );
+                self.discard_forks(&asked.round, &taken.forks, DiscardReason::Answered);
                 if fork.kept.is_some() {
                     self.continue_as(Switching {
                         asked: asked.clone(),
                         turn: turn.clone(),
                         dispatch: self.dispatch_of(request, &turn.attempt, None),
-                        point: taken.point,
                         fork,
                         files: taken.files,
                         hold: self.prompts.hold(),
@@ -85,7 +79,6 @@ impl ExploreSession {
                     // Checked now as well: the reviewer does not wait for a turn it cannot use.
                     self.discard_forks(
                         &asked.round,
-                        &taken.point,
                         std::slice::from_ref(&fork),
                         DiscardReason::Answered,
                     );
@@ -104,12 +97,7 @@ impl ExploreSession {
             }
             (chosen, taken) => {
                 if let Some(taken) = &taken {
-                    self.discard_forks(
-                        &asked.round,
-                        &taken.point,
-                        &taken.forks,
-                        DiscardReason::Answered,
-                    );
+                    self.discard_forks(&asked.round, &taken.forks, DiscardReason::Answered);
                 }
                 TurnPath::Plain {
                     reason: chosen.err().unwrap_or(PlainReason::NoForks { why: None }),
@@ -194,8 +182,10 @@ impl ExploreSession {
         if !agent.agent_status.waits_for_prompt() {
             return Err(PlainReason::AgentBusy);
         }
-        let session = agent.agent_session.as_ref().map(|session| &session.value);
-        if session != Some(&point.session) || self.run_ahead.host.last_entry(point) != point.entry {
+        let session = self.run_ahead.host.session(&agent);
+        if session.as_ref() != Some(&point.session)
+            || self.run_ahead.host.last_entry(point) != point.entry
+        {
             return Err(PlainReason::SessionMoved);
         }
         Ok(())
@@ -215,7 +205,7 @@ impl ExploreSession {
             .get_agent(&armed.asked.pane)
             .ok()
             .flatten()
-            .is_some_and(|agent| self.run_ahead.host.unhooked(&agent))
+            .is_some_and(|agent| self.run_ahead.host.unhooked(&agent).is_some())
         {
             return Err(PlainReason::NoHooks);
         }

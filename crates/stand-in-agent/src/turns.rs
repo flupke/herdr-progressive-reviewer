@@ -81,10 +81,17 @@ impl AgentTurns {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A real agent starts a turn on a prompt, which Herdr sees; this one does too, unless the
-    /// test makes it swallow its prompts.
-    pub(crate) fn prompt_read(&self) {
-        if self.swallow_path.exists() {
+    /// Whether the test makes the agent swallow the prompt it reads now: read before the agent
+    /// reports the prompt, so that a test that waits for that report and then stops the
+    /// swallowing finds the prompt swallowed.
+    pub(crate) fn swallows(&self) -> bool {
+        self.swallow_path.exists()
+    }
+
+    /// A real agent starts a turn on a prompt, which Herdr sees; this one does too, unless it
+    /// `swallowed` the prompt.
+    pub(crate) fn prompt_read(&self, swallowed: bool) {
+        if swallowed {
             return;
         }
         let mut state = self.lock();

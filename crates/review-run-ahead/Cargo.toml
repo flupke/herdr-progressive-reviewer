@@ -13,9 +13,8 @@ herdr-client = { path = "../herdr-client" }
 review-explore = { path = "../review-explore" }
 review-turn-path = { path = "../review-turn-path" }
 serde.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

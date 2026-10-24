@@ -110,3 +110,66 @@ fn another_event_is_neither_reported_nor_recorded() {
     assert_eq!(expectation.wait(Duration::ZERO), None);
     assert_eq!(hooks.hooked(&port, &codex_agent()), None);
 }
+
+/// Codex's `PreToolUse` event, as 0.162.1 writes it, of the tool `tool` called with `input` on
+/// the session `session`.
+fn tool_use(session: &str, tool: &str, input: &serde_json::Value) -> String {
+    serde_json::json!({
+        "session_id": session,
+        "turn_id": "turn-1",
+        "transcript_path": null,
+        "cwd": "/repo",
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-6.1-sol",
+        "permission_mode": "default",
+        "tool_name": tool,
+        "tool_input": input,
+        "tool_use_id": "call-1",
+    })
+    .to_string()
+}
+
+#[test]
+fn a_fork_s_session_is_denied_every_tool_but_reading_and_submitting() {
+    let (_runtime, root, _hooks) = reviewer();
+    root.mark_codex_fork("fork-1").unwrap();
+
+    let denied = hook(
+        &root,
+        tool_use("fork-1", "mcp__slack__send_message", &serde_json::json!({})).as_bytes(),
+    )
+    .expect("a decision");
+    let decision: serde_json::Value = serde_json::from_str(&denied).unwrap();
+    assert_eq!(
+        decision["hookSpecificOutput"]["permissionDecision"], "deny",
+        "{decision}"
+    );
+    assert_eq!(
+        decision["hookSpecificOutput"]["hookEventName"],
+        "PreToolUse"
+    );
+    assert_eq!(
+        hook(
+            &root,
+            tool_use(
+                "fork-1",
+                "mcp__herdr_reviewer__submit_question",
+                &serde_json::json!({})
+            )
+            .as_bytes()
+        ),
+        None
+    );
+}
+
+#[test]
+fn any_other_session_runs_every_tool() {
+    let (_runtime, root, _hooks) = reviewer();
+    root.mark_codex_fork("fork-1").unwrap();
+
+    let input = serde_json::json!({"command": "rm -rf build"});
+    assert_eq!(
+        hook(&root, tool_use("thread-1", "Bash", &input).as_bytes()),
+        None
+    );
+}

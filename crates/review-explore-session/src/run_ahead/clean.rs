@@ -7,9 +7,7 @@ use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use review_run_ahead::{
-    DiscardReason, Failure, ForkEnd, ForkPoint, ForkTrace, PlainReason, TurnPath,
-};
+use review_run_ahead::{DiscardReason, Failure, ForkEnd, ForkTrace, PlainReason, TurnPath};
 
 use super::{Event, RoundKey, RunAheadInput, TakenFork};
 use crate::{ExploreSession, Input};
@@ -36,21 +34,19 @@ impl ExploreSession {
             return;
         };
         let round = armed.asked.round.clone();
-        self.discard_forks(&round, &taken.point, &taken.forks, reason);
+        self.discard_forks(&round, &taken.forks, reason);
     }
 
-    /// Discards `forks` of `round`, taken from `point`, for `reason`: each is stopped and its
-    /// transcript deleted.
+    /// Discards `forks` of `round` for `reason`: each is stopped and its session deleted.
     pub(super) fn discard_forks(
         &mut self,
         round: &RoundKey,
-        point: &ForkPoint,
         forks: &[TakenFork],
         reason: DiscardReason,
     ) {
         self.mark_discarded(round, forks, reason);
         for fork in forks {
-            self.discard_in_background(round, fork.trace(point));
+            self.discard_in_background(round, fork.trace());
         }
         self.run_ahead
             .log(&format!("{} forks discarded: {reason:?}", forks.len()));
@@ -70,12 +66,15 @@ impl ExploreSession {
         );
     }
 
-    /// Records `forks` as discarded for `reason`, and refuses their calls from now on.
+    /// Records `forks` as discarded for `reason`, and refuses their calls from now on, by their
+    /// access value or their session.
     fn mark_discarded(&mut self, round: &RoundKey, forks: &[TakenFork], reason: DiscardReason) {
         let sessions: HashSet<_> = forks.iter().map(|fork| &fork.session).collect();
-        self.run_ahead
-            .discarded
-            .extend(forks.iter().map(|fork| fork.access.clone()));
+        self.run_ahead.discarded.extend(
+            forks
+                .iter()
+                .flat_map(|fork| [fork.access.clone(), fork.session.clone()]),
+        );
         let now = review_explore::now_ms();
         let saved = self.update_forks(round, |forks| {
             for record in &mut forks.forks {
@@ -96,7 +95,7 @@ impl ExploreSession {
     pub(crate) fn run_ahead_close(&mut self) {
         let waiting = self.run_ahead.armed.take().and_then(|armed| {
             let taken = armed.taken?;
-            Some((armed.asked.round, taken.point, taken.forks))
+            Some((armed.asked.round, taken.forks))
         });
         let finishing = self.run_ahead.finishing.take().map(|finishing| {
             // Once reopened, the answer waits for Retry, which sends it to the agent in the pane.
@@ -109,7 +108,7 @@ impl ExploreSession {
                     };
                 }
             });
-            (finishing.asked.round, finishing.point, vec![finishing.fork])
+            (finishing.asked.round, vec![finishing.fork])
         });
         let closing: Vec<_> = waiting.into_iter().chain(finishing).collect();
         if closing.is_empty() {
@@ -117,15 +116,14 @@ impl ExploreSession {
         }
         let (done, stopped) = mpsc::channel();
         let mut count = 0;
-        for (round, point, forks) in &closing {
+        for (round, forks) in &closing {
             self.mark_discarded(round, forks, DiscardReason::ReviewerClosed);
             for fork in forks {
                 let done = done.clone();
                 let session = fork.session.clone();
-                self.run_ahead.host.discard(
-                    fork.trace(point),
-                    Box::new(move || drop(done.send(session))),
-                );
+                self.run_ahead
+                    .host
+                    .discard(fork.trace(), Box::new(move || drop(done.send(session))));
                 count += 1;
             }
         }
@@ -141,7 +139,7 @@ impl ExploreSession {
                 Err(_) => break,
             }
         }
-        for (round, _, _) in &closing {
+        for (round, _) in &closing {
             let _ = self.update_forks(round, |forks| {
                 for record in &mut forks.forks {
                     record.cleaned |= cleaned.contains(&record.session);

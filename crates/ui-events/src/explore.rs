@@ -121,6 +121,12 @@ pub struct ExplorePageSettingsLoaded(pub review_explore_page_settings::ExplorePa
 #[derive(Clone, Debug)]
 pub struct ExploreRoundSettingsLoaded(pub review_explore_round_settings::ExploreRoundSettings);
 
+/// Why run-ahead is not available for the agent of the reviewer's rounds, such as an agent it
+/// does not fork, or one that runs without the reviewer's hooks; `None` once it is again. The
+/// run-ahead setting of the pane says it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExploreRunAheadUnavailable(pub Option<String>);
+
 /// The browser could not open the Explore page the pane asked for: the pane says why and shows
 /// the page's address, when the page has one.
 #[derive(Clone, Debug)]

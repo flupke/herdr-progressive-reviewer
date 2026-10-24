@@ -99,7 +99,7 @@ struct ContractRun {
 
 impl ContractRun {
     /// The round with the agent `agent`, whose forks' host waits as `waits` say.
-    fn start(agent: Agent, waits: claude_fork::ForkWaits) -> Self {
+    fn start(agent: Agent, waits: review_run_ahead::ForkWaits) -> Self {
         let (run, session) = match agent {
             Agent::StandIn => (
                 RunAheadFlow::start_with(StandIn::Forkable, waits),
@@ -456,7 +456,7 @@ impl ContractRun {
                 assert!(self.transcripts().find(&fork.session).is_some());
             } else {
                 assert!(
-                    !other.process.unwrap().is_running(),
+                    !claude_fork::process(&other.host).unwrap().is_running(),
                     "a fork outlived its question"
                 );
                 assert_eq!(self.transcripts().find(&other.session), None);
@@ -557,8 +557,8 @@ fn real_claude_code_continues_as_the_fork_of_a_bare_answer() {
 
 /// The waits of a switch that nobody confirms in time; the move back to the agent's own
 /// session waits as long as in production.
-fn unconfirmed_switch() -> claude_fork::ForkWaits {
-    claude_fork::ForkWaits {
+fn unconfirmed_switch() -> review_run_ahead::ForkWaits {
+    review_run_ahead::ForkWaits {
         resume: Duration::ZERO,
         ..test_waits()
     }
@@ -584,7 +584,7 @@ const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 /// A round whose agent is real Claude Code on the session `session`, with a configuration of
 /// its own under `claude-config` in the server's directory, gone with the server: the owner's
 /// is never read nor written.
-fn real_run(session: &str, waits: claude_fork::ForkWaits) -> RunAheadFlow {
+fn real_run(session: &str, waits: review_run_ahead::ForkWaits) -> RunAheadFlow {
     assert!(
         std::env::var_os(TOKEN_VARIABLE).is_some(),
         "set {TOKEN_VARIABLE} to a token of `claude setup-token`: the contract check logs in \

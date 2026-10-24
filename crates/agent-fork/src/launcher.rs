@@ -9,6 +9,8 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use crate::output::{Exit, ForkOutput};
 use crate::stamp::ProcessStamp;
 use crate::stop::{StopWaits, signal};
@@ -22,7 +24,7 @@ const OUTPUT_WAIT: Duration = Duration::from_secs(1);
 
 /// What a fork runs: its program, arguments, working directory and whole environment, of
 /// which it inherits nothing else from the reviewer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ForkCommand {
     pub program: PathBuf,
     pub arguments: Vec<OsString>,

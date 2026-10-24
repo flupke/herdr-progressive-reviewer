@@ -9,9 +9,9 @@ pub use explore::{
     ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork, ExplorePageReset,
     ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageStart, ExplorePageStopped,
     ExplorePageTunnel, ExplorePositionsChanged, ExplorePositionsRestored, ExplorePosted,
-    ExploreProgress, ExploreRestored, ExploreRoundSettingsLoaded, ExploreStartBlock,
-    ExploreStorageFailed, ExploreSubmission, ExploreTurnFinishing, ExploreTurnPath,
-    ExploreViewports, ImplementationProgress,
+    ExploreProgress, ExploreRestored, ExploreRoundSettingsLoaded, ExploreRunAheadUnavailable,
+    ExploreStartBlock, ExploreStorageFailed, ExploreSubmission, ExploreTurnFinishing,
+    ExploreTurnPath, ExploreViewports, ImplementationProgress,
 };
 pub use threads::{
     EventSettled, NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

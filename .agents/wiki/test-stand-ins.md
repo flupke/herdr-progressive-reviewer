@@ -71,8 +71,9 @@ turn's fields from the reported prompt, never from the directory later.
 The stand-in agent of a second pane connects as `StandInRole::SecondAgent`
 (`REVIEW_AGENT_E2E_ROLE=second`). The test's switches that must reach the agent before a
 prompt, in the order Herdr types them, stay files in the server's directory, which the agent
-reads as it reads the prompt: `swallow` makes it read each prompt without starting on it,
-`unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`, or, when it
+reads as it reads the prompt: `swallow` makes it read each prompt without starting on it
+(decided before it reports the prompt read, so a test may remove the file once it saw that
+report), `unreported-resume` keeps Herdr and the reviewer from hearing of its next `/resume`, or, when it
 holds a number of milliseconds, has them hear of it that late.
 
 The Claude Code stand-in of the run-ahead and hooked delivery tests (`REVIEW_AGENT_E2E_HOOKS`)

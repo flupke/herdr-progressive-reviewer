@@ -9,9 +9,7 @@ fn record() -> ForkRecord {
         answer: Some("fork-answer".into()),
         session: "fork-session".into(),
         from: Some("agent-session".into()),
-        transcripts: "/state/projects".into(),
         reviewer: ProcessStamp { pid: 1, started: 2 },
-        process: Some(ProcessStamp { pid: 3, started: 4 }),
         taken_at_ms: 5,
         turn: None,
         submitted_at_ms: None,
@@ -20,6 +18,7 @@ fn record() -> ForkRecord {
         discarded: None,
         cleaned: false,
         continued: None,
+        host: HostFields::default(),
     }
 }
 
@@ -43,6 +42,37 @@ fn a_record_saved_without_the_later_fields_reads_back_as_a_running_fork() {
         assert!(saved.get(field).is_none(), "{field}: {saved}");
     }
     assert_eq!(serde_json::from_value::<ForkRecord>(saved).unwrap(), fork);
+}
+
+#[test]
+fn a_record_saved_before_the_host_s_fields_had_a_place_keeps_them_for_the_host() {
+    let saved = serde_json::json!({
+        "question": "cache-eviction",
+        "version": 1,
+        "choice": "keep",
+        "session": "fork-session",
+        "transcripts": "/state/projects",
+        "reviewer": {"pid": 1, "started": 2},
+        "process": {"pid": 3, "started": 4},
+        "taken_at_ms": 5,
+        "cleaned": true,
+    });
+
+    let fork: ForkRecord = serde_json::from_value(saved.clone()).unwrap();
+
+    assert!(fork.cleaned);
+    let trace = fork.trace();
+    assert_eq!(trace.session, "fork-session");
+    assert_eq!(
+        trace.host.get::<String>("transcripts").as_deref(),
+        Some("/state/projects")
+    );
+    assert_eq!(
+        trace.host.get::<ProcessStamp>("process"),
+        Some(ProcessStamp { pid: 3, started: 4 })
+    );
+    // Saved again, it reads as it was saved.
+    assert_eq!(serde_json::to_value(&fork).unwrap(), saved);
 }
 
 #[test]

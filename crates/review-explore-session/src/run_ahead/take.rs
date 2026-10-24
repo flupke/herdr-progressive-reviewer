@@ -11,7 +11,7 @@ use herdr_client::protocol::{Agent, PaneId};
 use review_explore::{Alternative, AnswerInput, Comparison, ExploreRound, Question};
 use review_explore_round_settings::RunAhead;
 use review_explore_runner::{RoundData, TurnInstructions, Unreviewed};
-use review_run_ahead::{Failure, ForkPoint, ForkRecord, ForkStart, RoundForks};
+use review_run_ahead::{Failure, ForkPoint, ForkRecord, ForkStart, OwnedFork, RoundForks};
 use review_types::MarkAuthor;
 use tempfile::TempDir;
 
@@ -147,11 +147,22 @@ impl ExploreSession {
                 false,
             )
             .map_err(|error| Refusal::failed(format!("{error:#}")))?;
+        let mut created = Vec::new();
+        for _ in &choices {
+            match self.run_ahead.host.create(&point) {
+                Ok(fork) => created.push(fork),
+                Err(error) => {
+                    self.forget(created.iter().map(OwnedFork::trace));
+                    return Err(Refusal::failed(format!("no fork was made: {error}")));
+                }
+            }
+        }
         // Kept while the question waits: forks taken again are told the same.
         let armed = self.run_ahead.armed.as_mut().ok_or("no question waits")?;
-        let forks = choices
+        let turns = choices
             .iter()
-            .map(|choice| {
+            .zip(created.iter().cloned())
+            .map(|(choice, fork)| {
                 let reserved = armed
                     .reserved
                     .entry(choice.id.clone())
@@ -160,26 +171,42 @@ impl ExploreSession {
                     &round,
                     &question,
                     choice,
-                    &comparison,
-                    &unreviewed,
-                    &round_data,
+                    ForkTurnInputs {
+                        comparison: &comparison,
+                        unreviewed: &unreviewed,
+                        round_data: &round_data,
+                    },
                     reserved,
+                    fork,
                 )
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Refusal::failed)?
-            .into_iter()
-            .map(|(fork, turn)| {
-                let prompt = turn.prompt().to_owned();
-                files.turns.insert(fork.session.clone(), turn);
-                (fork, prompt)
-            })
-            .collect();
+            .collect::<Result<Vec<_>, _>>();
+        let forks = match turns {
+            Ok(turns) => turns,
+            Err(error) => {
+                self.forget(created.iter().map(OwnedFork::trace));
+                return Err(Refusal::failed(error));
+            }
+        }
+        .into_iter()
+        .map(|(fork, turn)| {
+            let prompt = turn.prompt().to_owned();
+            files.turns.insert(fork.session.clone(), turn);
+            (fork, prompt)
+        })
+        .collect();
         Ok(ForkPlan {
             point,
             files,
             forks,
         })
+    }
+
+    /// Discards the forks `unrecorded`, whose records were never saved: no record names them.
+    fn forget<'a>(&self, unrecorded: impl IntoIterator<Item = review_run_ahead::ForkTrace<'a>>) {
+        for fork in unrecorded {
+            self.run_ahead.host.discard(fork, Box::new(|| {}));
+        }
     }
 
     /// The agent of `pane`, once its session may be forked now, or why not.
@@ -208,16 +235,17 @@ impl ExploreSession {
                 return Err(reason.into());
             }
         }
-        if let Some(why) = self.run_ahead.host.unforkable(&agent) {
-            return Err(why.into());
+        // Run-ahead hears what the agent does through its hooks alone.
+        let unavailable = self
+            .run_ahead
+            .host
+            .unforkable(&agent)
+            .or_else(|| self.run_ahead.host.unhooked(&agent));
+        self.run_ahead_available(unavailable.clone());
+        match unavailable {
+            Some(why) => Err(why.into()),
+            None => Ok(agent),
         }
-        // Run-ahead hears what the agent does through those hooks alone.
-        if self.run_ahead.host.unhooked(&agent) {
-            return Err(
-                "the agent runs without the reviewer's Claude Code plugin: restart it".into(),
-            );
-        }
-        Ok(agent)
     }
 
     /// The choices of `question` the reviewer's settings prepare.
@@ -285,6 +313,7 @@ impl ExploreSession {
             .round
             .clone();
         let Some(taken_at_ms) = self.save_records(&round, &plan) else {
+            self.forget(plan.forks.iter().map(|(fork, _)| fork.trace()));
             return;
         };
         let mut forks = Vec::new();
@@ -293,18 +322,17 @@ impl ExploreSession {
         for (mut fork, prompt) in plan.forks {
             let start = ForkStart {
                 point: &plan.point,
-                session: &fork.session,
-                prompt,
+                fork: fork.trace(),
             };
-            let started = self
-                .run_ahead
-                .host
-                .start(start, self.ended_report(&round, &fork));
+            let started =
+                self.run_ahead
+                    .host
+                    .start(start, prompt, self.ended_report(&round, &fork));
             let now = review_explore::now_ms();
             let failed = self.update_forks(&round, |saved| {
                 let record = saved.fork_mut(&fork.session)?;
                 match &started {
-                    Ok(process) => record.process = Some(*process),
+                    Ok(host) => record.host = record.host.clone().with(host.clone()),
                     Err(error) => {
                         let exit = format!("did not start: {error}");
                         record.exit = Some(exit.clone());
@@ -321,9 +349,9 @@ impl ExploreSession {
                 halt = Some(notice);
             }
             match started {
-                Ok(process) => {
+                Ok(host) => {
                     listing.push(format!("{} as {}", fork.choice, fork.session));
-                    fork.process = Some(process);
+                    fork.host = fork.host.with(host);
                     forks.push(fork);
                 }
                 Err(error) => listing.push(format!("{} did not start: {error}", fork.choice)),
@@ -368,9 +396,7 @@ impl ExploreSession {
                 answer: fork.request.answer.as_ref().map(|answer| answer.id.clone()),
                 session: fork.session.clone(),
                 from: Some(plan.point.session.clone()),
-                transcripts: plan.point.transcripts.clone(),
                 reviewer,
-                process: None,
                 taken_at_ms,
                 turn: None,
                 submitted_at_ms: None,
@@ -379,6 +405,7 @@ impl ExploreSession {
                 discarded: None,
                 cleaned: false,
                 continued: None,
+                host: fork.host.clone(),
             })
             .collect();
         let saved = self.update_forks(round, |forks| {
@@ -441,18 +468,30 @@ fn refusal(forks: &RoundForks, question: &Question, reviewer: ProcessStamp) -> O
         .then(|| "another reviewer forks this question".to_owned())
 }
 
-/// The fork that answers `question` with `choice`, the files of its turn and the prompt that
-/// names them: the turn the agent would get after that answer, under the identities `reserved`
-/// for the choice, with the fork's own access value.
+/// What the turn of every fork of a question is written from.
+#[derive(Clone, Copy)]
+struct ForkTurnInputs<'a> {
+    comparison: &'a Arc<Comparison>,
+    unreviewed: &'a Unreviewed,
+    round_data: &'a RoundData,
+}
+
+/// The fork `created` that answers `question` with `choice`, and the files of its turn, whose
+/// prompt names them: the turn the agent would get after that answer, under the identities
+/// `reserved` for the choice, with the fork's own access value.
 fn fork_turn(
     round: &ExploreRound,
     question: &Question,
     choice: &Alternative,
-    comparison: &Arc<Comparison>,
-    unreviewed: &Unreviewed,
-    round_data: &RoundData,
+    inputs: ForkTurnInputs<'_>,
     reserved: &ReservedIds,
+    created: OwnedFork,
 ) -> Result<(TakenFork, TurnFiles), String> {
+    let ForkTurnInputs {
+        comparison,
+        unreviewed,
+        round_data,
+    } = inputs;
     let mut exploration = round.exploration.clone();
     let mut request = exploration
         .request(
@@ -483,12 +522,12 @@ fn fork_turn(
         )
     })?;
     let fork = TakenFork {
-        session: uuid::Uuid::new_v4().to_string(),
+        session: created.session,
         access,
         choice: choice.id.clone(),
         request,
         turn,
-        process: None,
+        host: created.host,
         kept: None,
         ended: false,
     };

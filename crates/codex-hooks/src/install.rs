@@ -19,7 +19,7 @@ const CODEX: &str = "codex";
 const MARKETPLACE: &str = "herdr-progressive-reviewer";
 
 /// The plugin, as Codex names it.
-const PLUGIN: &str = "progressive-reviewer@herdr-progressive-reviewer";
+pub const PLUGIN: &str = "progressive-reviewer@herdr-progressive-reviewer";
 
 /// The command of the plugin's hook in `plugin/hooks/hooks.json`, which the installation
 /// replaces with one that names the checkout's `reviewer-control`.

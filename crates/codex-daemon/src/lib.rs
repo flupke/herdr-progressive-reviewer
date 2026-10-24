@@ -14,13 +14,18 @@
 //! a session on a thread of its own and reports what it hears ([`SessionEvent`]); it connects
 //! and joins again when the daemon restarts, as it does when it updates itself.
 //!
+//! [`Daemon::connect`] opens a connection of its own for anything else ([`Rpc`]): run-ahead
+//! forks a session there, runs the fork's turn and answers its approvals.
+//!
 //! The daemon keeps no record of which client is on which session: the session of the agent
 //! in a pane comes from the agent's own calls to the reviewer's tools, whose `_meta.threadId`
 //! names it.
 
 mod daemon;
 mod follow;
+mod rpc;
 mod wire;
 
 pub use daemon::{Daemon, NoDaemon};
 pub use follow::{Follow, SessionEvent, SessionStatus, TurnEnd};
+pub use rpc::{Incoming, Replier, Rpc};

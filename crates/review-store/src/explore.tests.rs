@@ -505,9 +505,7 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         answer: None,
         session: "fork-session".into(),
         from: None,
-        transcripts: "/state/projects".into(),
         reviewer: agent_fork::ProcessStamp { pid: 1, started: 2 },
-        process: None,
         taken_at_ms: 3,
         turn: None,
         submitted_at_ms: None,
@@ -516,6 +514,7 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         discarded: None,
         cleaned: false,
         continued: None,
+        host: review_run_ahead::HostFields::default(),
     };
 
     let ((), saved) = records

@@ -7,9 +7,12 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead, BufReader, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::{Mutex, PoisonError};
 use std::thread;
+
+use serde_json::{Value, json};
 
 use herdr_client::protocol::{AgentStatus, HerdrEvent, PaneId};
 
@@ -39,6 +42,7 @@ pub fn wait_output(herdr: &HerdrTestServer, pane: &PaneId, text: &str) {
 /// A scratch Codex home, with its user's home and the workspace the agent works in.
 pub struct CodexHome {
     directory: tempfile::TempDir,
+    workspace: PathBuf,
     codex: PathBuf,
 }
 
@@ -51,22 +55,33 @@ impl Default for CodexHome {
 impl CodexHome {
     pub fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        for name in ["workspace", "codex", "home"] {
-            fs::create_dir(directory.path().join(name)).unwrap();
-        }
-        let home = Self {
-            directory,
-            codex: native_codex(),
-        };
+        let workspace = directory.path().join("workspace");
+        fs::create_dir(&workspace).unwrap();
         assert!(
             Command::new("git")
                 .args(["init", "--quiet"])
-                .arg(home.workspace())
+                .arg(&workspace)
                 .status()
                 .unwrap()
                 .success()
         );
-        home
+        Self::working_in(directory, workspace)
+    }
+
+    /// A scratch home whose agent works in `workspace`, a repository the test made.
+    pub fn in_repository(workspace: &Path) -> Self {
+        Self::working_in(tempfile::tempdir().unwrap(), workspace.to_owned())
+    }
+
+    fn working_in(directory: tempfile::TempDir, workspace: PathBuf) -> Self {
+        for name in ["codex", "home"] {
+            fs::create_dir(directory.path().join(name)).unwrap();
+        }
+        Self {
+            directory,
+            workspace,
+            codex: native_codex(),
+        }
     }
 
     /// The scratch directory that holds the homes, and the fixtures' logs.
@@ -75,7 +90,7 @@ impl CodexHome {
     }
 
     pub fn workspace(&self) -> PathBuf {
-        self.root().join("workspace")
+        self.workspace.clone()
     }
 
     /// The Codex home, `CODEX_HOME`.
@@ -148,6 +163,13 @@ approval_mode = "approve"
                 .unwrap()
                 .to_owned(),
         );
+        self.run_tui(herdr, &pane, arguments);
+        pane
+    }
+
+    /// Runs the Codex TUI with `arguments` in the pane `pane` of `herdr`, and returns once Herdr
+    /// reports it idle.
+    pub fn run_tui(&self, herdr: &HerdrTestServer, pane: &PaneId, arguments: &[&str]) {
         let events = herdr.events();
         let command = self
             .environment()
@@ -160,10 +182,103 @@ approval_mode = "approve"
         herdr.run_cli(&["pane", "run", &pane.0, &format!("env {command}")]);
         events.wait_for("the Codex agent", |event| {
             matches!(event, HerdrEvent::AgentDetected { pane_id, agent: Some(agent), released: false, .. }
-                if *pane_id == pane && agent == "codex")
+                if pane_id == pane && agent == "codex")
         });
-        herdr.agent_statuses(&pane).wait_for(AgentStatus::Idle);
-        pane
+        herdr.agent_statuses(pane).wait_for(AgentStatus::Idle);
+    }
+
+    /// Installs Herdr's Codex integration in the home, whose hook reports the agent's session
+    /// to the Herdr server of the pane that started the daemon. [`Self::trust_hooks`] has Codex
+    /// run it.
+    pub fn install_herdr_integration(&self, herdr: &HerdrTestServer) {
+        let output = Command::new(herdr.binary())
+            .args(["integration", "install", "codex"])
+            .envs(self.environment())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "herdr integration install codex:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Trusts every hook the home's Codex would run, as Codex's `/hooks` does: Codex runs no
+    /// hook it does not trust.
+    pub fn trust_hooks(&self) {
+        let mut server = StdioServer::start(self);
+        let listed = server.request("hooks/list", &json!({}));
+        let state: serde_json::Map<String, Value> = listed["data"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|directory| directory["hooks"].as_array().into_iter().flatten())
+            .map(|hook| {
+                (
+                    hook["key"].as_str().unwrap().to_owned(),
+                    json!({"trusted_hash": hook["currentHash"]}),
+                )
+            })
+            .collect();
+        server.request(
+            "config/batchWrite",
+            &json!({"edits": [{"keyPath": "hooks.state", "mergeStrategy": "upsert", "value": state}]}),
+        );
+    }
+}
+
+/// Codex's app server on standard input and output, which takes one JSON-RPC message per line.
+struct StdioServer {
+    input: ChildStdin,
+    output: BufReader<ChildStdout>,
+    next: u64,
+    _lifetime: Lifetime,
+}
+
+impl StdioServer {
+    fn start(home: &CodexHome) -> Self {
+        let mut child = Command::new(&home.codex)
+            .arg("app-server")
+            .envs(home.environment())
+            .current_dir(home.workspace())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut server = Self {
+            input: child.stdin.take().unwrap(),
+            output: BufReader::new(child.stdout.take().unwrap()),
+            next: 0,
+            _lifetime: Lifetime::new(child),
+        };
+        server.request(
+            "initialize",
+            &json!({"clientInfo": {"name": "review-test-support", "version": "0"}}),
+        );
+        writeln!(server.input, "{}", json!({"method": "initialized"})).unwrap();
+        server
+    }
+
+    /// The result of the request `method` with `params`.
+    fn request(&mut self, method: &str, params: &Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        writeln!(
+            self.input,
+            "{}",
+            json!({"id": id, "method": method, "params": params})
+        )
+        .unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.output.read_line(&mut line).unwrap(), 0, "{method}");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == id && message.get("method").is_none() {
+                assert!(message.get("error").is_none(), "{method}: {message}");
+                return message["result"].clone();
+            }
+        }
     }
 }
 
@@ -206,10 +321,33 @@ fn native_codex() -> PathBuf {
 }
 
 /// The local model fixture: a prompt that says "call the reviewer" has the agent call the
-/// reviewer's `list_threads`; every other turn ends with the message `Answered: <prompt>`.
+/// reviewer's `list_threads`; an Explore prompt, of the agent or of a fork, waits for the
+/// test's reply ([`Self::next_prompt`], [`Self::reply`]), then calls the reviewer's tool the
+/// reply names; every other turn ends with the message `Answered: <prompt>`. What each tool
+/// answered comes to [`Self::next_output`].
 pub struct Provider {
     port: u16,
+    prompts: Mutex<Receiver<ExplorePrompt>>,
+    outputs: Mutex<Receiver<ToolOutput>>,
+    /// Where the test's replies go; dropped before the fixture, which then stops.
+    replies: Mutex<ChildStdin>,
     _child: Lifetime,
+}
+
+/// An Explore prompt a turn got, which waits for the test's reply.
+#[derive(Clone, Debug)]
+pub struct ExplorePrompt {
+    /// The access value the prompt names.
+    pub access: String,
+    pub prompt: String,
+}
+
+/// What a tool answered a turn, as the model read it.
+#[derive(Clone, Debug)]
+pub struct ToolOutput {
+    /// The prompt of the turn.
+    pub prompt: String,
+    pub output: String,
 }
 
 impl Provider {
@@ -227,16 +365,70 @@ impl Provider {
             .stderr(fs::File::create(codex.root().join("provider.log")).unwrap())
             .spawn()
             .unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
         let mut line = String::new();
-        BufReader::new(child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
+        output.read_line(&mut line).unwrap();
         let port = line.trim().parse().expect("the provider printed no port");
+        let (prompted, prompts) = mpsc::channel();
+        let (answered, outputs) = mpsc::channel();
+        thread::spawn(move || {
+            for line in output.lines().map_while(Result::ok) {
+                let event: Value = serde_json::from_str(&line).unwrap();
+                let text = |name: &str| event[name].as_str().unwrap_or_default().to_owned();
+                if event.get("output").is_some() {
+                    let _ = answered.send(ToolOutput {
+                        prompt: text("prompt"),
+                        output: text("output"),
+                    });
+                } else {
+                    let _ = prompted.send(ExplorePrompt {
+                        access: text("access"),
+                        prompt: text("prompt"),
+                    });
+                }
+            }
+        });
         codex.configure(port, mcp);
+        let replies = Mutex::new(child.stdin.take().unwrap());
         Self {
             port,
+            prompts: Mutex::new(prompts),
+            outputs: Mutex::new(outputs),
+            replies,
             _child: Lifetime::new(child),
         }
+    }
+
+    /// The next Explore prompt a turn got, once one did.
+    pub fn next_prompt(&self) -> ExplorePrompt {
+        self.prompts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recv()
+            .expect("the provider stopped")
+    }
+
+    /// What a tool answered the next turn whose prompt is `prompt`, once one did.
+    pub fn next_output(&self, prompt: &str) -> String {
+        let outputs = self.outputs.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            let output = outputs.recv().expect("the provider stopped");
+            if output.prompt == prompt {
+                return output.output;
+            }
+        }
+    }
+
+    /// Has the turn whose prompt named `access` call the reviewer's tool `tool` with
+    /// `arguments`, and the access value as `review`.
+    pub fn reply(&self, access: &str, tool: &str, arguments: &Value) {
+        let mut replies = self.replies.lock().unwrap_or_else(PoisonError::into_inner);
+        writeln!(
+            replies,
+            "{}",
+            json!({"access": access, "tool": tool, "arguments": arguments})
+        )
+        .unwrap();
     }
 }
 

@@ -72,9 +72,10 @@ updated itself to 0.164.0) and Herdr 0.9.5. Why the reviewer hears Codex this wa
 
 ## The reviewer's Codex plugin
 
-Why its hook goes by session, to every reviewer of the user, is in
-[ADR 0010](../adr/0010-hear-codex-s-prompts-by-session.md); `crates/codex-hooks` says how it is
-installed. What Codex 0.162.1 does with it:
+Why its prompt hook goes by session, to every reviewer of the user, is in
+[ADR 0010](../adr/0010-hear-codex-s-prompts-by-session.md), and why its tool hook guards
+run-ahead's forks in [ADR 0011](../adr/0011-keep-a-codex-fork-read-only-with-the-plugin-s-guard.md);
+`crates/codex-hooks` says how it is installed. What Codex 0.162.1 does with it:
 
 - `codex plugin marketplace add <dir>` records a local marketplace by its path, and refuses one
   of the same name from another path until `codex plugin marketplace remove`. `codex plugin add`
@@ -84,9 +85,9 @@ installed. What Codex 0.162.1 does with it:
 - A plugin's hook gets no option of the user's: `make install` writes the marketplace into
   `bin/codex-plugin` with the checkout's `reviewer-control` in the hook's command, which Codex
   runs as `$SHELL -lc <command>`, with `PLUGIN_ROOT` and `PLUGIN_DATA`.
-- `codex plugin add` leaves the hook untrusted, and an untrusted hook never runs. The trust key,
-  `progressive-reviewer@herdr-progressive-reviewer:hooks/hooks.json:user_prompt_submit:0:0`,
-  holds no version; its hash changes with the command. `config/batchWrite` with `upsert` on
+- `codex plugin add` leaves the hooks untrusted, and an untrusted hook never runs. A trust key,
+  such as `progressive-reviewer@herdr-progressive-reviewer:hooks/hooks.json:user_prompt_submit:0:0`
+  (`pre_tool_use` for the fork guard), holds no version; its hash changes with the command. `config/batchWrite` with `upsert` on
   `hooks.state` trusts it; no edit removes a key (`null` is refused), so the uninstall writes
   the user layer's `hooks.state` again without it (`replace`, with the layer's version from
   `config/read` and `includeLayers`).
@@ -108,16 +109,47 @@ installed. What Codex 0.162.1 does with it:
   real API serves a fork from the parent's cache under another `prompt_cache_key` is not
   measured.
 - Forks live in the daemon, not in the reviewer's process group: a reviewer that dies leaves
-  them running their turn. `turn/interrupt` stops a turn and `thread/delete` removes a thread.
+  them running their turn. `turn/interrupt` stops a turn and `thread/delete` removes a thread,
+  and ends its running turn too, interrupted; `thread/read` of a deleted thread fails. An interrupted turn leaves its prompt in the history,
+  followed by a `<turn_aborted>` developer message.
 - `codex exec fork <id> <prompt>` runs one process per fork, as Claude Code's forks do; its
   behaviour is not checked.
+- `thread/fork` without overrides answers with the settings the fork inherits, the agent's
+  (`approvalPolicy`, `sandbox`, `approvalsReviewer`). `thread/settings/update` changes them for
+  the next turns (`sandboxPolicy` takes the shape `sandbox` came in); the next turn appends a
+  permissions message after the history, as fork overrides do.
+- A session keeps its settings and its `config` overrides once a TUI resumes it: the TUI's
+  `/resume` of a loaded session changes neither, nor does a `thread/resume` with `config`.
+  `thread/settings/update` has no `config`. A `config` override that names an MCP server the
+  configuration lacks, such as a plugin's, fails `thread/fork` (`invalid transport`).
+- Approvals go to the session's clients; the one that forked is the fork's only client. Under
+  the read-only sandbox, `on-request` and `untrusted` both ask (`mcpServer/elicitation/request`,
+  `_meta.codex_approval_kind: "mcp_tool_call"`) before an MCP tool with the default mode, but
+  run without asking one set to `approval_mode = "approve"` and one its server marks
+  `readOnlyHint`; a tool's own mode wins over `default_tools_approval_mode`. The request names
+  the tool only in its message (`Allow the <server> MCP server to run tool "<tool>"?`).
+  `{"action": "accept", "content": {}}` runs it; a decline answers the model "user rejected MCP
+  tool call". `on-request` runs commands inside the sandbox without asking; `untrusted` asks for
+  every one, `ls` included.
+- `PreToolUse` fires before every tool a session calls, nested `exec` tools and MCP tools
+  included, with these names: `Bash` (with `tool_input.command`), `apply_patch`, `view_image`,
+  `get_goal`, `create_goal`, `read_mcp_resource`, `mcp__<server>__<tool>`, and namespaced tools
+  joined to their namespace (`clockcurr_time`, `clocksleep`, `collaborationspawn_agent`); `exec`
+  itself fires none. Exit 2 with the reason on standard error, or a `permissionDecision` of
+  `deny`, stops the call. `create_goal` starts goal continuation turns.
+- A fork's `SessionStart` (source `fork`) runs Herdr's Codex hook for the starting pane: Herdr's
+  session for the pane stays the agent's (checked in the run-ahead tests).
+- Codex asks the model for a title of a session's first prompt, in a request of its own that
+  quotes the prompt.
 
 ## A Codex TUI in a test
 
-`crates/review-mcp-config/tests/codex_daemon.rs` and `crates/reviewer/tests/codex_hooks.rs` run
-one in a Herdr test server, on an unmanaged app server and a scratch home, with a local model
-fixture (`review_test_support::codex`); they call no model API, and run in `make test`. What
-they work around:
+`crates/review-mcp-config/tests/codex_daemon.rs`, `crates/reviewer/tests/codex_hooks.rs` and the
+run-ahead tests of `crates/reviewer/src/runtime/run_ahead/codex.tests.rs` run one in a Herdr test
+server, on an unmanaged app server and a scratch home, with a local model fixture
+(`review_test_support::codex`); they call no model API, and run in `make test`. The fixture
+hands each Explore prompt to the test, with the turn's files the prompt names, and calls the
+reviewer's tool the test replies with, through Codex's `exec` tool. What they work around:
 
 - The TUI on `--remote unix://` never starts a managed daemon, which would download updates,
   even while the test restarts the server.
@@ -131,3 +163,7 @@ they work around:
 - Under `TMPDIR`, Codex warns that it refuses to create its helper binaries there, and goes on.
 - The npm package runs the native binary under a Node wrapper of the same name: the test signals
   the native one, and Herdr lists both among the pane's processes.
+- A session starts its MCP servers when it starts: the TUI starts after the reviewer's MCP
+  server listens, or the session has none of its tools.
+- Herdr's Codex hook reports a session only with `HERDR_ENV=1`, `HERDR_SOCKET_PATH` and
+  `HERDR_PANE_ID` in the daemon's environment, as a daemon started from a pane has them.

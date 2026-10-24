@@ -1,8 +1,7 @@
 //! What the tool saves of the forks of a round, beside the round, so that a reopened reviewer
-//! knows which forks existed, stops those that still run and deletes their transcripts.
+//! knows which forks existed, stops those that still run and deletes their sessions.
 
 use std::ops::Not;
-use std::path::PathBuf;
 
 use agent_fork::ProcessStamp;
 use review_explore::InterviewUpdate;
@@ -10,6 +9,7 @@ use review_turn_path::{PlainReason, TurnPath};
 use serde::{Deserialize, Serialize};
 
 use crate::answer::AnswerRecord;
+use crate::host::HostFields;
 
 /// How many failures of run-ahead a round may have in a row before run-ahead stops for it.
 pub const FAILURES_TO_HALT: u32 = 3;
@@ -122,7 +122,7 @@ impl RoundForks {
     }
 }
 
-/// One fork, from before it starts until its process is gone and its transcript deleted.
+/// One fork, from before it starts until it stopped and its session is deleted.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ForkRecord {
     /// The question the fork answers, by ID and version.
@@ -141,12 +141,8 @@ pub struct ForkRecord {
     /// before it was kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
-    /// Where the agent keeps the fork's transcript.
-    pub transcripts: PathBuf,
     /// The reviewer process that started the fork.
     pub reviewer: ProcessStamp,
-    /// The fork's process, once it started.
-    pub process: Option<ProcessStamp>,
     /// When the fork was taken, in milliseconds since the epoch.
     pub taken_at_ms: u64,
     /// The turn the fork submitted, which the tool keeps for its choice until the fork is
@@ -167,13 +163,17 @@ pub struct ForkRecord {
     /// Why and when the fork was discarded, once it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discarded: Option<Discard>,
-    /// Whether its process is gone and its transcript deleted.
+    /// Whether it stopped and its session is deleted.
     #[serde(default, skip_serializing_if = "Not::not")]
     pub cleaned: bool,
     /// The switch of the pane's agent to the fork's session, once the reviewer's answer chose
     /// the fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continued: Option<Continuation>,
+    /// What the fork's host keeps of it, such as where Claude Code keeps its transcript and its
+    /// process once it started, or a Codex fork's daemon: every field the record does not name.
+    #[serde(flatten)]
+    pub host: HostFields,
 }
 
 impl ForkRecord {
@@ -181,8 +181,7 @@ impl ForkRecord {
     pub fn trace(&self) -> crate::ForkTrace<'_> {
         crate::ForkTrace {
             session: &self.session,
-            process: self.process,
-            transcripts: &self.transcripts,
+            host: &self.host,
         }
     }
 
@@ -192,8 +191,8 @@ impl ForkRecord {
         matches!(self.continued, Some(Continuation::Switched { .. }))
     }
 
-    /// Whether the fork's session may be the pane agent's: its transcript is the agent's
-    /// conversation then, and never deleted.
+    /// Whether the fork's session may be the pane agent's: it is the agent's conversation then,
+    /// and never deleted.
     pub fn is_agent_session(&self) -> bool {
         match self.continued {
             Some(Continuation::Switching { .. } | Continuation::Switched { .. }) => true,

@@ -16,8 +16,8 @@ use serde_json::{Value, json};
 
 use crate::protocol::{
     Agent, AgentPort, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
-    OpenPluginPane, PaneId, PaneProcessInfo, PaneSize, PluginPane, SessionSnapshot, TabId,
-    WorkspaceId, method,
+    OpenPluginPane, PaneId, PaneProcessInfo, PaneSize, PluginPane, SessionReport, SessionSnapshot,
+    TabId, WorkspaceId, method,
 };
 use crate::{Error, Result};
 
@@ -362,6 +362,24 @@ impl HerdrClient {
     pub fn subscribe_events(&self, canceller: &EventCanceller) -> Result<HerdrEvents> {
         self.subscribe(&event_subscriptions(), canceller)
             .map(HerdrEvents)
+    }
+
+    /// Tells Herdr that the agent of `pane_id` runs the session `report` names, as the agent's
+    /// own Herdr hook does when the agent starts a session. Herdr takes the report from any
+    /// client, and orders the reports of one source by their `seq`.
+    pub fn report_agent_session(&self, pane_id: &PaneId, report: &SessionReport<'_>) -> Result<()> {
+        self.request(
+            "pane.report_agent_session",
+            &json!({
+                "pane_id": pane_id.0,
+                "source": report.source,
+                "agent": report.agent,
+                "seq": report.seq,
+                "agent_session_id": report.session,
+                "session_start_source": report.start,
+            }),
+        )
+        .map(|_| ())
     }
 
     /// Subscribes to the status changes of the agent of `pane_id`. The subscription holds once

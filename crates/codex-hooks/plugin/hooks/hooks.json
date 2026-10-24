@@ -1,8 +1,20 @@
 {
-  "description": "The hook hands each prompt, with the agent's session, to every reviewer of the user. make install names the checkout's reviewer-control in its command.",
+  "description": "The prompt hook hands each prompt, with the agent's session, to every reviewer of the user; the tool hook guards the sessions of run-ahead's forks. make install names the checkout's reviewer-control in their command.",
   "hooks": {
     "UserPromptSubmit": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "reviewer-control codex-hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
