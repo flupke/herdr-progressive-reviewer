@@ -4,7 +4,8 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
         CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo,
-        ContentBlock, ListToolsResult, PaginatedRequestParams, ResultType, ServerInfo,
+        ContentBlock, ListToolsResult, PaginatedRequestParams, RequestMetaObject, ResultType,
+        ServerInfo,
     },
     service::RequestContext,
     transport::{
@@ -82,9 +83,10 @@ impl ServerHandler for Bridge {
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParams,
-        _: RequestContext<RoleServer>,
+        mut request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        request.meta = agent_meta(context.meta);
         let result = tokio::time::timeout(Duration::from_secs(20), self.forward(request)).await;
         let result = result.unwrap_or_else(|_| {
             Err("The reviewer did not respond; retry the identical tool arguments".into())
@@ -93,6 +95,17 @@ impl ServerHandler for Bridge {
             .unwrap_or_else(|error| CallToolResult::error(vec![ContentBlock::text(error)]))
             .into())
     }
+}
+
+/// The agent's own metadata of a call, such as the session Codex names in `threadId`, which
+/// the reviewer reads, without what belongs to the agent's connection to the bridge: the
+/// protocol's keys and the progress token.
+fn agent_meta(meta: RequestMetaObject) -> Option<RequestMetaObject> {
+    let mut meta = meta;
+    meta.0
+        .0
+        .retain(|key, _| key != "progressToken" && !key.starts_with("io.modelcontextprotocol/"));
+    (!meta.0.0.is_empty()).then_some(meta)
 }
 
 #[cfg(test)]

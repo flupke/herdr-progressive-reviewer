@@ -5,7 +5,9 @@ use review_threads::{MessageId, Post, ReviewThread, ThreadId, ThreadSubject};
 use rmcp::{
     ErrorData, ServerHandler,
     handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo, Tool},
+    model::{
+        CallToolResult, ContentBlock, RequestMetaObject, ServerCapabilities, ServerInfo, Tool,
+    },
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
@@ -86,9 +88,10 @@ impl Handler {
     )]
     async fn list_threads(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<ReviewInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.call(input.review, Operation::ListThreads).await
+        self.call(meta, input.review, Operation::ListThreads).await
     }
 
     #[tool(
@@ -96,9 +99,10 @@ impl Handler {
     )]
     async fn get_thread(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<ThreadInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.call(input.review, Operation::GetThread(input.thread_id))
+        self.call(meta, input.review, Operation::GetThread(input.thread_id))
             .await
     }
 
@@ -107,9 +111,11 @@ impl Handler {
     )]
     async fn get_new_messages(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<ReviewInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.call(input.review, Operation::GetNewMessages).await
+        self.call(meta, input.review, Operation::GetNewMessages)
+            .await
     }
 
     #[tool(
@@ -117,11 +123,13 @@ impl Handler {
     )]
     async fn reply(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<ReplyInput>,
     ) -> Result<CallToolResult, ErrorData> {
         let message_id = MessageId::parse(&input.message_id)
             .map_err(|error| ErrorData::invalid_params(error, None))?;
         self.call(
+            meta,
             input.review,
             Operation::Reply(Post::answer(
                 input.thread_id,
@@ -138,10 +146,12 @@ impl Handler {
     )]
     async fn submit_question(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<ExploreInput>,
     ) -> Result<CallToolResult, ErrorData> {
         Self::check_size(&input.update)?;
         self.call(
+            meta,
             input.review,
             Operation::SubmitQuestion(Box::new(input.update)),
         )
@@ -153,10 +163,12 @@ impl Handler {
     )]
     async fn submit_conclusion(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<review_explore::ConclusionSubmission>,
     ) -> Result<CallToolResult, ErrorData> {
         Self::check_size(&input)?;
         self.call(
+            meta,
             input.review.clone(),
             Operation::SubmitConclusion(Box::new(input)),
         )
@@ -168,10 +180,12 @@ impl Handler {
     )]
     async fn revise_question(
         &self,
+        meta: RequestMetaObject,
         Parameters(input): Parameters<RevisionInput>,
     ) -> Result<CallToolResult, ErrorData> {
         Self::check_size(&input.revision)?;
         self.call(
+            meta,
             input.review,
             Operation::ReviseQuestion(Box::new(input.revision)),
         )
@@ -194,10 +208,15 @@ impl Handler {
 
     async fn call(
         &self,
+        meta: RequestMetaObject,
         access: String,
         operation: Operation,
     ) -> Result<CallToolResult, ErrorData> {
-        let (request, received) = Request::new(access, operation);
+        let (mut request, received) = Request::new(access, operation);
+        request.agent_session = meta
+            .get("threadId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         if let Err(error) = (self.dispatch)(request) {
             return Ok(CallToolResult::error(vec![ContentBlock::text(error)]));
         }
