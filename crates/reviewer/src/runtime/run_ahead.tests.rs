@@ -1,9 +1,6 @@
 //! Run-ahead on an isolated Herdr: a Claude Code stand-in in the agent's pane, forked by the
 //! reviewer as a real process through `reviewer-control fork-exec`, with the guard as its hook.
 
-use std::io::Read as _;
-use std::os::unix::fs::{PermissionsExt, symlink};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -33,182 +30,20 @@ pub(super) enum StandIn {
 impl StandIn {
     /// The workspace variables the stand-in reads, under the server's directory `root`.
     pub(super) fn environment(self, root: &Path) -> Vec<String> {
-        let stand_in = format!(
-            "REVIEW_AGENT_E2E_STANDIN={}",
-            root.join("standin").display()
-        );
         // Claude Code runs the hooks of the reviewer's plugin.
-        let plugin = "REVIEW_AGENT_E2E_HOOKS=1".to_owned();
+        let plugin = format!(
+            "{}={}",
+            variables::HOOKS,
+            effects::fixture::test_fork_tools().control.display()
+        );
         let configuration = format!("CLAUDE_CONFIG_DIR={}", root.join("claude-config").display());
         match self {
             Self::Plain => Vec::new(),
-            Self::Forkable => vec![stand_in, plugin, configuration],
-            Self::Unhooked => vec![stand_in, configuration],
-            Self::ForkedForReal => vec![stand_in, plugin],
+            Self::Forkable => vec![plugin, configuration],
+            Self::Unhooked => vec![configuration],
+            Self::ForkedForReal => vec![plugin],
         }
     }
-
-    /// Installs the stand-in as `script`: a shell script named `claude`, the process Herdr
-    /// detects, which runs the test agent, or the fork stand-in when it is started as a fork.
-    /// `standin` links to the test binary rather than copying it, for the reason
-    /// `IsolatedHerdrServer` links the plain agent.
-    pub(super) fn install(root: &Path, script: &Path) {
-        symlink(std::env::current_exe().unwrap(), root.join("standin")).unwrap();
-        fs::write(
-            script,
-            "#!/bin/sh\n\
-             case \" $* \" in\n\
-             *\" --fork-session \"*)\n  \
-             REVIEW_AGENT_E2E_FORK_ARGS=$(printf '%s\\n' \"$@\") exec \"$REVIEW_AGENT_E2E_STANDIN\" \
-             --exact runtime::tests::run_ahead::e2e_fork_process --ignored --nocapture ;;\n\
-             esac\n\
-             \"$REVIEW_AGENT_E2E_STANDIN\" --exact runtime::tests::e2e_agent_process --ignored --nocapture\n",
-        )
-        .unwrap();
-        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-}
-
-/// The projects directory of the stand-in's transcripts, from its environment.
-fn transcripts() -> Option<PathBuf> {
-    std::env::var_os("CLAUDE_CONFIG_DIR").map(|config| PathBuf::from(config).join("projects"))
-}
-
-/// The transcript the test agent keeps for its session when it stands in for Claude Code, as
-/// Claude Code does: a line per prompt it read and per answer it gave.
-pub(super) struct StandInTranscript {
-    path: Option<PathBuf>,
-    turns: usize,
-}
-
-impl StandInTranscript {
-    /// The transcript of the agent's session; none when the agent keeps no transcript.
-    pub(super) fn open() -> Self {
-        let path = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
-            .ok()
-            .zip(transcripts())
-            .map(|(session, projects)| {
-                let directory = projects.join("standin");
-                fs::create_dir_all(&directory).unwrap();
-                let path = directory.join(format!("{session}.jsonl"));
-                fs::write(&path, "{\"type\":\"user\",\"uuid\":\"start\"}\n").unwrap();
-                path
-            });
-        Self { path, turns: 0 }
-    }
-
-    /// The agent continues the session `session`, whose transcript a fork wrote.
-    pub(super) fn resume(&mut self, session: &str) {
-        if let Some(path) = &mut self.path {
-            path.set_file_name(format!("{session}.jsonl"));
-        }
-    }
-
-    /// The agent read a prompt and answered it.
-    pub(super) fn turn(&mut self) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        self.turns += 1;
-        let mut file = File::options().append(true).open(path).unwrap();
-        writeln!(
-            file,
-            "{{\"type\":\"user\",\"uuid\":\"prompt-{0}\"}}\n\
-             {{\"type\":\"assistant\",\"uuid\":\"answer-{0}\",\"message\":{{\"model\":\"stand-in-model\"}}}}",
-            self.turns
-        )
-        .unwrap();
-    }
-}
-
-/// A fork of the stand-in: it records its arguments, environment and prompt in the test's
-/// directory, copies its parent's transcript, then works until the test ends its turn or the
-/// reviewer stops it. Once the test submitted the fork's turn, the fork's output says that its
-/// submit has its answer. It reports each step on the test's event socket, and takes the test's
-/// commands there.
-#[test]
-#[ignore = "runs as the fork of a stand-in agent in a run-ahead test"]
-fn e2e_fork_process() {
-    let Ok(arguments) = std::env::var("REVIEW_AGENT_E2E_FORK_ARGS") else {
-        return;
-    };
-    let arguments: Vec<&str> = arguments.lines().collect();
-    let value = |name: &str| {
-        let at = arguments
-            .iter()
-            .position(|argument| *argument == name)
-            .unwrap();
-        arguments[at + 1].to_owned()
-    };
-    let directory = PathBuf::from(std::env::var_os("REVIEW_AGENT_E2E_DIRECTORY").unwrap());
-    if let Ok(real) = fs::read_to_string(directory.join("real-claude")) {
-        // The real Claude Code takes the fork's turn, with the pane's flags the test gives it.
-        let mut real = real.lines();
-        let program = real.next().unwrap();
-        let from = arguments
-            .iter()
-            .position(|argument| *argument == "-p")
-            .unwrap();
-        let error = Command::new(program)
-            .args(real)
-            .args(&arguments[from..])
-            .exec();
-        panic!("could not run {program}: {error}");
-    }
-    let (session, parent) = (value("--session-id"), value("--resume"));
-    let (report, commands) = StandInConnection::from_env(StandInRole::Fork {
-        session: session.clone(),
-    })
-    .expect("the test's event socket");
-    let mut prompt = String::new();
-    io::stdin().read_to_string(&mut prompt).unwrap();
-    let forks = forks_directory(&directory);
-    fs::create_dir_all(&forks).unwrap();
-    let transcripts = transcripts().unwrap().join("standin");
-    let mut history = fs::read_to_string(transcripts.join(format!("{parent}.jsonl"))).unwrap();
-    history.push_str("{\"type\":\"user\",\"uuid\":\"fork-prompt\"}\n");
-    fs::write(transcripts.join(format!("{session}.jsonl")), history).unwrap();
-    let names: Vec<_> = std::env::vars_os()
-        .map(|(name, _)| name.to_string_lossy().into_owned())
-        .collect();
-    fs::write(forks.join(format!("{session}.args")), arguments.join("\n")).unwrap();
-    fs::write(forks.join(format!("{session}.env")), names.join("\n")).unwrap();
-    // The fork reads the turn's files as it reads the prompt that names them.
-    let prompt = review_test_support::turn::with_turn(&prompt);
-    fs::write(forks.join(format!("{session}.prompt")), &prompt).unwrap();
-    report.report(&StandInEvent::ForkStarted { parent, prompt });
-    let usage = r#"{"input_tokens":3,"cache_creation_input_tokens":20,"cache_read_input_tokens":1000,"output_tokens":7}"#;
-    println!(r#"{{"type":"system","subtype":"init","session_id":"{session}"}}"#);
-    println!(r#"{{"type":"assistant","message":{{"id":"m1","usage":{usage}}}}}"#);
-    io::stdout().flush().unwrap();
-    let mut answered = false;
-    // A test that closed the socket is done with the fork.
-    for command in commands {
-        match command {
-            StandInCommand::End => break,
-            StandInCommand::Submit if !answered => {
-                answered = true;
-                println!(
-                    r#"{{"type":"assistant","message":{{"id":"m2","content":[{{"type":"tool_use","id":"submit","name":"mcp__herdr_reviewer__submit_question","input":{{}}}}],"usage":{usage}}}}}"#
-                );
-                println!(
-                    r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"submit"}}]}}}}"#
-                );
-                io::stdout().flush().unwrap();
-                report.report(&StandInEvent::ForkSubmitted);
-            }
-            StandInCommand::Submit => {}
-            command => panic!("a fork got the agent's command {command:?}"),
-        }
-    }
-    println!(r#"{{"type":"result","subtype":"success","is_error":false}}"#);
-    io::stdout().flush().unwrap();
-    report.report(&StandInEvent::ForkFinished);
-}
-
-/// Where the forks of the stand-in in the test's directory `directory` record what they got.
-fn forks_directory(directory: &Path) -> PathBuf {
-    directory.join("forks")
 }
 
 /// A round whose agent is the forkable stand-in, with run-ahead on for every choice. The agent
@@ -257,10 +92,6 @@ impl RunAheadFlow {
 
     fn root(&self) -> &Path {
         self.herdr().server.root()
-    }
-
-    fn forks(&self) -> PathBuf {
-        forks_directory(self.root())
     }
 
     /// Waits until `count` forks started, and returns the sessions of the forks whose process
@@ -320,13 +151,11 @@ impl RunAheadFlow {
     }
 
     fn fork_file(&self, session: &str, kind: &str) -> String {
-        fs::read_to_string(self.forks().join(format!("{session}.{kind}"))).unwrap()
+        fs::read_to_string(self.herdr().directory().fork_record(session, kind)).unwrap()
     }
 
     fn transcript(&self, session: &str) -> PathBuf {
-        self.root()
-            .join("claude-config/projects/standin")
-            .join(format!("{session}.jsonl"))
+        stand_in_agent::transcript(&self.root().join("claude-config"), session)
     }
 
     /// Waits until run-ahead stopped the forks `forks` and deleted their transcripts.
@@ -654,7 +483,7 @@ fn a_switch_the_agent_never_confirms_puts_the_agent_back_and_retry_reaches_its_o
     let sessions = run.wait_for_forks(2);
     let fork = sessions[0].clone();
     run.fork_submits(&fork);
-    fs::write(run.root().join("unreported-resume"), "").unwrap();
+    fs::write(run.herdr().directory().unreported_resume(), "").unwrap();
     let prompts = run.herdr().prompts().len();
 
     let request = run.answer_bare("keep");
@@ -877,11 +706,7 @@ fn a_closing_reviewer_stops_every_fork_and_deletes_its_transcript() {
             "the fork {session} outlived the reviewer"
         );
         assert!(
-            !herdr
-                .server
-                .root()
-                .join("claude-config/projects/standin")
-                .join(format!("{session}.jsonl"))
+            !stand_in_agent::transcript(&herdr.server.root().join("claude-config"), session)
                 .exists()
         );
     }
@@ -927,7 +752,7 @@ impl RealRun {
             &session,
             StandIn::ForkedForReal,
         );
-        let root = herdr.server.root().to_owned();
+        let real_claude = herdr.directory().real_claude();
         let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |_| {});
         fixture
             .runtime
@@ -951,11 +776,7 @@ impl RealRun {
         ]
         .map(str::to_owned)
         .to_vec();
-        fs::write(
-            root.join("real-claude"),
-            format!("claude\n{}", flags.join("\n")),
-        )
-        .unwrap();
+        fs::write(real_claude, format!("claude\n{}", flags.join("\n"))).unwrap();
         Self {
             run: Some(RunAheadFlow {
                 flow: ExploreFlow::start_on(fixture),

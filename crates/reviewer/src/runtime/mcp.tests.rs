@@ -159,6 +159,8 @@ impl ConversationFixture {
     /// reads from its title.
     fn second_agent(&self) -> herdr_client::protocol::Agent {
         let from = self.server.events().received().len();
+        let role = format!("{}=second", stand_in_agent::variables::ROLE);
+        let session = format!("{}=session", stand_in_agent::variables::SESSION);
         let mut arguments = vec![
             "pane",
             "split",
@@ -167,9 +169,9 @@ impl ConversationFixture {
             "right",
             "--no-focus",
             "--env",
-            "REVIEW_AGENT_E2E_ROLE=second",
+            &role,
             "--env",
-            "REVIEW_AGENT_E2E_AGENT_SESSION=session",
+            &session,
         ];
         for variable in &self.server.environment {
             arguments.extend(["--env", variable]);
@@ -183,10 +185,6 @@ impl ConversationFixture {
             "run",
             pane,
             &self.server.agent_binary.to_string_lossy(),
-            "--exact",
-            "runtime::tests::e2e_agent_process",
-            "--ignored",
-            "--nocapture",
         ]);
         self.server
             .events()
@@ -203,7 +201,7 @@ impl ConversationFixture {
             "release-agent",
             &pane.0,
             "--source",
-            super::AGENT_E2E_AGENT_SOURCE,
+            stand_in_agent::AGENT_SOURCE,
             "--agent",
             &self.server.agent,
         ]);

@@ -61,6 +61,7 @@ members = [
     "crates/review-state",
     "crates/review-store",
     "crates/review-test-support",
+    "crates/stand-in-agent",
     "crates/review-types",
     "crates/review-drafts",
     "crates/review-threads",

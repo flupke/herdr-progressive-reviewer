@@ -152,3 +152,40 @@ fn a_line_that_is_no_event_fails_the_test() {
 
     events.wait_for("anything", |_| true);
 }
+
+#[test]
+fn a_wait_or_a_command_that_finds_no_stand_in_in_time_is_an_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.sock");
+    let events = StandInEvents::listen(&path);
+    let (_agent, _) = StandInConnection::connect(&path, StandInRole::Agent).unwrap();
+    events.wait_for("the agent's hello", |reported| {
+        matches!(reported.event, StandInEvent::Hello { .. })
+    });
+
+    let waited = events
+        .try_wait_until("a fork", Duration::ZERO, |received| {
+            received
+                .iter()
+                .any(|reported| matches!(reported.from, StandInRole::Fork { .. }))
+        })
+        .unwrap_err();
+    let sent = events
+        .try_send(&fork("absent"), &StandInCommand::Submit, Duration::ZERO)
+        .unwrap_err();
+
+    assert!(
+        waited.starts_with("no stand-in reported a fork"),
+        "{waited}"
+    );
+    assert!(sent.contains("did not connect"), "{sent}");
+    assert!(
+        events
+            .try_send(
+                &StandInRole::Agent,
+                &StandInCommand::EndTurn,
+                Duration::ZERO
+            )
+            .is_ok()
+    );
+}

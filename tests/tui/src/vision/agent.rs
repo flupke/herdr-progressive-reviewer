@@ -132,6 +132,24 @@ impl ScriptedAgent {
         if arguments.get("review").is_none() {
             Identity::of(source)?.fill(tool, &mut arguments)?;
         }
+        self.call(tool, &arguments)
+    }
+
+    /// Answer as the fork that read `prompt`, by calling `tool`: the identity of its prompt fills
+    /// what `arguments` leaves out.
+    pub(super) fn reply_as_fork(
+        &self,
+        prompt: &str,
+        tool: &str,
+        mut arguments: Value,
+    ) -> Result<Value> {
+        if arguments.get("review").is_none() {
+            Identity::of_prompt(prompt)?.fill(tool, &mut arguments)?;
+        }
+        self.call(tool, &arguments)
+    }
+
+    fn call(&self, tool: &str, arguments: &Value) -> Result<Value> {
         self.post(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -203,6 +221,25 @@ impl Identity {
             request: turn["request"].clone(),
             checkpoint: turn["checkpoint"].clone(),
             answer: turn["answer"]["id"].clone(),
+        })
+    }
+
+    /// The identity of an Explore prompt with its turn's files, as a fork reads it.
+    fn of_prompt(prompt: &str) -> Result<Self> {
+        let line = |label: &str| {
+            super::forks::prompt_line(prompt, label)
+                .map(Value::String)
+                .with_context(|| format!("the fork's prompt names no {label:?}"))
+        };
+        Ok(Self {
+            access: line("Explore review access: ")?,
+            round: line("Explore round: ")?,
+            request: line("Explore request: ")?,
+            checkpoint: json!({
+                "review_unit": line("Review unit: ")?,
+                "checkpoint": line("Checkpoint: ")?,
+            }),
+            answer: line("Answer ID: ")?,
         })
     }
 

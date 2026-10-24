@@ -14,7 +14,7 @@ struct Fixture {
     session: Session,
     herdr: HerdrClient,
     // Stop the server after the session closed its workspace.
-    _server: HerdrTestServer,
+    server: HerdrTestServer,
     _directory: tempfile::TempDir,
 }
 
@@ -39,7 +39,7 @@ impl Fixture {
         let fixture = Self {
             session,
             herdr,
-            _server: server,
+            server,
             _directory: directory,
         };
         (fixture, screen)
@@ -137,7 +137,7 @@ fn a_stopped_session_closes_its_workspace_and_removes_its_repository() {
     let Fixture {
         session,
         herdr,
-        _server,
+        server: _server,
         _directory,
     } = fixture;
     assert_eq!(session.stop(), Closing::Closed);
@@ -163,7 +163,7 @@ fn a_workspace_holding_a_pane_the_session_did_not_open_stays_open() {
     let Fixture {
         session,
         herdr,
-        _server,
+        server: _server,
         _directory,
     } = fixture;
     assert_eq!(
@@ -307,4 +307,77 @@ fn the_stand_in_agent_revises_the_open_question_in_the_pane() {
         "{}",
         screen.text
     );
+}
+
+#[test]
+fn the_driver_plays_a_fork_and_a_bare_answer_continues_as_it() {
+    let (mut fixture, _) = Fixture::start();
+    let session = &mut fixture.session;
+    session.wait_for("math.rs", false, GUARD).unwrap();
+    let explore = session.screen(false).unwrap().locate("Explore").unwrap();
+    session.act(&Input::Click(explore)).unwrap();
+    let every = session.act(&Input::Keys(&keys(&["z", "z"]))).unwrap();
+    assert!(
+        every.shows("Run ahead (experimental): every choice"),
+        "{}",
+        every.text
+    );
+    session
+        .act(&Input::Click(every.locate("Start in the pane").unwrap()))
+        .unwrap();
+    session.next_turn(None, GUARD).unwrap();
+    let question: Value =
+        serde_json::from_str(include_str!("../../examples/question.json")).unwrap();
+    session
+        .reply(1, "submit_question", question["arguments"].clone())
+        .unwrap();
+
+    let forks = session.forks(Some(2), GUARD).unwrap();
+    let choices: Vec<_> = forks["forks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|fork| fork["choice"].as_str().unwrap())
+        .collect();
+    assert_eq!(choices, ["keep", "saturate"], "{forks}");
+    let own = forks["agent"]["session"].clone();
+    let keep = forks["forks"][0]["session"].as_str().unwrap().to_owned();
+    assert_eq!(forks["forks"][0]["parent"], own);
+    let conclusion: Value =
+        serde_json::from_str(include_str!("../../examples/conclusion.json")).unwrap();
+    // The reviewer hears the agent's hooks in the session's runtime directory, never in the one
+    // its panes inherit, which stands for the user's.
+    let hooks = |runtime: &Path| runtime.join("herdr-reviewer").exists();
+    assert!(hooks(Path::new(
+        session.describe()["runtime"].as_str().unwrap()
+    )));
+    let inherited = &fixture.server.environment()[std::ffi::OsStr::new("XDG_RUNTIME_DIR")];
+    assert!(!hooks(Path::new(inherited)));
+    let session = &mut fixture.session;
+    let (reply, _) = session
+        .fork_submit(&keep, "submit_conclusion", conclusion["arguments"].clone())
+        .unwrap();
+    assert_eq!(reply["isError"], false, "{reply}");
+    let shown = session.forks(None, GUARD).unwrap();
+    assert_eq!(shown["forks"][0]["submitted"], true, "{shown}");
+
+    // A bare answer: the first choice, sent with no comment.
+    session
+        .act(&Input::Keys(&keys(&["1", "ctrl+enter"])))
+        .unwrap();
+
+    let prepared = session
+        .wait_for("Prepared while you were thinking", false, GUARD)
+        .unwrap();
+    assert!(prepared.shows("To be implemented"), "{}", prepared.text);
+    // The agent tells the reviewer and Herdr of its new session before the event socket.
+    session
+        .events
+        .try_wait_until("the agent on the fork's session", GUARD, |received| {
+            forks::agent_sessions(received).session.as_deref() == Some(&keep)
+        })
+        .unwrap();
+    let moved = session.forks(None, GUARD).unwrap();
+    assert_eq!(moved["agent"]["session"], keep.as_str(), "{moved}");
+    assert_eq!(moved["agent"]["resumed"], serde_json::json!([keep]));
 }

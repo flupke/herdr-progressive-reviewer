@@ -12,9 +12,10 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::thread;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -190,9 +191,13 @@ struct Connections {
 /// The test's end of the socket: every stand-in's events, in the order each reported them.
 ///
 /// It keeps every event it received, so that a test may wait on the events in turn
-/// ([`Self::events_until`]) and on what all of them say together ([`Self::wait_until`]).
+/// ([`Self::events_until`]) and on what all of them say together ([`Self::wait_until`]). A test
+/// fails when a wait runs out; a program that lives on, such as the vision server, takes the
+/// error of [`Self::try_wait_until`] and [`Self::try_send`] instead. Dropping it stops listening.
 pub struct StandInEvents {
     path: PathBuf,
+    /// Tells the thread that accepts connections to stop.
+    stopped: Arc<AtomicBool>,
     /// Each event, or why a stand-in's line was not one.
     events: Mutex<mpsc::Receiver<Result<Reported, String>>>,
     /// Every event received, and how many of them [`Self::events_until`] went through.
@@ -214,17 +219,23 @@ impl StandInEvents {
         let (sender, events) = mpsc::channel();
         let connections = Arc::new(Connections::default());
         let accepted = Arc::clone(&connections);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stopping = Arc::clone(&stopped);
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else {
                     return;
                 };
+                if stopping.load(Ordering::Acquire) {
+                    return;
+                }
                 let (sender, connections) = (sender.clone(), Arc::clone(&accepted));
                 thread::spawn(move || read_connection(&stream, &sender, &connections));
             }
         });
         Self {
             path: path.to_owned(),
+            stopped,
             events: Mutex::new(events),
             received: Mutex::default(),
             connections,
@@ -261,24 +272,33 @@ impl StandInEvents {
             }
             checked = received.events.len();
             drop(received);
-            self.receive(what);
+            self.receive(what, crate::GUARD)
+                .unwrap_or_else(|error| panic!("{error}"));
         }
     }
 
     /// Every event received, once `holds` holds for them; fails after [`crate::GUARD`], when
     /// it does not, with `what` it waited for.
-    pub fn wait_until(
+    pub fn wait_until(&self, what: &str, holds: impl FnMut(&[Reported]) -> bool) -> Vec<Reported> {
+        self.try_wait_until(what, crate::GUARD, holds)
+            .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// Every event received, once `holds` holds for them; an error that says what came since the
+    /// last wait, when no event came for `guard`.
+    pub fn try_wait_until(
         &self,
         what: &str,
+        guard: Duration,
         mut holds: impl FnMut(&[Reported]) -> bool,
-    ) -> Vec<Reported> {
+    ) -> Result<Vec<Reported>, String> {
         loop {
             let received = self.lock_received();
             if holds(&received.events) {
-                return received.events.clone();
+                return Ok(received.events.clone());
             }
             drop(received);
-            self.receive(what);
+            self.receive(what, guard)?;
         }
     }
 
@@ -287,22 +307,34 @@ impl StandInEvents {
         self.lock_received().events.clone()
     }
 
-    /// Receives the next event; fails after [`crate::GUARD`], when none came, with `what` the
-    /// test waited for.
-    fn receive(&self, what: &str) {
+    /// Every event received so far, with those that came since and wait to be read; an error
+    /// when a stand-in wrote a line that is no event.
+    pub fn try_received(&self) -> Result<Vec<Reported>, String> {
+        let events = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut received = self.lock_received();
+        while let Ok(event) = events.try_recv() {
+            received.events.push(event?);
+        }
+        Ok(received.events.clone())
+    }
+
+    /// Receives the next event; an error that names `what` the test waited for, when none came
+    /// for `guard`.
+    fn receive(&self, what: &str, guard: Duration) -> Result<(), String> {
         let next = self
             .events
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .recv_timeout(crate::GUARD);
+            .recv_timeout(guard);
         let mut received = self.lock_received();
         let before = &received.events[received.read..];
         let event = next
-            .unwrap_or_else(|error| {
-                panic!("no stand-in reported {what} ({error}); since the last wait: {before:#?}")
-            })
-            .unwrap_or_else(|error| panic!("{error}; since the last wait: {before:#?}"));
+            .map_err(|error| {
+                format!("no stand-in reported {what} ({error}); since the last wait: {before:#?}")
+            })?
+            .map_err(|error| format!("{error}; since the last wait: {before:#?}"))?;
         received.events.push(event);
+        Ok(())
     }
 
     fn lock_received(&self) -> std::sync::MutexGuard<'_, Received> {
@@ -323,6 +355,18 @@ impl StandInEvents {
     /// Sends `command` to the stand-in of `role`, once it connected; fails after
     /// [`crate::GUARD`] when it does not.
     pub fn send(&self, role: &StandInRole, command: &StandInCommand) {
+        self.try_send(role, command, crate::GUARD)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Sends `command` to the stand-in of `role`, once it connected; an error when it does not
+    /// within `guard`, or is gone.
+    pub fn try_send(
+        &self,
+        role: &StandInRole,
+        command: &StandInCommand,
+        guard: Duration,
+    ) -> Result<(), String> {
         let mut line = serde_json::to_vec(command).unwrap();
         line.push(b'\n');
         let writers = self
@@ -330,21 +374,25 @@ impl StandInEvents {
             .writers
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let (mut writers, timeout) = self
+        let (mut writers, _) = self
             .connections
             .connected
-            .wait_timeout_while(writers, crate::GUARD, |writers| !writers.contains_key(role))
+            .wait_timeout_while(writers, guard, |writers| !writers.contains_key(role))
             .unwrap_or_else(PoisonError::into_inner);
-        assert!(
-            !timeout.timed_out(),
-            "the stand-in {role:?} did not connect"
-        );
-        writers
+        let (_, writer) = writers
             .get_mut(role)
-            .unwrap()
-            .1
+            .ok_or_else(|| format!("the stand-in {role:?} did not connect"))?;
+        writer
             .write_all(&line)
-            .unwrap_or_else(|error| panic!("the stand-in {role:?} is gone: {error}"));
+            .map_err(|error| format!("the stand-in {role:?} is gone: {error}"))
+    }
+}
+
+impl Drop for StandInEvents {
+    /// Stops accepting connections: a connection of its own wakes the thread that accepts them.
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+        let _ = UnixStream::connect(&self.path);
     }
 }
 

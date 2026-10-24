@@ -1,7 +1,6 @@
 use super::*;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
-use std::os::unix::fs::symlink;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 
@@ -24,23 +23,16 @@ use review_test_support::GUARD;
 #[path = "runtime/mcp.tests.rs"]
 mod mcp;
 
-#[path = "runtime/agent_input.tests.rs"]
-mod agent_input;
 #[path = "runtime/explore.tests.rs"]
 mod explore_flow;
 #[path = "runtime/run_ahead.tests.rs"]
 mod run_ahead;
-#[path = "runtime/stand_in_agent.tests.rs"]
-mod stand_in_agent;
 
 use herdr_client::protocol::AgentStatus;
 use review_test_support::stand_in::{
-    Reported, StandInCommand, StandInConnection, StandInEvent, StandInEvents, StandInRole,
-    marker_of,
+    Reported, StandInCommand, StandInEvent, StandInEvents, StandInRole,
 };
-use stand_in_agent::{AgentDisplay, AgentTurns, Pane};
-
-const AGENT_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
+use stand_in_agent::{StandInDirectory, variables};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum AgentLifecycle {
@@ -58,7 +50,6 @@ struct IsolatedHerdrServer {
     pane_id: PaneId,
     agent_binary: PathBuf,
     agent: String,
-    stand_in: run_ahead::StandIn,
     /// The variables of the agent's workspace, `NAME=value`.
     environment: Vec<String>,
     /// Whether Herdr reads the title of the agent that runs now.
@@ -93,8 +84,8 @@ impl IsolatedHerdrServer {
     }
 
     /// A Claude Code stand-in with the session `session` that run-ahead can fork, as
-    /// `stand_in` says: a script named `claude` runs the test agent, and runs a fork stand-in
-    /// instead when it is started as a fork.
+    /// `stand_in` says: the stand-in agent, named `claude`, which plays a fork when it is started
+    /// as one.
     fn start_forkable(repository_root: &Path, session: &str, stand_in: run_ahead::StandIn) -> Self {
         let server = Self::start_stand_in(
             repository_root,
@@ -120,9 +111,9 @@ impl IsolatedHerdrServer {
         let server = HerdrTestServer::start(repository_root);
         let events = StandInEvents::listen(&server.root().join("stand-in.sock"));
         let mut environment = vec![
-            format!("REVIEW_AGENT_E2E_DIRECTORY={}", server.root().display()),
-            format!("REVIEW_AGENT_E2E_HERDR_BIN={}", server.binary().display()),
-            format!("REVIEW_AGENT_E2E_AGENT={agent}"),
+            format!("{}={}", variables::DIRECTORY, server.root().display()),
+            format!("{}={}", variables::HERDR, server.binary().display()),
+            format!("{}={agent}", variables::AGENT),
             events.environment(),
         ];
         environment.extend(stand_in.environment(server.root()));
@@ -152,22 +143,14 @@ impl IsolatedHerdrServer {
                 .expect("workspace create must return a root pane ID")
                 .to_owned(),
         );
-        let current_test_binary = std::env::current_exe().unwrap();
         let agent_binary = server.root().join(agent);
-        // The test binary is large, and every test running at once would copy it into its
-        // server's directory; the agent runs through a link, whose name Herdr detects.
-        if stand_in == run_ahead::StandIn::Plain {
-            symlink(current_test_binary, &agent_binary).unwrap();
-        } else {
-            run_ahead::StandIn::install(server.root(), &agent_binary);
-        }
+        stand_in_agent::install(&stand_in_program(), &agent_binary).unwrap();
         let server = Self {
             server,
             workspace_id,
             pane_id,
             agent_binary,
             agent: agent.into(),
-            stand_in,
             environment,
             title_read: std::sync::atomic::AtomicBool::new(false),
             events,
@@ -183,18 +166,16 @@ impl IsolatedHerdrServer {
         let detected = self.server.events();
         let from = self.events.received().len();
         let agent = self.agent_binary.to_string_lossy();
-        let session_variable = format!(
-            "REVIEW_AGENT_E2E_AGENT_SESSION={}",
-            session.unwrap_or_default()
-        );
+        let session_variable = format!("{}={}", variables::SESSION, session.unwrap_or_default());
         let lifecycle_variable = format!(
-            "REVIEW_AGENT_E2E_REPORT_LIFECYCLE={}",
+            "{}={}",
+            variables::REPORT_LIFECYCLE,
             match lifecycle {
                 AgentLifecycle::Reported => "1",
                 AgentLifecycle::Native => "0",
             }
         );
-        let mut command = vec![
+        self.run_cli(&[
             "pane",
             "run",
             &self.pane_id.0,
@@ -202,18 +183,7 @@ impl IsolatedHerdrServer {
             &session_variable,
             &lifecycle_variable,
             &agent,
-        ];
-        // A forkable stand-in's script runs the test agent itself, so that its command line
-        // holds only what Claude Code would.
-        if self.stand_in == run_ahead::StandIn::Plain {
-            command.extend([
-                "--exact",
-                "runtime::tests::e2e_agent_process",
-                "--ignored",
-                "--nocapture",
-            ]);
-        }
-        self.run_cli(&command);
+        ]);
         self.title_read.store(
             lifecycle == AgentLifecycle::Native,
             std::sync::atomic::Ordering::Relaxed,
@@ -283,6 +253,11 @@ impl IsolatedHerdrServer {
             &variable("XDG_RUNTIME_DIR"),
             &variable("HERDR_SOCKET_PATH"),
         )
+    }
+
+    /// The stand-in agent's directory: its switches, and what its forks record.
+    fn directory(&self) -> StandInDirectory {
+        StandInDirectory::new(self.server.root().to_owned())
     }
 
     /// What the stand-ins report.
@@ -371,7 +346,7 @@ impl IsolatedHerdrServer {
     /// Make the agent read each prompt typed from now on without starting on it, or start on
     /// each prompt again.
     fn swallow_prompts(&self, swallow: bool) {
-        let switch = self.server.root().join("swallow");
+        let switch = self.directory().swallow();
         if swallow {
             fs::write(switch, "").unwrap();
         } else {
@@ -386,7 +361,7 @@ impl IsolatedHerdrServer {
             "release-agent",
             &self.pane_id.0,
             "--source",
-            AGENT_E2E_AGENT_SOURCE,
+            stand_in_agent::AGENT_SOURCE,
             "--agent",
             &self.agent,
         ]);
@@ -436,6 +411,12 @@ fn prompts_of(role: &StandInRole, received: &[Reported]) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The stand-in agent that Cargo built beside the reviewer's programs.
+fn stand_in_program() -> PathBuf {
+    let control = effects::fixture::test_fork_tools().control;
+    stand_in_agent::program(control.parent().unwrap()).unwrap_or_else(|error| panic!("{error}"))
 }
 
 /// The prompts `prompts`, each on its lines.
@@ -503,251 +484,6 @@ impl SavedState {
             while self.changes.try_recv().is_ok() {}
         }
     }
-}
-
-#[test]
-#[ignore = "runs as the stand-in agent in a pane of a test Herdr server"]
-fn e2e_agent_process() {
-    let Some(directory) = std::env::var_os("REVIEW_AGENT_E2E_DIRECTORY").map(PathBuf::from) else {
-        return;
-    };
-    let pane = Pane::take();
-    // Match a native TUI: the terminal must not submit pasted newlines, echo
-    // input, or truncate long lines through its canonical input buffer.
-    crossterm::terminal::enable_raw_mode().unwrap();
-    pane.draw("\x1b[?2004h");
-    let binary = std::env::var_os("REVIEW_AGENT_E2E_HERDR_BIN").unwrap();
-    let pane_id = std::env::var("HERDR_PANE_ID").unwrap();
-    let agent = std::env::var("REVIEW_AGENT_E2E_AGENT").unwrap();
-    let role = if std::env::var("REVIEW_AGENT_E2E_ROLE").as_deref() == Ok("second") {
-        StandInRole::SecondAgent
-    } else {
-        StandInRole::Agent
-    };
-    let (connection, commands) =
-        StandInConnection::from_env(role).expect("the test's event socket");
-    let report = Arc::new(connection);
-    let reported_lifecycle =
-        std::env::var("REVIEW_AGENT_E2E_REPORT_LIFECYCLE").as_deref() != Ok("0");
-    let (turns, wakes) = AgentTurns::new(
-        directory.join("swallow"),
-        !reported_lifecycle,
-        Arc::clone(&report),
-    );
-    // Follows Herdr before it reports anything, so that it sees the test release it.
-    turns.follow(commands, &PaneId(pane_id.clone()));
-    if reported_lifecycle {
-        let status = Command::new(&binary)
-            .args([
-                "pane",
-                "report-agent",
-                &pane_id,
-                "--source",
-                AGENT_E2E_AGENT_SOURCE,
-                "--agent",
-                &agent,
-                "--state",
-                "idle",
-            ])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        report.report(&StandInEvent::StateReported {
-            state: "idle".into(),
-        });
-    }
-    let mut hooks = Hooks {
-        binary,
-        pane: pane_id,
-        agent: agent.clone(),
-        plugin: std::env::var_os("REVIEW_AGENT_E2E_HOOKS").is_some(),
-        session: String::new(),
-        report: Arc::clone(&report),
-    };
-    if let Ok(session) = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
-        && !session.is_empty()
-    {
-        hooks.session_started(&session, "startup");
-    }
-    let display = AgentDisplay {
-        pane: pane.clone(),
-        turns: turns.clone(),
-        wakes,
-    };
-    thread::spawn(move || display.run());
-    let mut prompts = AgentPrompts {
-        directory,
-        transcript: run_ahead::StandInTranscript::open(),
-        turns: turns.clone(),
-        hooks,
-        report: Arc::clone(&report),
-    };
-    let marker = if agent == "claude" { "❯" } else { "›" };
-    pane.draw(&format!("\x1b[2J\x1b[H{marker} "));
-    let mut input = agent_input::AgentInput::default();
-    loop {
-        let event = crossterm::event::read().unwrap();
-        if matches!(event, crossterm::event::Event::Key(key)
-            if key.code == crossterm::event::KeyCode::Char('d')
-                && key.modifiers == crossterm::event::KeyModifiers::CONTROL)
-        {
-            crossterm::terminal::disable_raw_mode().unwrap();
-            pane.draw("\x1b[?2004l");
-            report.report(&StandInEvent::Exited);
-            return;
-        }
-        if let Some(prompt) = input.handle(event) {
-            input.restore(prompts.read(&prompt));
-        }
-        let screen = if input.text().is_empty() {
-            turns.screen().unwrap_or_else(|| format!("{marker} "))
-        } else {
-            format!("{marker} {}", input.text())
-        };
-        pane.draw(&format!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n")));
-    }
-}
-
-/// The prompts the test agent reads, and what it does with each.
-struct AgentPrompts {
-    /// The directory of the test's switches, such as `unreported-resume`.
-    directory: PathBuf,
-    transcript: run_ahead::StandInTranscript,
-    turns: AgentTurns,
-    hooks: Hooks,
-    report: Arc<StandInConnection>,
-}
-
-impl AgentPrompts {
-    /// Claude Code's own `/resume <session>` continues that session; a marker only says that
-    /// the agent read it; any other prompt starts a turn, unless the hooks block it: Claude
-    /// Code 2.1.309 then puts it back in its input box, and this returns it.
-    fn read(&mut self, prompt: &str) -> Option<String> {
-        if let Some(id) = marker_of(prompt) {
-            self.report.report(&StandInEvent::Marker { id });
-            return None;
-        }
-        if let Some(session) = prompt.trim().strip_prefix("/resume ") {
-            self.transcript.resume(session);
-            self.report.report(&StandInEvent::ResumeReceived {
-                session: session.to_owned(),
-            });
-            // This file keeps Herdr and the reviewer from hearing of the next resume, as when
-            // Claude Code's session hooks fail or come too late.
-            if fs::remove_file(self.directory.join("unreported-resume")).is_err() {
-                self.hooks.session_started(session, "resume");
-            }
-            return None;
-        }
-        if self.hooks.blocks(prompt) {
-            self.report.report(&StandInEvent::PromptBlocked {
-                text: prompt.to_owned(),
-            });
-            return Some(prompt.to_owned());
-        }
-        self.transcript.turn();
-        // The agent reads the turn's files as it reads the prompt that names them.
-        self.report.report(&StandInEvent::PromptReceived {
-            text: review_test_support::turn::with_turn(prompt),
-        });
-        self.turns.prompt_read();
-        None
-    }
-}
-
-/// The hooks Claude Code runs for the test agent. Herdr's session hook reports its session to
-/// Herdr: from Claude Code's `startup` or `resume`, each report newer than the last. With the
-/// reviewer's `plugin`, its hooks run first, through `reviewer-control`, as Claude Code runs
-/// them: Herdr may hear of a session after the reviewer.
-struct Hooks {
-    binary: std::ffi::OsString,
-    pane: String,
-    agent: String,
-    plugin: bool,
-    /// The session the agent runs.
-    session: String,
-    report: Arc<StandInConnection>,
-}
-
-impl Hooks {
-    /// Whether the plugin's hook blocks the prompt `prompt`, which a command of Claude Code's
-    /// own is not.
-    fn blocks(&self, prompt: &str) -> bool {
-        if !self.plugin {
-            return false;
-        }
-        let decision = run_plugin_hook(&serde_json::json!({
-            "session_id": self.session,
-            "transcript_path": "",
-            "cwd": std::env::current_dir().unwrap(),
-            "permission_mode": "default",
-            "hook_event_name": "UserPromptSubmit",
-            "prompt": prompt,
-        }));
-        !decision.is_empty()
-            && serde_json::from_str::<serde_json::Value>(&decision).unwrap()["decision"] == "block"
-    }
-
-    /// The agent started the session `session`, from `start`.
-    fn session_started(&mut self, session: &str, start: &str) {
-        session.clone_into(&mut self.session);
-        if self.plugin {
-            run_plugin_hook(&serde_json::json!({
-                "session_id": session,
-                "transcript_path": "",
-                "cwd": std::env::current_dir().unwrap(),
-                "hook_event_name": "SessionStart",
-                "source": start,
-            }));
-        }
-        let sequence = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-            .to_string();
-        let status = Command::new(&self.binary)
-            .args([
-                "pane",
-                "report-agent-session",
-                &self.pane,
-                "--source",
-                &format!("herdr:{}", self.agent),
-                "--agent",
-                &self.agent,
-                "--seq",
-                &sequence,
-                "--agent-session-id",
-                session,
-                "--session-start-source",
-                start,
-            ])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        self.report.report(&StandInEvent::SessionReported {
-            session: session.to_owned(),
-            start: start.to_owned(),
-        });
-    }
-}
-
-/// Runs the hook of the reviewer's Claude Code plugin on Claude Code's event `event`, as
-/// Claude Code does, and returns what it printed.
-fn run_plugin_hook(event: &serde_json::Value) -> String {
-    let mut hook = Command::new(effects::fixture::test_fork_tools().control)
-        .arg(claude_hooks::SUBCOMMAND)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    hook.stdin
-        .take()
-        .unwrap()
-        .write_all(event.to_string().as_bytes())
-        .unwrap();
-    let output = hook.wait_with_output().unwrap();
-    assert!(output.status.success(), "the plugin's hook failed");
-    String::from_utf8(output.stdout).unwrap()
 }
 
 #[test]
