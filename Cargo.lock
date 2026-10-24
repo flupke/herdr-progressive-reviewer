@@ -4228,6 +4228,7 @@ version = "0.2.0"
 dependencies = [
  "eyre",
  "review-explore",
+ "review-run-ahead",
  "review-store",
  "serde_json",
  "time",

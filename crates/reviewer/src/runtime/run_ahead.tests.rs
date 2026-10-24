@@ -1,6 +1,7 @@
 //! Run-ahead on an isolated Herdr: a Claude Code stand-in in the agent's pane, forked by the
 //! reviewer as a real process through `reviewer-control fork-exec`, with the guard as its hook.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -488,6 +489,16 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
     // of its own, which no flush waits for, but run-ahead takes no forks while one runs, and it
     // ends only once Herdr reports the agent where the `/resume` put it.
     assert_eq!(run.resumed(), std::slice::from_ref(&fork));
+
+    // Once the reviewer closes, the agent's project folder holds the agent's sessions only.
+    let RunAheadFlow { flow } = run;
+    let ExploreFlow { fixture, .. } = flow;
+    let ReviewFlowFixture { runtime, herdr, .. } = fixture;
+    drop(runtime);
+    assert_eq!(
+        project_folder(&herdr.server.root().join("claude-config")),
+        BTreeSet::from(["session.jsonl".to_owned(), format!("{fork}.jsonl")]),
+    );
 }
 
 #[test]
@@ -815,11 +826,20 @@ fn a_closing_reviewer_stops_every_fork_and_deletes_its_transcript() {
             !process.is_running(),
             "the fork {session} outlived the reviewer"
         );
-        assert!(
-            !stand_in_agent::transcript(&herdr.server.root().join("claude-config"), session)
-                .exists()
-        );
     }
+    assert_eq!(
+        project_folder(&herdr.server.root().join("claude-config")),
+        BTreeSet::from(["session.jsonl".to_owned()]),
+        "only the agent's own session is left"
+    );
+}
+
+/// What the project folder of the stand-in's transcripts under `configuration` holds.
+fn project_folder(configuration: &Path) -> BTreeSet<String> {
+    fs::read_dir(stand_in_agent::transcripts(configuration))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect()
 }
 
 /// The agent's turns of the real test: Claude Code on the owner's subscription, at the model

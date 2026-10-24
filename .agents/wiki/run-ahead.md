@@ -29,7 +29,8 @@ say how each part works.
   restart the agent. Only Linux has the parent-death signal: elsewhere, macOS
   included, `fork-exec` refuses and `ClaudeForks` takes no fork, so every answer runs the plain
   chain, with the reason.
-- What the forks do is written to `run-ahead.log` in the plugin's state directory.
+- What the forks do is written to `run-ahead.log` in the plugin's state directory, and
+  `reviewer-control stats` says whether it pays ([statistics](explore-statistics.md)).
 - Run-ahead stops for the round after `FAILURES_TO_HALT` failures in a row, with one notice
   that names the last: a fork that ends without a turn, a check at the answer that could not
   be made, a failed switch, and a refusal to take forks where run-ahead itself failed, counted

@@ -13,7 +13,9 @@ bin/reviewer-control stats --since 2026-09-15 --until 2026-09-30
   `$XDG_STATE_HOME/herdr/plugins/herdr.progressive-reviewer` (by default under
   `~/.local/state`), or `HERDR_PLUGIN_STATE_DIR` when set.
 - What each row counts is documented on the fields of `review-explore-stats`
-  (`sample.rs`, `summary.rs`).
+  (`sample.rs`, `summary.rs`, `run_ahead.rs`). The run-ahead rows read the record saved beside
+  each round (`<round>.forks.json`); a round without one, as every round saved before
+  run-ahead, counts as having no run-ahead.
 
 ## Limits of the numbers
 
@@ -22,3 +24,9 @@ bin/reviewer-control stats --since 2026-09-15 --until 2026-09-30
 - A revised question comes from the round conversation, with no prompt behind it: it adds no
   agent turn, and the reviewer's answer to it has no answer time, since no turn record says
   when the question was posted.
+- Run-ahead counts only the answers to the questions it watched: none while it was off or
+  stopped for the round.
+- The wait after an answer runs from the answer to the end of its turn. A plain chain after a
+  failed switch waits for Retry, so it counts the reviewer's time until Retry too.
+- Whether a fork was ready when its question was answered is unknown for a fork that kept its
+  turn in a record saved before forks kept when they submitted: such a fork is left out.

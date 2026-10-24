@@ -1,6 +1,7 @@
 //! What one saved round measured, read from its record.
-use crate::{proposals::ProposalCounts, summary::Share, words::Words};
+use crate::{proposals::ProposalCounts, run_ahead::RunAheadSample, summary::Share, words::Words};
 use review_explore::{Exploration, ExploreRound, Question, ReviewerAnswer, TopicStatus};
+use review_run_ahead::RoundForks;
 use review_store::SavedRound;
 use std::time::UNIX_EPOCH;
 
@@ -9,6 +10,9 @@ pub(crate) struct AgentTurn {
     pub(crate) milliseconds: u64,
     /// The turn followed a reviewer's answer; only the first turn does not.
     pub(crate) after_answer: bool,
+    /// A fork took the turn while the reviewer was thinking: its time is the switch of the
+    /// agent in the pane to that fork, not the agent's turn.
+    pub(crate) prepared: bool,
 }
 
 /// The measures of one saved round.
@@ -33,6 +37,7 @@ pub(crate) struct RoundSample {
     pub(crate) question_words: Vec<usize>,
     /// What became of the Challenger's proposals.
     pub(crate) proposals: ProposalCounts,
+    pub(crate) run_ahead: RunAheadSample,
 }
 
 impl RoundSample {
@@ -58,7 +63,7 @@ impl RoundSample {
             questions: exploration.questions.len(),
             change_requests: Self::change_requests(exploration),
             declined_recommendations: Self::declined_recommendations(exploration),
-            agent_turns: Self::agent_turns(exploration),
+            agent_turns: Self::agent_turns(exploration, &saved.run_ahead),
             reviewer_answers_ms: exploration
                 .answers
                 .iter()
@@ -70,6 +75,7 @@ impl RoundSample {
                 .map(|question| Self::question_words(exploration, question))
                 .collect(),
             proposals: ProposalCounts::of(exploration),
+            run_ahead: RunAheadSample::of(round, &saved.run_ahead),
         }
     }
 
@@ -113,12 +119,15 @@ impl RoundSample {
         share
     }
 
-    fn agent_turns(exploration: &Exploration) -> Vec<AgentTurn> {
+    fn agent_turns(exploration: &Exploration, run_ahead: &RoundForks) -> Vec<AgentTurn> {
         exploration
             .agent_elapsed_ms
             .iter()
             .map(|(request, &milliseconds)| AgentTurn {
                 milliseconds,
+                prepared: run_ahead.answers.iter().any(|answer| {
+                    &answer.request == request && run_ahead.used_a_prepared_turn(answer)
+                }),
                 after_answer: exploration
                     .conversation
                     .iter()

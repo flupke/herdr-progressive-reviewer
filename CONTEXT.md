@@ -297,7 +297,8 @@ _Avoid_: new round (which is what Start begins), clear, restart
 Preparing the agent's next turn while a question of an Explore round waits for the reviewer:
 the review tool forks the agent's session once per choice the reviewer's setting names, and
 each fork takes the turn that would follow that answer. What a fork submits is kept for its
-choice and shown to nobody. The interview stays the agent's in its pane.
+choice and shown to nobody. The interview stays the agent's in its pane. The setting is off,
+the recommended choice, or every choice.
 _Avoid_: prefetch, speculation, preparation (the earlier, discarded approaches)
 
 **Fork**:

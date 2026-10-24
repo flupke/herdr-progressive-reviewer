@@ -35,6 +35,8 @@ impl ExploreSession {
     /// with the forks of its question. Returns whether the pane's agent continues as a fork:
     /// its switch then runs, and the answer needs no prompt.
     pub(crate) fn run_ahead_answer(&mut self, turn: &SavedTurn) -> bool {
+        // The reviewer waits from now on, through the checks below.
+        let answered_at_ms = review_explore::now_ms();
         let request = &turn.request;
         let Some(answer) = &request.answer else {
             return false;
@@ -114,7 +116,7 @@ impl ExploreSession {
                 }
             }
         };
-        let continues = self.record_answer(&asked, request, &path);
+        let continues = self.record_answer(&asked, request, &path, answered_at_ms);
         // The question no longer waits.
         self.run_ahead.armed = None;
         continues
@@ -272,18 +274,25 @@ impl ExploreSession {
         Ok(())
     }
 
-    /// Records the path `path` of the answer `request` to the question `asked`, and logs it;
+    /// Records the path `path` of the answer `request` to the question `asked`, given at
+    /// `at_ms`, and logs it;
     /// counts the failure of run-ahead it stands for. The reviewer is shown the path of a plain
     /// chain at once: it shows with the turn once the agent took it. Returns whether the pane's
     /// agent continues as a fork.
-    fn record_answer(&mut self, asked: &Asked, request: &TurnRequest, path: &TurnPath) -> bool {
+    fn record_answer(
+        &mut self,
+        asked: &Asked,
+        request: &TurnRequest,
+        path: &TurnPath,
+        at_ms: u64,
+    ) -> bool {
         let answer = request.answer.as_ref().expect("an answer");
         let record = AnswerRecord {
             question: asked.question.id.clone(),
             version: asked.question.version,
             answer: answer.id.clone(),
             request: request.request.clone(),
-            at_ms: review_explore::now_ms(),
+            at_ms,
             path: path.clone(),
         };
         let line = match path {

@@ -22,6 +22,7 @@ enum Cell {
     Range(Option<Spread>),
     Percent(Option<f64>),
     Time(Option<Duration>),
+    Tokens(u64),
 }
 
 impl Row {
@@ -108,19 +109,76 @@ impl Row {
         },
     ];
 
+    /// The run-ahead rows before the reasons an answer used no prepared turn.
+    const RUN_AHEAD: [Row; 3] = [
+        Row {
+            label: "Rounds with run-ahead",
+            value: |s| Cell::Count(Some(s.run_ahead.rounds)),
+        },
+        Row {
+            label: "Answers run-ahead watched",
+            value: |s| Cell::Count(Some(s.run_ahead.answers.whole)),
+        },
+        Row {
+            label: "  that used a prepared turn",
+            value: |s| Cell::Percent(s.run_ahead.answers.ratio()),
+        },
+    ];
+
+    /// The run-ahead rows after the reasons.
+    const RUN_AHEAD_COSTS: [Row; 8] = [
+        Row {
+            label: "Wait after an answer, prepared, median",
+            value: |s| Cell::Time(s.run_ahead.prepared_wait),
+        },
+        Row {
+            label: "  plain chain, median",
+            value: |s| Cell::Time(s.run_ahead.plain_wait),
+        },
+        Row {
+            label: "Forks",
+            value: |s| Cell::Count(Some(s.run_ahead.forks)),
+        },
+        Row {
+            label: "  ready when their question was answered",
+            value: |s| Cell::Percent(s.run_ahead.ready.ratio()),
+        },
+        Row {
+            label: "Fork tokens, used turns",
+            value: |s| Cell::Tokens(s.run_ahead.used_tokens.total()),
+        },
+        Row {
+            label: "  read from the cache",
+            value: |s| Cell::Tokens(s.run_ahead.used_tokens.cache_read),
+        },
+        Row {
+            label: "Fork tokens, discarded forks",
+            value: |s| Cell::Tokens(s.run_ahead.discarded_tokens.total()),
+        },
+        Row {
+            label: "  read from the cache",
+            value: |s| Cell::Tokens(s.run_ahead.discarded_tokens.cache_read),
+        },
+    ];
+
     fn write(&self, output: &mut fmt::Formatter<'_>, columns: &Columns) -> fmt::Result {
-        writeln!(
-            output,
-            "{:LABEL$}{:>COLUMN$}{:>COLUMN$}{:>COLUMN$}",
-            self.label,
-            (self.value)(&columns.all).to_string(),
-            (self.value)(&columns.challenger).to_string(),
-            (self.value)(&columns.without_challenger).to_string(),
-        )
+        line(output, self.label, columns.map(self.value))
     }
 }
 
-/// `12`, `2.5`, `1-6`, `25%`, `45s`, `2m 05s` or `1h 02m`.
+/// One row of a table: its label, then its value in each column.
+fn line(output: &mut fmt::Formatter<'_>, label: &str, cells: [Cell; 3]) -> fmt::Result {
+    let [all, challenger, without_challenger] = cells;
+    writeln!(
+        output,
+        "{label:LABEL$}{:>COLUMN$}{:>COLUMN$}{:>COLUMN$}",
+        all.to_string(),
+        challenger.to_string(),
+        without_challenger.to_string(),
+    )
+}
+
+/// `12`, `2.5`, `1-6`, `25%`, `45s`, `2m 05s`, `1h 02m`, or tokens as `950`, `12.5k` or `3.2M`.
 impl fmt::Display for Cell {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -129,20 +187,32 @@ impl fmt::Display for Cell {
             Self::Number(Some(number)) => write!(output, "{number:.1}"),
             Self::Range(Some(spread)) => write!(output, "{}-{}", spread.least, spread.most),
             Self::Percent(Some(ratio)) => write!(output, "{:.0}%", ratio * 100.0),
-            Self::Time(Some(duration)) => {
-                let seconds = (duration.as_millis() + 500) / 1000;
-                match seconds {
-                    0..60 => write!(output, "{seconds}s"),
-                    60..3600 => write!(output, "{}m {:02}s", seconds / 60, seconds % 60),
-                    _ => write!(output, "{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
-                }
-            }
+            Self::Time(Some(duration)) => write_time(output, *duration),
+            Self::Tokens(tokens) => write_tokens(output, *tokens),
             Self::Count(None)
             | Self::Number(None)
             | Self::Range(None)
             | Self::Percent(None)
             | Self::Time(None) => output.write_str("-"),
         }
+    }
+}
+
+fn write_time(output: &mut fmt::Formatter<'_>, duration: Duration) -> fmt::Result {
+    let seconds = (duration.as_millis() + 500) / 1000;
+    match seconds {
+        0..60 => write!(output, "{seconds}s"),
+        60..3600 => write!(output, "{}m {:02}s", seconds / 60, seconds % 60),
+        _ => write!(output, "{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
+    }
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn write_tokens(output: &mut fmt::Formatter<'_>, tokens: u64) -> fmt::Result {
+    match tokens {
+        0..1000 => write!(output, "{tokens}"),
+        1000..1_000_000 => write!(output, "{:.1}k", tokens as f64 / 1e3),
+        _ => write!(output, "{:.1}M", tokens as f64 / 1e6),
     }
 }
 
@@ -156,6 +226,42 @@ impl Columns {
         for row in &Row::ALL {
             row.write(output, self)?;
         }
+        for row in &Row::RUN_AHEAD {
+            row.write(output, self)?;
+        }
+        for reason in self.not_prepared_reasons() {
+            let count = |summary: &Summary| {
+                Cell::Count(Some(
+                    summary
+                        .run_ahead
+                        .not_prepared
+                        .get(reason)
+                        .copied()
+                        .unwrap_or(0),
+                ))
+            };
+            line(output, &format!("  not: {reason}"), self.map(count))?;
+        }
+        for row in &Row::RUN_AHEAD_COSTS {
+            row.write(output, self)?;
+        }
         Ok(())
+    }
+
+    /// The value of each column.
+    fn map(&self, value: impl Fn(&Summary) -> Cell) -> [Cell; 3] {
+        [
+            value(&self.all),
+            value(&self.challenger),
+            value(&self.without_challenger),
+        ]
+    }
+
+    /// Why answers used no prepared turn, the most frequent first.
+    fn not_prepared_reasons(&self) -> Vec<&'static str> {
+        let counts = &self.all.run_ahead.not_prepared;
+        let mut reasons: Vec<_> = counts.keys().copied().collect();
+        reasons.sort_by_key(|reason| std::cmp::Reverse(counts[reason]));
+        reasons
     }
 }
