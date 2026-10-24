@@ -2518,6 +2518,7 @@ fn a_reviewer_does_not_fork_a_question_that_another_running_reviewer_forks() {
                 process: None,
                 taken_at_ms: 1,
                 turn: None,
+                submitted_at_ms: None,
                 exit: None,
                 usage: None,
                 discarded: None,

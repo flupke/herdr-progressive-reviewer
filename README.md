@@ -33,6 +33,29 @@ your phone.
   <img alt="An Explore question on the Explore page, with its choices and the agent's recommendation" src="docs/screenshots/explore-question-light.webp">
 </picture>
 
+### Run-ahead (experimental)
+
+While a question waits for you, run-ahead prepares the agent's next turn in the background:
+it forks the agent's session for each choice its setting names, and each fork takes the turn
+that would follow. When you pick a prepared choice, with no comment, the agent continues as that fork,
+and the next question shows at once. A fork still working is waited for; Stop waiting hands
+your answer to the agent.
+
+Turn it on in the pane's Explore round settings (`z`): off, the recommended choice, or every
+choice. It needs Linux, Claude Code, and the reviewer's Claude Code plugin that `make install`
+installs: restart an agent started before the install.
+
+Each fork costs about one agent turn, mostly read from the prompt cache, so every choice costs
+more than the recommended one. Your answer goes to the agent as usual, and the forks are
+discarded, when you add a comment, choose None of the above, send the agent back to the
+drawing board or write in the round conversation, or when the agent or the review changed
+since the forks started. A line under the turn says why. After three failures of its own in a
+row, run-ahead stops for the round.
+
+`bin/reviewer-control stats` says whether it pays: the share of answers that used a prepared
+turn, why the others did not, your wait after an answer with and without one, and the tokens
+the forks spent.
+
 ## Install
 
 On Linux or macOS, install Herdr 0.7.5 or later, Rust, a C compiler, Make, Git, and Claude

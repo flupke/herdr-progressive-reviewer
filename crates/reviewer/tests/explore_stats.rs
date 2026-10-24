@@ -10,8 +10,17 @@ use review_test_support::GitFixture;
 const ANSWERED: &str = include_str!("../../review-explore-stats/testdata/answered.json");
 /// A synthetic answered round with a Challenger, started 2026-09-20.
 const CHALLENGER: &str = include_str!("../../review-explore-stats/testdata/challenger.json");
+/// What run-ahead did in the round with a Challenger: one of its two answers used a prepared
+/// turn, the other chose None of the above.
+const CHALLENGER_FORKS: &str =
+    include_str!("../../review-explore-stats/testdata/challenger.forks.json");
 
 fn save(state: &Path, repository: &Path, json: &str) {
+    save_with_forks(state, repository, json, None);
+}
+
+/// Saves the round `json`, and the run-ahead record `forks` beside it when given.
+fn save_with_forks(state: &Path, repository: &Path, json: &str, forks: Option<&str>) {
     let mut stored: serde_json::Value = serde_json::from_str(json).unwrap();
     let round: review_explore::ExploreRound =
         serde_json::from_value(stored["value"].take()).unwrap();
@@ -20,6 +29,14 @@ fn save(state: &Path, repository: &Path, json: &str) {
         .lock_explore(&round.exploration.comparison.checkpoint.review_unit)
         .unwrap();
     records.create_round(&round).unwrap();
+    if let Some(forks) = forks {
+        let mut stored: serde_json::Value = serde_json::from_str(forks).unwrap();
+        let forks: review_run_ahead::RoundForks =
+            serde_json::from_value(stored["value"].take()).unwrap();
+        records
+            .update_round_forks(&round.exploration.instance, |saved| *saved = forks)
+            .unwrap();
+    }
 }
 
 fn stats(directory: &Path, environment: &[(&str, &Path)], arguments: &[&str]) -> Output {
@@ -115,6 +132,41 @@ fn rounds_with_a_challenger_count_its_proposals_by_result() {
             "{label}"
         );
     }
+}
+
+#[test]
+fn run_ahead_counts_only_in_the_rounds_saved_with_its_record() {
+    let repository = GitFixture::new();
+    let state = tempfile::tempdir().unwrap();
+    save(state.path(), repository.root(), ANSWERED);
+    save_with_forks(
+        state.path(),
+        repository.root(),
+        CHALLENGER,
+        Some(CHALLENGER_FORKS),
+    );
+
+    let output = stats(
+        repository.root(),
+        &[("HERDR_PLUGIN_STATE_DIR", state.path())],
+        &[],
+    );
+
+    for (label, values) in [
+        ("Rounds with run-ahead", ["1", "1", "0"]),
+        ("Answers run-ahead watched", ["2", "2", "0"]),
+        ("  that used a prepared turn", ["50%", "50%", "-"]),
+        ("  not: None of the above", ["1", "1", "0"]),
+        ("Forks", ["5", "5", "0"]),
+        ("Fork tokens, used turns", ["55.0k", "55.0k", "0"]),
+        ("Fork tokens, discarded forks", ["92.7k", "92.7k", "0"]),
+    ] {
+        assert_eq!(rows(&output, label), vec![values], "{label}");
+    }
+    assert_eq!(
+        rows(&output, "Wait after an answer, prepared, median"),
+        vec![["3m", "00s", "3m", "00s", "-"]]
+    );
 }
 
 #[test]

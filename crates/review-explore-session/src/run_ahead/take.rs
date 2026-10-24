@@ -373,6 +373,7 @@ impl ExploreSession {
                 process: None,
                 taken_at_ms,
                 turn: None,
+                submitted_at_ms: None,
                 exit: None,
                 usage: None,
                 discarded: None,

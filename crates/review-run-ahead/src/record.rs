@@ -104,15 +104,21 @@ impl RoundForks {
     /// end, after a reviewer that stopped meanwhile, has no path: Retry sends it to the agent.
     pub fn turn_paths(&self) -> impl Iterator<Item = (&str, &TurnPath)> {
         self.answers.iter().filter_map(|answer| {
-            let shown = match &answer.path {
-                TurnPath::Prepared { session } => self.forks.iter().any(|fork| {
-                    fork.session == *session
-                        && matches!(fork.continued, Some(Continuation::Switched { .. }))
-                }),
-                TurnPath::Plain { .. } => true,
-            };
+            let shown =
+                matches!(answer.path, TurnPath::Plain { .. }) || self.used_a_prepared_turn(answer);
             shown.then_some((answer.request.as_str(), &answer.path))
         })
+    }
+
+    /// Whether `answer`'s turn was the prepared turn of a fork: the pane's agent continued as
+    /// that fork.
+    pub fn used_a_prepared_turn(&self, answer: &AnswerRecord) -> bool {
+        match &answer.path {
+            TurnPath::Prepared { session } => {
+                self.fork(session).is_some_and(ForkRecord::is_continued)
+            }
+            TurnPath::Plain { .. } => false,
+        }
     }
 }
 
@@ -147,6 +153,10 @@ pub struct ForkRecord {
     /// discarded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<Box<InterviewUpdate>>,
+    /// When the fork submitted its turn, in milliseconds since the epoch; kept once the turn
+    /// is discarded. `None` in records saved before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted_at_ms: Option<u64>,
     /// How its process ended, once it ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<String>,
@@ -174,6 +184,12 @@ impl ForkRecord {
             process: self.process,
             transcripts: &self.transcripts,
         }
+    }
+
+    /// Whether the pane's agent continued as the fork: Herdr reported it on the fork's session,
+    /// and the round took the fork's turn.
+    pub fn is_continued(&self) -> bool {
+        matches!(self.continued, Some(Continuation::Switched { .. }))
     }
 
     /// Whether the fork's session may be the pane agent's: its transcript is the agent's
@@ -366,6 +382,13 @@ pub struct TokenUsage {
     pub cache_creation: u64,
     pub cache_read: u64,
     pub output: u64,
+}
+
+impl TokenUsage {
+    /// Every token, whether read from the prompt cache or not.
+    pub fn total(self) -> u64 {
+        self.input + self.cache_creation + self.cache_read + self.output
+    }
 }
 
 impl std::ops::AddAssign for TokenUsage {

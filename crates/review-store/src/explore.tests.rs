@@ -485,6 +485,16 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         records.round_forks(&instance).unwrap(),
         RoundForks::default()
     );
+    let read_back = |store: &ReviewStore| {
+        let saved = store.saved_explore_rounds().unwrap();
+        assert_eq!(saved.rounds.len(), 1);
+        saved.rounds[0].run_ahead.clone()
+    };
+    assert_eq!(
+        read_back(&fixture.store),
+        RoundForks::default(),
+        "a round without forks reads as one without run-ahead"
+    );
     let mut history = records.history().unwrap();
     history.closed = true;
     records.save_history(&history).unwrap();
@@ -500,6 +510,7 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         process: None,
         taken_at_ms: 3,
         turn: None,
+        submitted_at_ms: None,
         exit: None,
         usage: None,
         discarded: None,
@@ -516,6 +527,11 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
     assert_eq!(
         fixture.store.load_round_forks(&unit, &instance).unwrap(),
         saved
+    );
+    assert_eq!(
+        read_back(&fixture.store),
+        saved,
+        "the saved rounds carry their forks"
     );
     let listed: Vec<_> = fixture
         .store

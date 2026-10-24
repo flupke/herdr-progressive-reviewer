@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 review-explore = { path = "../review-explore" }
+review-run-ahead = { path = "../review-run-ahead" }
 review-store = { path = "../review-store" }
 eyre.workspace = true
 time = { workspace = true, features = ["parsing", "macros", "local-offset"] }

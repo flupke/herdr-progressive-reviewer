@@ -1,5 +1,5 @@
 //! The numbers of a set of rounds.
-use crate::{proposals::ProposalCounts, sample::RoundSample};
+use crate::{proposals::ProposalCounts, run_ahead::RunAheadSummary, sample::RoundSample};
 use std::{cmp::Ordering, time::Duration};
 
 /// How many of `whole` items were `part`.
@@ -21,7 +21,7 @@ impl Share {
         (self.whole > 0).then(|| self.part as f64 / self.whole as f64)
     }
 
-    fn sum(shares: impl IntoIterator<Item = Self>) -> Self {
+    pub(crate) fn sum(shares: impl IntoIterator<Item = Self>) -> Self {
         shares
             .into_iter()
             .fold(Self::default(), |total, share| Self {
@@ -51,7 +51,7 @@ impl Spread {
 }
 
 /// Some values, at least one, in order.
-struct Sorted<T>(Vec<T>);
+pub(crate) struct Sorted<T>(Vec<T>);
 
 impl<T: Copy> Sorted<T> {
     fn by(
@@ -102,7 +102,7 @@ impl Sorted<usize> {
 
 impl Sorted<u64> {
     /// The median of some times in milliseconds.
-    fn median_time(milliseconds: impl IntoIterator<Item = u64>) -> Option<Duration> {
+    pub(crate) fn median_time(milliseconds: impl IntoIterator<Item = u64>) -> Option<Duration> {
         let (lower, upper) = Self::of(milliseconds)?.middle();
         Some(Duration::from_millis(lower.midpoint(upper)))
     }
@@ -135,6 +135,7 @@ pub(crate) struct Summary {
     pub(crate) question_words: Option<f64>,
     /// Over the rounds with a Challenger; none without one.
     pub(crate) proposals: Option<ProposalCounts>,
+    pub(crate) run_ahead: RunAheadSummary,
 }
 
 impl Summary {
@@ -145,7 +146,13 @@ impl Summary {
             .copied()
             .filter(|sample| sample.answered)
             .collect();
-        let turns = || samples.iter().flat_map(|sample| &sample.agent_turns);
+        // A prepared turn is no turn of the agent's: its time is a switch.
+        let turns = || {
+            samples
+                .iter()
+                .flat_map(|sample| &sample.agent_turns)
+                .filter(|turn| !turn.prepared)
+        };
         Self {
             rounds: samples.len(),
             answered: answered.len(),
@@ -180,6 +187,7 @@ impl Summary {
                     .filter(|sample| sample.challenger)
                     .map(|sample| sample.proposals),
             ),
+            run_ahead: RunAheadSummary::of(samples.iter().map(|sample| &sample.run_ahead)),
         }
     }
 

@@ -1,0 +1,95 @@
+{
+  "version": 2,
+  "value": {
+    "forks": [
+      {
+        "question": "b-q1",
+        "version": 1,
+        "choice": "mutex",
+        "session": "f-mutex",
+        "transcripts": "/state/projects",
+        "reviewer": { "pid": 1, "started": 2 },
+        "process": { "pid": 3, "started": 4 },
+        "taken_at_ms": 1789898640000,
+        "submitted_at_ms": 1789898690000,
+        "exit": "exited with 0",
+        "usage": { "input": 10, "cache_creation": 2000, "cache_read": 50000, "output": 3000 },
+        "cleaned": true,
+        "continued": { "state": "switched", "at_ms": 1789898701000 }
+      },
+      {
+        "question": "b-q1",
+        "version": 1,
+        "choice": "channel",
+        "session": "f-channel",
+        "transcripts": "/state/projects",
+        "reviewer": { "pid": 1, "started": 2 },
+        "process": { "pid": 5, "started": 6 },
+        "taken_at_ms": 1789898640000,
+        "exit": "killed by SIGTERM",
+        "usage": { "input": 5, "cache_creation": 1000, "cache_read": 40000, "output": 500 },
+        "discarded": { "reason": "answered", "prepared": false, "at_ms": 1789898699998 },
+        "cleaned": true
+      },
+      {
+        "question": "b-q2",
+        "version": 1,
+        "choice": "retry",
+        "session": "f-retry-before-the-message",
+        "transcripts": "/state/projects",
+        "reviewer": { "pid": 1, "started": 2 },
+        "process": { "pid": 7, "started": 8 },
+        "taken_at_ms": 1789898880000,
+        "exit": "killed by SIGTERM",
+        "usage": { "input": 0, "cache_creation": 0, "cache_read": 20000, "output": 200 },
+        "discarded": { "reason": "chat_message", "prepared": false, "at_ms": 1789898900000 },
+        "cleaned": true
+      },
+      {
+        "question": "b-q2",
+        "version": 1,
+        "choice": "retry",
+        "session": "f-retry",
+        "transcripts": "/state/projects",
+        "reviewer": { "pid": 1, "started": 2 },
+        "process": { "pid": 9, "started": 10 },
+        "taken_at_ms": 1789898960000,
+        "submitted_at_ms": 1789898990000,
+        "exit": "exited with 0",
+        "usage": { "input": 0, "cache_creation": 0, "cache_read": 30000, "output": 1000 },
+        "discarded": { "reason": "answered", "prepared": true, "at_ms": 1789899000000 },
+        "cleaned": true
+      },
+      {
+        "question": "b-q2",
+        "version": 1,
+        "choice": "fail",
+        "session": "f-fail",
+        "transcripts": "/state/projects",
+        "reviewer": { "pid": 1, "started": 2 },
+        "process": { "pid": 11, "started": 12 },
+        "taken_at_ms": 1789898960000,
+        "discarded": { "reason": "answered", "prepared": true, "at_ms": 1789898999999 },
+        "cleaned": true
+      }
+    ],
+    "answers": [
+      {
+        "question": "b-q1",
+        "version": 1,
+        "answer": "b-1",
+        "request": "b-r2",
+        "at_ms": 1789898700000,
+        "path": { "path": "prepared", "session": "f-mutex" }
+      },
+      {
+        "question": "b-q2",
+        "version": 1,
+        "answer": "b-2",
+        "request": "b-r3",
+        "at_ms": 1789899000000,
+        "path": { "path": "plain", "reason": { "reason": "none_of_the_above" } }
+      }
+    ]
+  }
+}

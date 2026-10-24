@@ -14,6 +14,7 @@ fn record() -> ForkRecord {
         process: Some(ProcessStamp { pid: 3, started: 4 }),
         taken_at_ms: 5,
         turn: None,
+        submitted_at_ms: None,
         exit: None,
         usage: None,
         discarded: None,

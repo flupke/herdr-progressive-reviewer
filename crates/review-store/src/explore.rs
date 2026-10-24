@@ -26,6 +26,8 @@ const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
 const MAX_VIEW: u64 = 16 * 1024 * 1024;
 // The forks of a round: a few small records per question.
 const MAX_FORKS: u64 = 16 * 1024 * 1024;
+/// What the name of a round's run-ahead record adds to the round's identity.
+const FORKS_SUFFIX: &str = ".forks.json";
 
 #[derive(Deserialize, Serialize)]
 struct Stored<T> {
@@ -182,11 +184,14 @@ pub struct SavedRounds {
     pub unreadable: usize,
 }
 
-/// A saved round and when its file was last written.
+/// A saved round, when its file was last written, and what run-ahead did in it.
 #[derive(Debug)]
 pub struct SavedRound {
     pub round: ExploreRound,
     pub saved_at: SystemTime,
+    /// The round's run-ahead record; empty when the round never had run-ahead, as every round
+    /// saved before it existed, or when the record cannot be read.
+    pub run_ahead: RoundForks,
 }
 
 impl ReviewStore {
@@ -195,8 +200,8 @@ impl ReviewStore {
         self.repository_dir.join("explore-v1")
     }
 
-    /// Read every saved round of every review of this repository. It takes no
-    /// lock: a round file is replaced atomically, so each read sees one whole
+    /// Read every saved round of every review of this repository, with its run-ahead record.
+    /// It takes no lock: a round file is replaced atomically, so each read sees one whole
     /// version. A missing Explore directory holds no rounds.
     pub fn saved_explore_rounds(&self) -> Result<SavedRounds> {
         let mut saved = SavedRounds::default();
@@ -211,7 +216,17 @@ impl ReviewStore {
             }
             for (instance, saved_at) in Self::round_files_in(&review)? {
                 match Self::read_explore(&review.join(format!("{instance}.json")), MAX_DOMAIN) {
-                    Ok(Some(round)) => saved.rounds.push(SavedRound { round, saved_at }),
+                    Ok(Some(round)) => saved.rounds.push(SavedRound {
+                        round,
+                        saved_at,
+                        run_ahead: Self::read_explore(
+                            &review.join(format!("{instance}{FORKS_SUFFIX}")),
+                            MAX_FORKS,
+                        )
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default(),
+                    }),
                     Ok(None) | Err(_) => saved.unreadable += 1,
                 }
             }
@@ -241,7 +256,7 @@ impl ReviewStore {
                 let Some(instance) = entry
                     .file_name()
                     .to_str()
-                    .and_then(|name| name.strip_suffix(".forks.json"))
+                    .and_then(|name| name.strip_suffix(FORKS_SUFFIX))
                     .filter(|instance| Self::explore_id(instance).is_ok())
                     .map(str::to_owned)
                 else {
@@ -416,7 +431,7 @@ impl ReviewStore {
         Self::explore_id(instance)?;
         Ok(self
             .explore_review(unit)?
-            .join(format!("{instance}.forks.json")))
+            .join(format!("{instance}{FORKS_SUFFIX}")))
     }
 
     /// The run-ahead forks of the round `instance`; none when it never had any.

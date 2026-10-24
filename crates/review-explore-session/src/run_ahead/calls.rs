@@ -83,6 +83,7 @@ impl ExploreSession {
         self.update_forks(round, |forks| {
             if let Some(record) = forks.fork_mut(&fork.session) {
                 record.turn = Some(kept);
+                record.submitted_at_ms = Some(review_explore::now_ms());
             }
         })
         .map_err(|error| error.to_string())?;
