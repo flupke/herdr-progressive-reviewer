@@ -30,7 +30,7 @@ use super::session::{Input, Session, StartOptions};
 /// The longest a `wait_for` or `turn` may wait.
 const MAX_WAIT_MS: u64 = 60_000;
 
-const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent; the user can watch it there. Every action (key, type, click, jev, reply) returns once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Text screens give each row as `row: text`, drop the spaces and box borders that end a row, and fold a run of empty rows, or a QR code, into one line that names its rows. Coordinates are zero-based terminal cells, columns counted from the start of a row's text. screen, start and reopen return the whole screen. Actions and wait_for return only the lines of rows that changed since the last screen returned, with changed_rows, the number of rows whose text changed; when no screen of the same size was returned before (the first action, or after a resize), they return the whole screen, without changed_rows. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
+const INSTRUCTIONS: &str = "Eyes and hands on the reviewer's terminal pane. `start` builds the reviewer from this checkout and runs it in a new workspace of the user's Herdr, named \"reviewer vision\", on a scratch repository, beside a stand-in implementation agent that run-ahead can fork; the user can watch it there. Every action (key, type, click, jev, reply) returns once the reviewer has read the input and painted its reaction, not after a delay. For asynchronous work, call wait_for with the text the finished screen shows. Text screens give each row as `row: text`, drop the spaces and box borders that end a row, and fold a run of empty rows, or a QR code, into one line that names its rows. Coordinates are zero-based terminal cells, columns counted from the start of a row's text. screen, start and reopen return the whole screen. Actions and wait_for return only the lines of rows that changed since the last screen returned, with changed_rows, the number of rows whose text changed; when no screen of the same size was returned before (the first action, or after a resize), they return the whole screen, without changed_rows. With run-ahead on (key z in the Explore tab), forks lists the forks of the question that waits, and fork_submit plays one. Use screenshot to judge how the screen looks, screen with styled for colors as ANSI sequences, and note to record what you checked and found in the session's actions.jsonl. Call stop when done: it closes the workspace and removes the scratch repository.";
 
 /// The repository a session reviews.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
@@ -193,6 +193,46 @@ struct ReplyInput {
     /// checkpoint of the latest Explore turn, inside `revision`; an
     /// `interpretation` without an `answer` is about the answer the turn brought. Arguments with
     /// their own `review` are sent as they are, to check how the reviewer rejects them.
+    arguments: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ForksInput {
+    /// Wait until at least this many forks started, counting those of earlier questions, instead
+    /// of returning at once.
+    count: Option<usize>,
+    /// The longest the wait goes on with no new event of the stand-in agent or its forks, 15000
+    /// ms by default, at most 60000.
+    timeout_ms: Option<u64>,
+}
+
+/// A tool of the reviewer's MCP endpoint that a fork submits its turn with.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ForkTool {
+    SubmitQuestion,
+    SubmitConclusion,
+}
+
+impl ForkTool {
+    fn name(self) -> &'static str {
+        match self {
+            Self::SubmitQuestion => "submit_question",
+            Self::SubmitConclusion => "submit_conclusion",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ForkSubmitInput {
+    /// The fork's session, as forks lists it.
+    session: String,
+    /// The reviewer's MCP tool the fork submits its turn with.
+    tool: ForkTool,
+    /// The tool's arguments, as for reply: the access value, `instance`, `request`, `checkpoint`
+    /// and the interpretation's `answer` are filled in from the fork's prompt unless given.
     arguments: serde_json::Map<String, Value>,
 }
 
@@ -379,7 +419,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a script named claude that Explore and review comments prompt). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
+        description = "Start a vision session: build the reviewer from this checkout, create a scratch repository with a base change and a change under review, and run the reviewer in a new \"reviewer vision\" workspace of the user's Herdr beside a stand-in implementation agent (a program named claude that Explore and review comments prompt, which reports its session and runs the reviewer's Claude Code plugin hooks, so run-ahead can fork it). Returns the reviewer's first screen, which may come before the repository has loaded (wait_for a file name), the workspace and pane IDs, the repository (edit its files to exercise filesystem-driven updates) and the session directory. One session at a time."
     )]
     async fn start(
         &self,
@@ -625,7 +665,47 @@ impl Server {
     }
 
     #[tool(
-        description = "Run the Herdr action that opens the Explore page, as Herdr runs it in the session's workspace, with a browser that records the address instead of opening it. Returns that address, with its token, as page: open it with curl (curl -sL -c jar -b jar \"$PAGE\") or a browser on this machine."
+        description = "List the forks run-ahead started of the stand-in agent's session, oldest first: each fork's session, the session it copies, its choice, its prompt with the turn's files (its access and Answer ID among them), and whether it submitted, ended its turn, or exited (the reviewer stops the forks of a question it no longer needs). Also returns the agent's sessions (the one it reported last, and those it resumed: after a bare answer to a prepared choice, the fork's), and run-ahead's log. With count, waits until that many forks started."
+    )]
+    async fn forks(
+        &self,
+        Parameters(input): Parameters<ForksInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("forks", json!(input), move |_, session| {
+            let guard = wait_guard(input.timeout_ms, 15_000)?;
+            let forks = running(session)?.forks(input.count, guard)?;
+            Ok(Outcome::summary(
+                json!({"status": "forks", "run_ahead": forks}),
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Submit a fork's turn as that fork: call submit_question or submit_conclusion on the reviewer's real endpoint with the fork's own access, then make the fork's output say that its submit has its answer, as Claude Code's would. The reviewer keeps that turn, shown to nobody, until a bare answer with the fork's choice uses it. Returns the tool's result as `reply`, and the rows that changed once the reviewer has shown it; the reviewer's own validation errors come back in `reply`, and the fork is then not told."
+    )]
+    async fn fork_submit(
+        &self,
+        Parameters(input): Parameters<ForkSubmitInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run("fork_submit", json!(input), move |_, session| {
+            let (reply, screen) = running(session)?.fork_submit(
+                &input.session,
+                input.tool.name(),
+                Value::Object(input.arguments),
+            )?;
+            let status = if reply["isError"] == true {
+                "refused"
+            } else {
+                "submitted"
+            };
+            Ok(Outcome::reaction(status, screen).with("reply", reply))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Run the Herdr action that opens the Explore page, as Herdr runs it in the session's workspace, with a browser that records the address instead of opening it. Returns that address, with its token, as page: open it in a browser on this machine, since the page draws itself from its socket (curl gets no round)."
     )]
     async fn explore_page(
         &self,
@@ -758,6 +838,8 @@ fn build_reviewer(checkout: &std::path::Path) -> Result<PathBuf> {
             "reviewer",
             "--bin",
             "reviewer-control",
+            "-p",
+            "stand-in-agent",
             "--message-format",
             "short",
         ])

@@ -8,9 +8,9 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 
 - [Checks](checks.md): gotchas of the check commands, the Herdr release the tests run, the opt-in tests, mutation runs.
 - [Unit tests](unit-tests.md): tautological tests, which code review removes, what makes a test go red on a bug, how a test waits.
-- [Test stand-ins](test-stand-ins.md): the Herdr test server, the stand-in agent and forks, their event socket and turn control, waiting on events.
+- [Test stand-ins](test-stand-ins.md): the Herdr test server, the stand-in agent and forks and their program, their event socket and turn control, waiting on events.
 - [Parallel workspaces](parallel-workspaces.md): running a gate or an agent in a second jj workspace.
-- [Terminal UI exploration](tui-vision.md): driving the real pane in the user's Herdr with the vision MCP server (`make vision`), how its tools wait, the gotchas of its stand-ins, turning findings into regression tests.
+- [Terminal UI exploration](tui-vision.md): driving the real pane in the user's Herdr with the vision MCP server (`make vision`), how its tools wait, the gotchas of its stand-ins, run-ahead in a session, turning findings into regression tests.
 - [Explore page: e2e tests](explore-page-e2e.md): what the page's journeys cover and what goes to Rust tests, writing and running them, writing one with an agent.
 - [Explore page: standalone server and screenshot gallery](explore-page-standalone.md): `make explore-page`, `make explore-script` and `make explore-gallery`.
 - [README screenshots](readme-screenshots.md): taking the README's screenshots of the Explore page and the pane again, and their gotchas.

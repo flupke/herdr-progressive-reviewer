@@ -120,7 +120,7 @@ Two tests in `reviewer` run real Claude Code turns on your subscription, at
 `claude-sonnet-5-5`, and are ignored by default:
 
 ```sh
-cargo build -p reviewer --bin reviewer-control -p review-mcp-config --bin reviewer-mcp
+cargo build -p reviewer --bin reviewer-control -p review-mcp-config --bin reviewer-mcp -p stand-in-agent
 cargo nextest run -p reviewer a_real_claude_code --run-ignored only
 ```
 

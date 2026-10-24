@@ -1,10 +1,11 @@
 //! One vision session: the reviewer running in a workspace of the user's Herdr, on a scratch
-//! repository, beside a stand-in agent. Each action waits for the frame that shows the
-//! reviewer's reaction, which Herdr reports as an event.
+//! repository, beside a stand-in agent that run-ahead can fork. Each action waits for the frame
+//! that shows the reviewer's reaction, which Herdr reports as an event; the stand-in agent and its
+//! forks report on the session's event socket.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use review_repository::repository::RepoType;
@@ -13,8 +14,10 @@ use vision_signal::{FrameMarker, acknowledgement_request};
 
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentPort, PaneId};
+use review_test_support::stand_in::{StandInCommand, StandInEvent, StandInEvents, StandInRole};
 
 use super::agent::ScriptedAgent;
+use super::forks;
 use super::frames::{FrameWatch, Stalled};
 use super::keys::KeyInput;
 use super::scratch::{Scratch, Seed};
@@ -28,6 +31,10 @@ const REACTION_GUARD: Duration = Duration::from_secs(30);
 
 /// The share of the tab's width the reviewer takes beside its stand-in agent.
 const REVIEWER_SHARE: f64 = 0.75;
+
+/// The title the stand-in agent shows outside its turns: Claude Code's, which Herdr reads as
+/// idle.
+const IDLE_TITLE: &str = "✳ Ready";
 
 /// What a session starts on.
 pub(crate) struct StartOptions {
@@ -50,10 +57,13 @@ pub(crate) enum Input<'a> {
 }
 
 pub(crate) struct Session {
-    // Stop listening, then close the workspace, then remove the scratch repository.
+    // Stop listening, then close the workspace, then stop listening to the stand-ins, then remove
+    // the scratch repository.
     watch: FrameWatch,
     workspace: Workspace,
     panes: Panes,
+    /// What the stand-in agent and its forks report.
+    events: StandInEvents,
     scratch: Scratch,
     reviewer_program: PathBuf,
     agent: ScriptedAgent,
@@ -71,14 +81,17 @@ impl Session {
         directory: PathBuf,
     ) -> Result<(Self, Screen)> {
         let scratch = Scratch::create(options.repository, &options.seed, directory)?;
+        scratch.install_agent(&reviewer)?;
+        let events = StandInEvents::listen(&scratch.events_socket());
         let (mut workspace, tab) = Workspace::create(herdr, scratch.root(), options.focus)?;
         let watch = FrameWatch::start(herdr, workspace.id().to_owned())?;
-        let panes = Self::open_panes(&mut workspace, &tab, &scratch, &reviewer)?;
+        let panes = Self::open_panes(&mut workspace, &tab, &scratch, &reviewer, &events)?;
         let agent = ScriptedAgent::new(scratch.turns(), scratch.mcp_port());
         let session = Self {
             watch,
             workspace,
             panes,
+            events,
             scratch,
             reviewer_program: reviewer,
             agent,
@@ -88,14 +101,21 @@ impl Session {
         Ok((session, screen))
     }
 
-    /// Replace the tab's layout with a new reviewer and stand-in agent.
+    /// Replace the tab's layout with a new reviewer and stand-in agent, on a new session, and
+    /// return once the agent shows its idle title.
     fn open_panes(
         workspace: &mut Workspace,
         tab: &str,
         scratch: &Scratch,
         reviewer: &Path,
+        events: &StandInEvents,
     ) -> Result<Panes> {
         let herdr = workspace.herdr();
+        let session = format!(
+            "vision-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        );
+        let from = events.try_received().map_err(|error| anyhow!(error))?.len();
         let applied = herdr.request(
             "layout.apply",
             &json!({
@@ -117,6 +137,7 @@ impl Session {
                         "label": "stand-in agent",
                         "cwd": scratch.root(),
                         "command": scratch.agent_command(),
+                        "env": scratch.agent_environment(reviewer, &session),
                     },
                 },
             }),
@@ -128,6 +149,25 @@ impl Session {
             agent: string(&layout["root"]["second"]["pane_id"])?,
         };
         workspace.opened(&panes);
+        // The agent that connects from now on is the new one: an agent the layout replaced
+        // keeps its connection until its process ends.
+        events
+            .try_wait_until("the stand-in agent", REACTION_GUARD, |received| {
+                received[from..].iter().any(|reported| {
+                    reported.from == StandInRole::Agent
+                        && matches!(reported.event, StandInEvent::Hello { .. })
+                })
+            })
+            .map_err(|error| anyhow!(error))?;
+        events
+            .try_send(
+                &StandInRole::Agent,
+                &StandInCommand::ShowTitle {
+                    title: IDLE_TITLE.into(),
+                },
+                REACTION_GUARD,
+            )
+            .map_err(|error| anyhow!(error))?;
         Ok(panes)
     }
 
@@ -153,7 +193,10 @@ impl Session {
             "agent_pane": self.panes.agent,
             "repository": self.scratch.root(),
             "directory": self.scratch.directory(),
-            "agent_swallows_prompts": self.scratch.swallow_switch(),
+            "agent_swallows_prompts": self.scratch.stand_in().swallow(),
+            "run_ahead_log": self.scratch.run_ahead_log(),
+            "claude_config": self.scratch.claude_config(),
+            "runtime": self.scratch.runtime(),
         })
     }
 
@@ -289,6 +332,61 @@ impl Session {
         Ok((result, self.settle()?))
     }
 
+    /// The forks run-ahead started, once `count` did when it is given, waiting up to `guard`;
+    /// the agent's sessions; and run-ahead's log.
+    pub(crate) fn forks(&self, count: Option<usize>, guard: Duration) -> Result<Value> {
+        let received = match count {
+            Some(count) => self
+                .events
+                .try_wait_until(&format!("{count} forks"), guard, |received| {
+                    forks::forks(received).len() >= count
+                })
+                .map_err(|error| anyhow!(error))?,
+            None => self.events.try_received().map_err(|error| anyhow!(error))?,
+        };
+        Ok(json!({
+            "forks": forks::forks(&received),
+            "agent": forks::agent_sessions(&received),
+            "log": fs::read_to_string(self.scratch.run_ahead_log()).unwrap_or_default(),
+        }))
+    }
+
+    /// Submit the turn of the fork `session` with `tool`, as that fork: the reviewer's tool on
+    /// its real endpoint, with the identity of the fork's prompt where `arguments` leave it out;
+    /// then the fork's output says that its submit has its answer. Returns the tool's result once
+    /// the fork said so, with the screen once the reviewer has shown it.
+    pub(crate) fn fork_submit(
+        &mut self,
+        session: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<(Value, Screen)> {
+        let received = self.events.try_received().map_err(|error| anyhow!(error))?;
+        let prompt = forks::forks(&received)
+            .into_iter()
+            .find(|fork| fork.session == session)
+            .with_context(|| format!("no fork has the session {session}"))?
+            .prompt;
+        let result = self.agent.reply_as_fork(&prompt, tool, arguments)?;
+        if result["isError"] == true {
+            return Ok((result, self.settle()?));
+        }
+        let fork = StandInRole::Fork {
+            session: session.to_owned(),
+        };
+        self.events
+            .try_send(&fork, &StandInCommand::Submit, REACTION_GUARD)
+            .map_err(|error| anyhow!(error))?;
+        self.events
+            .try_wait_until("the fork's submit", REACTION_GUARD, |received| {
+                received.iter().any(|reported| {
+                    reported.from == fork && reported.event == StandInEvent::ForkSubmitted
+                })
+            })
+            .map_err(|error| anyhow!(error))?;
+        Ok((result, self.settle()?))
+    }
+
     pub(crate) fn explore_page(&self) -> Result<String> {
         let environment = self
             .scratch
@@ -318,6 +416,7 @@ impl Session {
             &self.panes.tab,
             &self.scratch,
             &self.reviewer_program,
+            &self.events,
         )?;
         self.first_screen()
     }

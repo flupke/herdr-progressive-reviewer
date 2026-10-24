@@ -1,0 +1,21 @@
+[package]
+name = "stand-in-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The stand-in agent and forks that the reviewer's tests and `make vision` run in a Herdr pane."
+
+[dependencies]
+claude-hooks = { path = "../claude-hooks" }
+crossterm.workspace = true
+herdr-client = { path = "../herdr-client" }
+review-test-support = { path = "../review-test-support" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -21,8 +21,10 @@ lint: complexity explore-client-check
 
 # Level 2, with CRATES: the unit tests of those crates (`make test CRATES="quick-tunnel"`).
 # Level 3, without: every unit test of the workspace, doc tests included.
+# The reviewer's tests run the stand-in agent's program, which no test of theirs builds.
 CRATES ?=
 test:
+	cargo build --locked -p stand-in-agent
 ifeq ($(strip $(CRATES)),)
 	cargo test --workspace --doc
 	cargo nextest run --workspace
@@ -53,7 +55,7 @@ check-with-e2e: check
 	$(MAKE) e2e-explore
 
 e2e-tui:
-	cargo build --locked -p reviewer --bin reviewer
+	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control -p stand-in-agent
 	cargo clippy --locked --manifest-path tests/tui/Cargo.toml --all-targets
 	REVIEWER_BIN_PATH="$(CURDIR)/target/debug/reviewer" cargo nextest run --locked --manifest-path tests/tui/Cargo.toml
 
@@ -115,7 +117,7 @@ explore-types:
 # Builds the vision MCP server and the reviewer it runs, and says how an agent uses it
 # (.agents/wiki/tui-vision.md). `.mcp.json` registers the server through scripts/vision-mcp.
 vision:
-	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control
+	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control -p stand-in-agent
 	cargo build --locked --manifest-path tests/tui/Cargo.toml --bin reviewer-vision
 	touch tests/tui/target/debug/reviewer-vision
 	@tests/tui/target/debug/reviewer-vision --help

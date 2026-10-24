@@ -3,7 +3,19 @@
 How tests run a private Herdr with a stand-in agent and stand-in forks, and wait on what these
 do instead of polling. The rule they serve is in [Unit tests](unit-tests.md). The types are
 documented in `review_test_support` (`HerdrTestServer`, `HerdrEventWatch`, `AgentStatusWatch`,
-`stand_in`) and in `crates/reviewer/src/runtime/stand_in_agent.tests.rs`.
+`stand_in`) and in [`crates/stand-in-agent`](../../crates/stand-in-agent).
+
+## The stand-in agent's program
+
+The stand-in agent and its forks are one program, `stand-in-agent`, which the reviewer's tests
+and `make vision` ([terminal UI exploration](tui-vision.md)) run: its library says what they
+agree with it on, the variables it reads and the files it reads and writes. A test links it into
+its server's directory under the agent's name (`claude`, `codex`), which Herdr detects the agent
+by; started with Claude Code's `--fork-session`, it plays a fork. Cargo builds it for a test run
+of the whole workspace (`cargo nextest run --workspace`, `make mutants`), since its crate has an
+integration test; `make test`, with or without `CRATES`, `make e2e-tui` and `make vision` build
+it first (`cargo build -p stand-in-agent`). A bare `cargo nextest run -p reviewer` does not: it
+runs the program built last, or fails with that command when none was.
 
 ## The Herdr test server
 
@@ -47,7 +59,7 @@ reads as it reads the prompt: `swallow` makes it read each prompt without starti
 
 The Claude Code stand-in of the run-ahead and hooked delivery tests (`REVIEW_AGENT_E2E_HOOKS`)
 runs the hooks of the reviewer's Claude Code plugin as Claude Code does, through the
-`reviewer-control` that Cargo built beside the test binary, and does not start on a prompt they
+`reviewer-control` that variable names, and does not start on a prompt they
 block (`PromptBlocked`), which it puts back in its input box as Claude Code 2.1.309 does: a test
 clears the box (`herdr pane send-keys <pane> ctrl+u`) before its next prompt or marker. A marker
 is no prompt to the hooks. Every prompt the reviewer types to it is confirmed by its hook, not by
@@ -95,10 +107,6 @@ the agent idle after that turn, and an answer never finds the agent busy.
 The agent shows the screen the test gave it (`ShowScreen`) before the title (`ShowTitle`):
 once Herdr reports the status a title shows, it shows the screen drawn before. Herdr sends no
 event when a pane's screen changes, so this is how a test knows that Herdr shows a screen.
-
-The test harness that runs the stand-in agent writes to the process's standard output, such as
-its warning that a test ran for over a minute; the agent takes the pane from the standard output
-at its start and leaves that output nowhere.
 
 ## Waiting on what the reviewer saved
 

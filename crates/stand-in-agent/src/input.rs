@@ -1,26 +1,26 @@
-//! A terminal composer for the deterministic agent used by isolated Herdr tests.
+//! The stand-in agent's input box, as a terminal agent's composer reads what is typed in it.
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 #[derive(Default)]
-pub(super) struct AgentInput {
+pub(crate) struct AgentInput {
     text: String,
 }
 
 impl AgentInput {
-    pub(super) fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
     /// Puts the prompt `blocked`, if any, back in the composer, as Claude Code does with a
     /// prompt its hooks blocked.
-    pub(super) fn restore(&mut self, blocked: Option<String>) {
+    pub(crate) fn restore(&mut self, blocked: Option<String>) {
         if let Some(blocked) = blocked {
             self.text = blocked;
         }
     }
 
-    pub(super) fn handle(&mut self, event: Event) -> Option<String> {
+    pub(crate) fn handle(&mut self, event: Event) -> Option<String> {
         match event {
             Event::Paste(text) => self.text.push_str(&text),
             Event::Key(key) if key.kind != KeyEventKind::Release => {

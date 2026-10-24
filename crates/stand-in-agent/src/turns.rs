@@ -1,4 +1,4 @@
-//! What the stand-in agent shows Herdr and reports on the test's event socket
+//! What the stand-in agent shows Herdr and reports on the event socket
 //! (`review_test_support::stand_in`): its turns, its title and its screen.
 //!
 //! The test controls the agent's turns: a turn ends once Herdr saw it start, or, while the
@@ -6,7 +6,6 @@
 //! turn of an agent whose state is reported to Herdr instead, until the test releases it, ends
 //! at once.
 
-use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -47,7 +46,7 @@ struct TurnState {
 
 /// The turns the agent starts on the prompts it reads.
 #[derive(Clone)]
-pub(super) struct AgentTurns {
+pub(crate) struct AgentTurns {
     /// While this file exists, the agent reads each prompt without starting on it. The test
     /// writes it before the prompt it concerns, so the agent reads it in order.
     swallow_path: PathBuf,
@@ -59,7 +58,7 @@ pub(super) struct AgentTurns {
 impl AgentTurns {
     /// The turns of an agent whose state Herdr reads from its title when `title_read`, and the
     /// receiver the display wakes on.
-    pub(super) fn new(
+    pub(crate) fn new(
         swallow_path: PathBuf,
         title_read: bool,
         report: Arc<StandInConnection>,
@@ -84,7 +83,7 @@ impl AgentTurns {
 
     /// A real agent starts a turn on a prompt, which Herdr sees; this one does too, unless the
     /// test makes it swallow its prompts.
-    pub(super) fn prompt_read(&self) {
+    pub(crate) fn prompt_read(&self) {
         if self.swallow_path.exists() {
             return;
         }
@@ -136,7 +135,7 @@ impl AgentTurns {
     }
 
     /// The screen the test gave the agent, if any.
-    pub(super) fn screen(&self) -> Option<String> {
+    pub(crate) fn screen(&self) -> Option<String> {
         self.lock().screen.clone()
     }
 
@@ -161,7 +160,7 @@ impl AgentTurns {
 
     /// Follows what the test says, and what Herdr reports of the agent of `pane`, for as long
     /// as the agent runs.
-    pub(super) fn follow(&self, commands: Receiver<StandInCommand>, pane: &PaneId) {
+    pub(crate) fn follow(&self, commands: Receiver<StandInCommand>, pane: &PaneId) {
         let client = HerdrClient::new(
             std::env::var_os("HERDR_SOCKET_PATH").unwrap().into(),
             "stand-in".into(),
@@ -234,45 +233,24 @@ impl AgentTurns {
     }
 }
 
-/// The agent's pane, which it draws in. The test harness that runs the agent writes on the
-/// process's standard output, which goes nowhere: a warning that the agent ran for over a
-/// minute is no text of the agent's.
-#[derive(Clone)]
-pub(super) struct Pane(Arc<Mutex<File>>);
-
-impl Pane {
-    /// Takes the pane from the standard output, which then goes to `/dev/null`.
-    pub(super) fn take() -> Self {
-        let pane = rustix::io::dup(io::stdout()).unwrap();
-        let nowhere = File::options().write(true).open("/dev/null").unwrap();
-        rustix::stdio::dup2_stdout(&nowhere).unwrap();
-        Self(Arc::new(Mutex::new(File::from(pane))))
-    }
-
-    /// Writes `text` to the pane.
-    pub(super) fn draw(&self, text: &str) {
-        let mut pane = self.lock();
-        pane.write_all(text.as_bytes()).unwrap();
-        pane.flush().unwrap();
-    }
-
-    pub(super) fn lock(&self) -> std::sync::MutexGuard<'_, File> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
+/// Writes `text` to the agent's pane: its standard output.
+pub(crate) fn draw(text: &str) {
+    let mut pane = io::stdout().lock();
+    pane.write_all(text.as_bytes()).unwrap();
+    pane.flush().unwrap();
 }
 
 /// What the test agent shows Herdr: the screen the test gave it, then the title the test gave
 /// it, or a working title while the agent works on a prompt. The screen goes first, so that
 /// once Herdr reports the status a title shows, it shows the screen drawn before.
-pub(super) struct AgentDisplay {
-    pub(super) pane: Pane,
-    pub(super) turns: AgentTurns,
+pub(crate) struct AgentDisplay {
+    pub(crate) turns: AgentTurns,
     /// Wakes the display when what it shows changed, or when Herdr detected the agent.
-    pub(super) wakes: Receiver<()>,
+    pub(crate) wakes: Receiver<()>,
 }
 
 impl AgentDisplay {
-    pub(super) fn run(self) {
+    pub(crate) fn run(self) {
         let mut previous_title = None;
         let mut previous_screen = None;
         // Shown again on each wake: the wake may be Herdr detecting the agent.
@@ -280,13 +258,12 @@ impl AgentDisplay {
             let screen = self.turns.screen();
             if screen.is_some() && screen != previous_screen {
                 let text = screen.as_deref().unwrap_or_default();
-                self.pane
-                    .draw(&format!("\x1b[2J\x1b[H{}", text.replace('\n', "\r\n")));
+                draw(&format!("\x1b[2J\x1b[H{}", text.replace('\n', "\r\n")));
                 previous_screen = screen;
             }
             let title = self.turns.title(previous_title.as_ref());
             if let Some(shown) = &title {
-                self.pane.draw(&format!("\x1b]0;{shown}\x07"));
+                draw(&format!("\x1b]0;{shown}\x07"));
                 previous_title = title;
             }
         }

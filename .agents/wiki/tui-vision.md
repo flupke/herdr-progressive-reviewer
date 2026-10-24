@@ -16,8 +16,10 @@ server. The agent must run inside Herdr: the server reaches the user's Herdr thr
 
 The server lives in [`tests/tui`](../../tests/tui), its own Cargo workspace because
 `tui-test`, which draws the screenshots, requires `unicode-width` 0.2.2 while Ratatui 0.29
-pins 0.2.0. `start` builds the reviewer of the checkout in the dev shell, so each session
-runs the current code.
+pins 0.2.0. `start` builds the reviewer and the stand-in agent of the checkout in the dev shell,
+so each session runs the current code. The server itself does not rebuild: an MCP client keeps
+the process it started, so after a change under `tests/tui` the client must start the server
+again to get it.
 
 ## The session's workspace
 
@@ -28,6 +30,15 @@ user's workspace, that could be the user's real agent. The reviewer takes the ta
 which follows the user's terminal: Herdr sets split ratios, not a pane's size in cells, so
 the size can differ between runs (199, then 200 columns). Click by text, or read `size`
 first.
+
+The stand-in agent is the tests' ([test stand-ins](test-stand-ins.md)), named `claude`: it
+reports its session to Herdr as Herdr's own Claude Code hook does, runs the hooks of the
+reviewer's Claude Code plugin through the checkout's `reviewer-control`, and plays a fork when
+run-ahead starts it as one. The reviewer and the agent run with a runtime directory of their own,
+where the reviewer hears the hooks (`runtime` in `start`'s result, a temporary directory since a
+socket's path must be short), and the agent and its forks keep their transcripts in
+`claude-config` in the session directory: a session touches neither the user's reviewers nor
+their Claude Code configuration.
 
 `stop`, or a client that leaves or signals the server, closes the workspace only while it
 is still the session's: its label, and no pane the session did not open. A workspace the
@@ -68,14 +79,12 @@ each frame.
   that cell is redrawn, though the reviewer never writes them: a text selection that ends
   before trailing spaces looks highlighted to the end of the line's padding. The selected
   cells are right; ratatui sends no erase sequence (inferred: Herdr's grid).
-- The stand-in agent reports its state to Herdr itself, as Claude's hooks do: the user's
-  Herdr may not read its working state from its titles.
-- The stand-in agent reports no session and runs no hook of the reviewer's Claude Code plugin,
-  so run-ahead takes no fork of it. Reporting a session for its pane once it took the kickoff,
-  with `herdr pane report-agent-session <pane> --source herdr:claude --agent claude --seq
-  <nanoseconds> --agent-session-id <id> --session-start-source startup`, shows run-ahead's
-  reason for an agent without the plugin; Herdr then ignores the stand-in's own state reports,
-  and a report before the kickoff keeps it from starting on it.
+- Herdr reads the stand-in agent's state from its titles, Claude Code's (`✳ Ready`, `⠋
+  Working`), and the agent reports none itself: once a session is reported under
+  `herdr:claude`, Herdr 0.9.5 ignores the state an agent reports under a source of its own, but
+  still reads its titles when nothing else reports its state (probed in the user's Herdr).
+  A turn of the agent ends once Herdr saw it working; the status then reads `done` until the
+  pane is seen, which the reviewer takes as idle.
 
 A whole Explore round in the pane, with the arguments of
 [`tests/tui/examples`](../../tests/tui/examples) (the reviewer's tools reject unknown and
@@ -91,6 +100,28 @@ the fetched `thread_id` and `in_reply_to`, a new `message_id` and the `text`; `k
 shows the answer in the Threads tab. The thread tools take only the access value, which
 `reply` fills in from the latest turn: when that is an Explore turn, pass the `comments`
 turn's `access` as `review`.
+
+## Run-ahead in a session
+
+In the Explore tab, `key` `z` twice before the round starts: the pane shows `Run ahead
+(experimental): every choice` (once, `the recommended choice`). After a question, `forks` with
+`count` waits until that many forks started, and lists each fork's session, choice, prompt (its
+access and Answer ID among the turn's files) and how far it got, the agent's session, and
+run-ahead's log (`run_ahead_log` in `start`'s result, `state/run-ahead.log` of the session
+directory). `fork_submit` plays a fork: it submits with the fork's own access, then the fork's
+output says its submit has its answer, as Claude Code's would. Then `key` `1`, then
+`ctrl+enter`, answers bare: the pane and the Explore page show `Prepared while you were
+thinking`, and `forks` shows the agent on the fork's session, which the next question's forks
+copy and the next answer reaches. An answer with a comment runs the plain chain and shows `Not
+prepared: you added a comment`.
+
+- The arguments of [`conclusion.json`](../../tests/tui/examples/conclusion.json) make a fork's
+  turn a conclusion. A fork's question must ask about a topic not decided yet: the reviewer
+  refuses one on the topic just answered (`Do not ask again on a topic just decided`), and a
+  topic's `status` is `open`, `accepted` or `needs_follow_up`.
+- The Explore page is a client that draws itself from a socket: `curl` shows no round. Open its
+  address (`explore_page`) in the dev shell's headless Chromium (`E2E_CHROMIUM`), with Playwright
+  from `tests/explore-page` once `make e2e-explore-deps` installed it.
 
 ## Regression tests from explorations
 

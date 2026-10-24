@@ -3,6 +3,7 @@
 
 mod agent;
 mod compact;
+mod forks;
 mod frames;
 mod keys;
 mod scratch;
