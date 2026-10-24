@@ -54,6 +54,7 @@ pub(crate) fn working() -> RoundStage {
     RoundStage::AgentWorking {
         request: "turn".into(),
         sent_at_ms: None,
+        finishing_since_ms: None,
         answer: None,
     }
 }

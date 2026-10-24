@@ -12,7 +12,10 @@ Run `make vision` first: it builds the server and the reviewer, and prints how t
 runs the built server, or builds it first when it is missing or older than the sources
 (slower, and it says so on standard error). Claude Code asks once to approve a project's
 server. The agent must run inside Herdr: the server reaches the user's Herdr through
-`HERDR_SOCKET_PATH`.
+`HERDR_SOCKET_PATH`. A session whose server was missing or stale when Claude Code connected may
+get its instructions but no tools: run `make vision`, then
+drive the server over stdio with a small MCP client (`initialize`, then `tools/call`), from one
+process, since a client that leaves ends the session.
 
 The server lives in [`tests/tui`](../../tests/tui), its own Cargo workspace because
 `tui-test`, which draws the screenshots, requires `unicode-width` 0.2.2 while Ratatui 0.29
@@ -113,7 +116,10 @@ output says its submit has its answer, as Claude Code's would. Then `key` `1`, t
 `ctrl+enter`, answers bare: the pane and the Explore page show `Prepared while you were
 thinking`, and `forks` shows the agent on the fork's session, which the next question's forks
 copy and the next answer reaches. An answer with a comment runs the plain chain and shows `Not
-prepared: you added a comment`.
+prepared: you added a comment`. A bare answer before `fork_submit` waits for the fork: the pane
+shows `The agent is finishing a turn it started while you were thinking` with a running time,
+and `fork_submit` then shows the fork's turn; `Stop waiting` gives the answer to the agent, whose
+next `turn` returns it.
 
 - The arguments of [`conclusion.json`](../../tests/tui/examples/conclusion.json) make a fork's
   turn a conclusion. A fork's question must ask about a topic not decided yet: the reviewer

@@ -34,9 +34,21 @@ pub(super) struct Switching {
     pub(super) files: ForkFiles,
     /// No prompt reaches the agent while it switches, the thread service's included.
     pub(super) hold: PromptHold,
+    /// When the fork started its turn, when the answer waited for it to submit: the reviewer is
+    /// still told that the agent finishes that turn.
+    pub(super) finishing_since_ms: Option<u64>,
+    /// Whether the reviewer stopped waiting meanwhile: the answer goes to the agent in the pane,
+    /// and the round takes no fork's turn.
+    pub(super) stopped: bool,
 }
 
 impl Switching {
+    /// When the fork started its turn, while the answer that waited for it still does: the
+    /// reviewer did not stop waiting.
+    pub(super) fn finishing_since(&self) -> Option<u64> {
+        self.finishing_since_ms.filter(|_| !self.stopped)
+    }
+
     fn is_for(&self, round: &RoundKey, request: &str) -> bool {
         self.asked.round == *round && self.turn.request.request == request
     }
@@ -162,7 +174,8 @@ impl ExploreSession {
             ),
         );
         let request = &switching.turn.request;
-        let delivering = self.state.is_pending(&request.instance, &request.request)
+        let delivering = !switching.stopped
+            && self.state.is_pending(&request.instance, &request.request)
             && self
                 .state
                 .round
@@ -173,7 +186,9 @@ impl ExploreSession {
                 &switching,
                 "the answer's turn no longer waits: the fork's turn is not saved",
             );
-            self.record_plain(&switching, PlainReason::Withdrawn);
+            if !switching.stopped {
+                self.record_plain(&switching, PlainReason::Withdrawn);
+            }
             switching.finish(&Err(PromptError::Cancelled));
             self.undo_switch(
                 &switching,
@@ -253,12 +268,15 @@ impl ExploreSession {
                 typed: failure.typed,
             },
         );
-        self.record_plain(
-            switching,
-            PlainReason::SwitchFailed {
-                error: failure.error.clone(),
-            },
-        );
+        // A stop recorded the answer's path already.
+        if !switching.stopped {
+            self.record_plain(
+                switching,
+                PlainReason::SwitchFailed {
+                    error: failure.error.clone(),
+                },
+            );
+        }
         if !failure.typed {
             self.discard_switching_fork(switching);
         }
@@ -321,23 +339,29 @@ impl ExploreSession {
     /// Records that the answer of `switching` runs the plain chain after all, for `reason`, and
     /// counts the failure of run-ahead it stands for.
     fn record_plain(&mut self, switching: &Switching, reason: PlainReason) {
+        self.record_plain_after(&switching.asked, &switching.turn.request.request, reason);
+    }
+
+    /// Records that the answer's turn `request` to the question `asked`, whose prepared turn the
+    /// pane's agent was to continue with, runs the plain chain after all, for `reason`, and
+    /// counts the failure of run-ahead it stands for.
+    pub(super) fn record_plain_after(&mut self, asked: &Asked, request: &str, reason: PlainReason) {
         let failure = Failure::of_plain(&reason);
         let path = TurnPath::Plain { reason };
-        let request = &switching.turn.request.request;
-        self.show_path(&switching.asked.round, request, path.clone());
-        let saved = self.update_forks(&switching.asked.round, |forks| {
+        self.show_path(&asked.round, request, path.clone());
+        let saved = self.update_forks(&asked.round, |forks| {
             if let Some(answer) = forks.answer_mut(request) {
                 answer.path = path;
             }
         });
         if let Err(error) = saved {
-            self.log_switch(
-                switching,
-                &format!("the answer's path was not recorded: {error}"),
-            );
+            self.run_ahead.host.log(&format!(
+                "{}: the answer's path was not recorded: {error}",
+                asked.label()
+            ));
         }
         if let Some(failure) = failure {
-            self.run_ahead_failed(&switching.asked.round, failure);
+            self.run_ahead_failed(&asked.round, failure);
         }
     }
 

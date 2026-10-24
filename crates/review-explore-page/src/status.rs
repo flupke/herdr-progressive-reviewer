@@ -410,6 +410,11 @@ impl StatusCard {
         match &round.stage {
             RoundStage::AgentWorking {
                 request,
+                finishing_since_ms: Some(since_ms),
+                ..
+            } => Some(Self::finishing(request, *since_ms, offers_actions)),
+            RoundStage::AgentWorking {
+                request,
                 sent_at_ms,
                 ..
             } => Some(Self::working(
@@ -504,6 +509,20 @@ impl StatusCard {
             .since("Sent", sent_at_ms)
             .next(next)
             .action(offers_actions.then(|| StatusAction::stop(Stopped::Turn(request, sent))))
+    }
+
+    /// The agent finishes, as the turn `request`, the turn a fork started at `since_ms` while
+    /// the reviewer was thinking; `offers_actions` tells whether the page offers Stop waiting,
+    /// which gives the answer to the agent in the pane.
+    fn finishing(request: &str, since_ms: u64, offers_actions: bool) -> Self {
+        Self::new(
+            StatusKind::Progress,
+            "waiting",
+            "The agent is finishing a turn it started while you were thinking",
+        )
+        .since("Started", Some(since_ms))
+        .next("You can leave this tab; its title changes when the next question is ready.")
+        .action(offers_actions.then(|| StatusAction::stop(Stopped::Finishing(request))))
     }
 
     fn storage(failure: &str) -> Self {
@@ -607,6 +626,10 @@ impl StatusAction {
                 "After Stop waiting, Retry sends the turn again.",
                 Field::new("request", request),
             ),
+            Stopped::Finishing(request) => (
+                "Your answer goes to the agent, which starts the turn over.",
+                Field::new("request", request),
+            ),
             Stopped::Start(start) => (
                 "Stop waiting drops the round before it starts.",
                 Field::new("start", start),
@@ -694,6 +717,8 @@ enum Stopped<'a> {
     Start(&'a str),
     /// The agent's turn, by its request, with what it carries of the reviewer's.
     Turn(&'a str, Option<Sent>),
+    /// The turn a fork finishes, by its request: the answer goes to the agent in the pane.
+    Finishing(&'a str),
 }
 
 impl Field {

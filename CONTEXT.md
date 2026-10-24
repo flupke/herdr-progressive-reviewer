@@ -313,7 +313,9 @@ _Avoid_: branch, clone, subagent
 The turn a fork submitted for its choice. When the reviewer answers with that choice, with no
 comment, and nothing changed since the forks were taken, the agent in the pane continues as the
 fork (it resumes the fork's session), and the prepared turn becomes the round's: the pane and the
-Explore page say that it was prepared while the reviewer was thinking.
+Explore page say that it was prepared while the reviewer was thinking. A fork that has not
+submitted yet is waited for: the pane and the page say that the agent is finishing a turn it
+started while the reviewer was thinking.
 _Avoid_: cached turn, speculative turn
 
 **Plain chain**:

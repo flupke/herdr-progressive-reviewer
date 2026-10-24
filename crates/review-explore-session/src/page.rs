@@ -357,6 +357,7 @@ impl ExploreSession {
                         .turns
                         .get(&request.request)
                         .and_then(|delivery| delivery.started_at_ms),
+                    finishing_since_ms: self.run_ahead_finishing_since(&request.request),
                     answer,
                 }
             } else {

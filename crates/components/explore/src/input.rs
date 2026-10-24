@@ -111,6 +111,9 @@ impl ExploreComponent {
         if self.awaiting_page_start() {
             return self.stop_page_start();
         }
+        let stopped = self.stopped_status(
+            "Stopped waiting. Your answer and text remain available; Retry sends them again.",
+        );
         if let Some(exploration) = &mut self.exploration {
             exploration.cancel();
         }
@@ -119,9 +122,7 @@ impl ExploreComponent {
             self.status = "Stopped. Waiting for preparation to finish before Retry.".into();
         } else {
             self.progress = Progress::Retryable;
-            self.status =
-                "Stopped waiting. Your answer and text remain available; Retry sends them again."
-                    .into();
+            self.status = stopped.into();
         }
         vec![Action::Explore(review_explore::Command::Cancel)]
     }

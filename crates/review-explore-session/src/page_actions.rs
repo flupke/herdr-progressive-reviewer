@@ -27,8 +27,10 @@ impl ExploreSession {
             .round
             .as_ref()
             .map(|round| round.exploration.instance.clone());
-        self.command(Command::Cancel);
+        // The pane hears of the stop before what it leads to, such as the answer that waited for
+        // its fork going to the agent in the pane.
         let _ = self.events.send(ui_events::ExplorePageStopped { round });
+        self.command(Command::Cancel);
         Ok(())
     }
 

@@ -15,6 +15,9 @@ use review_run_ahead::{
 
 use super::*;
 
+#[path = "run_ahead/finishing.tests.rs"]
+mod finishing;
+
 /// An agent host that starts no process: it records the forks it is asked to start and
 /// discard, and lets a test end them, report the agent's status and move its session. A fork
 /// it discards stops at once, unless the test holds the stops.
@@ -514,7 +517,7 @@ fn an_answer_discards_every_fork_and_their_calls_are_refused_from_then_on() {
     let started = harness.forks.started();
     let request = harness.fork_request(&started[0].0);
 
-    harness.answer("");
+    harness.answer("Keep it.");
 
     let sessions: Vec<_> = started.iter().map(|(session, _)| session.clone()).collect();
     assert_eq!(harness.forks.discarded(), sessions);
@@ -552,7 +555,7 @@ fn a_reset_discards_the_forks() {
 fn cancelling_the_answer_a_question_followed_discards_its_forks_and_forks_the_question_again() {
     let mut harness = Harness::start();
     harness.ask(RunAhead::Every);
-    let (answer, access) = harness.answer("");
+    let (answer, access) = harness.answer("Keep it.");
     assert!(applied(harness.submit(&access, question(&answer, 2))));
     let second: Vec<_> = harness.forks.started()[2..].to_vec();
     assert_eq!(second.len(), 2);
@@ -769,7 +772,7 @@ fn shown(result: Result<Response, String>) -> (bool, Option<String>) {
 fn a_fork_s_prompt_lists_the_unreviewed_lines_as_the_answer_leaves_them_and_marks_nothing() {
     let mut harness = Harness::start();
     harness.ask(RunAhead::Every);
-    let (answer, access) = harness.answer("");
+    let (answer, access) = harness.answer("Keep it.");
     let Operation::SubmitQuestion(mut update) = question(&answer, 2) else {
         unreachable!("a question");
     };
@@ -1081,7 +1084,7 @@ fn a_bare_answer_whose_fork_submitted_switches_the_agent_to_it_and_takes_its_tur
     );
     harness.agent_on(&fork);
     harness.exploration = Some(saved.exploration);
-    let (next, access) = harness.answer("");
+    let (next, access) = harness.answer("Keep it.");
     assert!(applied(harness.submit(&access, question(&next, 3))));
 }
 
@@ -1196,14 +1199,6 @@ fn back_to_the_drawing_board_goes_to_the_agent_and_discards_the_forks() {
     assert!(applied(
         harness.submit(&access, drawing_board_conclusion(&request))
     ));
-}
-
-#[test]
-fn an_answer_whose_fork_still_works_goes_to_the_agent() {
-    an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_recorded(
-        &PlainReason::StillWorking,
-        |_| (Some("change"), ""),
-    );
 }
 
 #[test]
@@ -2028,7 +2023,7 @@ fn cancelling_a_prepared_turn_names_the_answer_by_the_id_its_fork_was_told() {
         .handle(Input::Command(Command::CancelAnswer(answer.clone())));
     let cancelled = harness.next::<ui_events::ExploreAnswerCancelled>();
     harness.exploration = Some(cancelled.result.unwrap().exploration.clone());
-    let again = harness.post_answer(Some("change"), "");
+    let again = harness.post_answer(Some("change"), "Reopen them.");
 
     assert!(
         harness.nothing_moved(),

@@ -328,6 +328,12 @@ pub struct Discard {
 pub enum DiscardReason {
     /// The reviewer answered its question.
     Answered,
+    /// The reviewer stopped waiting for it, the fork of a bare answer's choice, before it
+    /// submitted its turn: the answer went to the agent in the pane.
+    StoppedWaiting,
+    /// The reviewer withdrew the bare answer that waited for it: cancelled the answer, reset
+    /// the round or left it.
+    Withdrawn,
     /// The reviewer cancelled the answer the question followed.
     AnswerCancelled,
     /// The question no longer waits, for another reason, such as another reviewer's answer.

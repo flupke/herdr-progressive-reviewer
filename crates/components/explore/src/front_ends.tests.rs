@@ -21,6 +21,9 @@ use crate::flow::ConversationLayout;
 use crate::start::StartButton;
 use crate::{Control, ExploreComponent, Progress};
 
+#[path = "finishing.tests.rs"]
+mod finishing;
+
 fn question(id: &str) -> Question {
     serde_json::from_value(serde_json::json!({
         "id": id, "version": 1, "topic": "policy", "text": "Keep the policy?",

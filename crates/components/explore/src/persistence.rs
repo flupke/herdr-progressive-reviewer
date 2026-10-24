@@ -442,6 +442,7 @@ impl ExploreComponent {
     /// The turn `event.request` of the round shown took the path `event.path`: the pane says
     /// which with the turn.
     pub(super) fn turn_path(&mut self, event: &ExploreTurnPath) {
+        self.turn_finished(&event.request);
         if self
             .exploration
             .as_ref()

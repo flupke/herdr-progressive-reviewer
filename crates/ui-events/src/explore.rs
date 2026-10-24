@@ -35,6 +35,17 @@ pub struct ExploreTurnPath {
     pub path: TurnPath,
 }
 
+/// The turn `request` of the round `round`, the reviewer's bare answer, waits for the fork of
+/// its choice, which started that turn at `started_at_ms`, in milliseconds since the epoch, and
+/// has not submitted it yet: the pane says that the agent finishes a turn it started while the
+/// reviewer was thinking, until it shows the turn's path.
+#[derive(Clone, Debug)]
+pub struct ExploreTurnFinishing {
+    pub round: String,
+    pub request: String,
+    pub started_at_ms: u64,
+}
+
 /// Where a restored interview stands, decided by the Explore session.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ExploreProgress {

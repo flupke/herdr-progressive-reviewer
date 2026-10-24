@@ -74,7 +74,8 @@ impl Default for ReviewApplication {
 }
 
 impl ReviewApplication {
-    /// Run ticks for deferred file loads, animation, and toast and Reset deadlines.
+    /// Run ticks for deferred file loads, animation, toast and Reset deadlines, and the time the
+    /// Explore pane counts.
     pub fn needs_tick(&self, previous: std::time::Instant, now: std::time::Instant) -> bool {
         self.event_bus
             .get::<OverlayComponent>(self.overlay_component)
@@ -86,7 +87,9 @@ impl ReviewApplication {
             || self
                 .event_bus
                 .get::<ExploreComponent>(self.explore_component)
-                .is_some_and(|explore| explore.reset_lapses_by(now))
+                .is_some_and(|explore| {
+                    explore.reset_lapses_by(now) || explore.finishing_ticks_between(previous, now)
+                })
     }
 
     /// Create the application and mount its components.

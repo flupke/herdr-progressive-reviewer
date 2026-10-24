@@ -1392,6 +1392,7 @@ fn the_page_shows_the_answer_the_agents_turn_carries_and_when_the_turn_went_out(
         request,
         sent_at_ms,
         answer: Some(sent),
+        ..
     } = harness.page.stage()
     else {
         panic!("the page shows {:?}", harness.page.stage());

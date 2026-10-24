@@ -23,6 +23,7 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
         plain(PlainReason::NotForked),
         plain(PlainReason::StillWorking),
         plain(PlainReason::NoTurn),
+        plain(PlainReason::StoppedWaiting),
         plain(PlainReason::ChatMessage),
         plain(PlainReason::AgentBusy),
         plain(PlainReason::SessionMoved),

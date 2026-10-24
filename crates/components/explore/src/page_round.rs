@@ -104,6 +104,9 @@ impl ExploreComponent {
         if self.durable.error.is_some() || self.durable.historical {
             return self.status.clone();
         }
+        if let Some(line) = self.finishing_line() {
+            return line;
+        }
         match self.progress {
             Progress::Retryable => format!("Interrupted: {}", self.status),
             Progress::Waiting | Progress::Capturing | Progress::DiscardingCapture => {

@@ -7,7 +7,9 @@ use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use review_run_ahead::{DiscardReason, Failure, ForkEnd, ForkPoint, ForkTrace};
+use review_run_ahead::{
+    DiscardReason, Failure, ForkEnd, ForkPoint, ForkTrace, PlainReason, TurnPath,
+};
 
 use super::{Event, RoundKey, RunAheadInput, TakenFork};
 use crate::{ExploreSession, Input};
@@ -88,33 +90,49 @@ impl ExploreSession {
         }
     }
 
-    /// The reviewer closes: discards the forks of the question that waits and waits for them
-    /// to stop, at most six seconds. The host lets the discards already under way finish.
+    /// The reviewer closes: discards the forks of the question that waits, and the one an answer
+    /// waits for, and waits for them to stop, at most six seconds. The host lets the discards
+    /// already under way finish.
     pub(crate) fn run_ahead_close(&mut self) {
-        let Some(mut armed) = self.run_ahead.armed.take() else {
+        let waiting = self.run_ahead.armed.take().and_then(|armed| {
+            let taken = armed.taken?;
+            Some((armed.asked.round, taken.point, taken.forks))
+        });
+        let finishing = self.run_ahead.finishing.take().map(|finishing| {
+            // Once reopened, the answer waits for Retry, which sends it to the agent in the pane.
+            // A closing reviewer shows nothing and counts no failure: only the record changes.
+            let request = finishing.turn.request.request;
+            let _ = self.update_forks(&finishing.asked.round, |forks| {
+                if let Some(answer) = forks.answer_mut(&request) {
+                    answer.path = TurnPath::Plain {
+                        reason: PlainReason::NoTurn,
+                    };
+                }
+            });
+            (finishing.asked.round, finishing.point, vec![finishing.fork])
+        });
+        let closing: Vec<_> = waiting.into_iter().chain(finishing).collect();
+        if closing.is_empty() {
             return;
-        };
-        let Some(taken) = armed.taken.take() else {
-            return;
-        };
-        self.mark_discarded(
-            &armed.asked.round,
-            &taken.forks,
-            DiscardReason::ReviewerClosed,
-        );
+        }
         let (done, stopped) = mpsc::channel();
-        for fork in &taken.forks {
-            let done = done.clone();
-            let session = fork.session.clone();
-            self.run_ahead.host.discard(
-                fork.trace(&taken.point),
-                Box::new(move || drop(done.send(session))),
-            );
+        let mut count = 0;
+        for (round, point, forks) in &closing {
+            self.mark_discarded(round, forks, DiscardReason::ReviewerClosed);
+            for fork in forks {
+                let done = done.clone();
+                let session = fork.session.clone();
+                self.run_ahead.host.discard(
+                    fork.trace(point),
+                    Box::new(move || drop(done.send(session))),
+                );
+                count += 1;
+            }
         }
         drop(done);
         let deadline = Instant::now() + self.run_ahead.close_wait;
         let mut cleaned = HashSet::new();
-        while cleaned.len() < taken.forks.len() {
+        while cleaned.len() < count {
             let left = deadline.saturating_duration_since(Instant::now());
             match stopped.recv_timeout(left) {
                 Ok(session) => {
@@ -123,11 +141,13 @@ impl ExploreSession {
                 Err(_) => break,
             }
         }
-        let _ = self.update_forks(&armed.asked.round, |forks| {
-            for record in &mut forks.forks {
-                record.cleaned |= cleaned.contains(&record.session);
-            }
-        });
+        for (round, _, _) in &closing {
+            let _ = self.update_forks(round, |forks| {
+                for record in &mut forks.forks {
+                    record.cleaned |= cleaned.contains(&record.session);
+                }
+            });
+        }
         self.run_ahead.host.log(&format!(
             "the reviewer closed: {} forks stopped",
             cleaned.len()
@@ -221,6 +241,7 @@ impl ExploreSession {
                 self.halt(round, notice);
             }
         }
+        self.run_ahead_waited_fork_ended(session);
     }
 
     /// Counts `failure` of run-ahead in `round`: too many in a row stop run-ahead for the round.

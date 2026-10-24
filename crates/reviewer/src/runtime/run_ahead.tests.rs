@@ -381,6 +381,29 @@ impl RunAheadFlow {
         self.flow.fixture.settle();
         self.herdr().resumed()
     }
+
+    /// Checks that the answer `request`, which waited for its fork, reached the agent in the pane
+    /// on its own session as the prompt after the first `before`, and that its path says
+    /// `reason`.
+    fn answer_reached_the_agent(
+        &self,
+        before: usize,
+        request: &review_explore::TurnRequest,
+        reason: review_run_ahead::PlainReason,
+    ) {
+        let delivered = self
+            .herdr()
+            .wait_for_prompts("the answer", |delivered| delivered.len() > before);
+        assert!(
+            delivered[before].contains(&format!("Explore request: {}", request.request)),
+            "{delivered:?}"
+        );
+        assert_eq!(self.resumed(), Vec::<String>::new());
+        assert_eq!(
+            self.saved().answers.last().unwrap().path,
+            review_run_ahead::TurnPath::Plain { reason }
+        );
+    }
 }
 
 #[test]
@@ -465,6 +488,93 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
     // of its own, which no flush waits for, but run-ahead takes no forks while one runs, and it
     // ends only once Herdr reports the agent where the `/resume` put it.
     assert_eq!(run.resumed(), std::slice::from_ref(&fork));
+}
+
+#[test]
+fn a_bare_answer_before_its_fork_submitted_waits_and_the_next_answer_reaches_the_fork_s_session() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    let sessions = run.wait_for_forks(2);
+    let fork = sessions[0].clone();
+    let other = run.processes()[1..].to_vec();
+    let prompts = run.herdr().prompts();
+
+    // The reviewer answers while the fork for that choice still works.
+    let request = run.answer_bare("keep");
+
+    run.wait_until_gone(&other);
+    assert_eq!(run.flow.saved().exploration.questions.len(), 1);
+    assert_eq!(run.resumed(), Vec::<String>::new(), "the agent waits");
+    assert_eq!(run.herdr().prompts(), prompts, "the agent got no prompt");
+
+    // The fork submits, still running: the agent switches to it at once.
+    run.fork_submits(&fork);
+    let saved = run.wait_for_questions(2);
+    assert_eq!(
+        saved
+            .exploration
+            .conversation
+            .last()
+            .unwrap()
+            .update
+            .request,
+        request.request
+    );
+    // The reviewer answers the fork's question right away.
+    run.flow.exploration = saved.exploration;
+    run.flow.turn(
+        Some(AnswerInput {
+            option: Some("change".into()),
+            text: "Reopen them, and say so.".into(),
+            in_reply_to: None,
+            first_pick: None,
+            ..AnswerInput::default()
+        }),
+        3,
+    );
+
+    assert!(
+        fs::read_to_string(run.transcript(&fork))
+            .unwrap()
+            .contains("\"uuid\":\"prompt-2\""),
+        "the answer reached the fork's session, which holds the fork's turn"
+    );
+    assert_eq!(run.resumed(), std::slice::from_ref(&fork));
+    assert_eq!(run.herdr().prompts().len(), prompts.len() + 1);
+}
+
+#[test]
+fn stop_waiting_for_a_fork_still_at_work_stops_it_and_gives_the_answer_to_the_agent() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    run.wait_for_forks(2);
+    let processes = run.processes();
+    let prompts = run.herdr().prompts().len();
+    let request = run.answer_bare("keep");
+
+    run.flow.fixture.explore(ExploreCommand::Cancel);
+
+    run.wait_until_gone(&processes);
+    run.answer_reached_the_agent(
+        prompts,
+        &request,
+        review_run_ahead::PlainReason::StoppedWaiting,
+    );
+}
+
+#[test]
+fn a_fork_that_ends_without_its_turn_gives_the_answer_to_the_agent() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    let fork = run.wait_for_forks(2)[0].clone();
+    let prompts = run.herdr().prompts().len();
+    let request = run.answer_bare("keep");
+
+    run.herdr()
+        .events()
+        .send(&StandInRole::Fork { session: fork }, &StandInCommand::End);
+
+    run.answer_reached_the_agent(prompts, &request, review_run_ahead::PlainReason::NoTurn);
 }
 
 #[test]

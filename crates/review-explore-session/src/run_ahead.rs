@@ -23,6 +23,7 @@
 mod answer;
 mod calls;
 mod clean;
+mod finishing;
 mod settle;
 mod switch;
 mod take;
@@ -99,6 +100,8 @@ pub(crate) struct RunAheadState {
     armed: Option<Armed>,
     /// The access values of the forks discarded: their calls are refused.
     discarded: HashSet<String>,
+    /// The bare answer that waits for the fork of its choice to submit its turn.
+    finishing: Option<finishing::Finishing>,
     /// The switch of the pane's agent to the fork an answer chose, while it runs.
     switching: Option<switch::Switching>,
     /// The pane's agent being put on the session the round needs, after a switch that did not
@@ -233,6 +236,7 @@ impl RunAheadState {
             generation: 0,
             armed: None,
             discarded: HashSet::new(),
+            finishing: None,
             switching: None,
             settling: None,
             settle_failed: HashSet::new(),
@@ -257,34 +261,52 @@ impl RunAheadState {
         &self.paths
     }
 
-    /// The fork that holds `access`, among those of the question that waits and the one the
-    /// pane's agent is switching to.
-    fn fork_with_access(&self, access: &str) -> Option<&TakenFork> {
-        let waiting = self
-            .armed
+    /// The fork that holds `access`, and its round, among those of the question that waits, the
+    /// one an answer waits for and the one the pane's agent is switching to.
+    fn fork_with_access(&self, access: &str) -> Option<(&TakenFork, &RoundKey)> {
+        let waiting = self.armed.as_ref().into_iter().flat_map(|armed| {
+            armed
+                .taken
+                .iter()
+                .flat_map(|taken| &taken.forks)
+                .map(|fork| (fork, &armed.asked.round))
+        });
+        let finishing = self
+            .finishing
             .as_ref()
-            .and_then(|armed| armed.taken.as_ref())
-            .into_iter()
-            .flat_map(|taken| &taken.forks);
+            .map(|finishing| (&finishing.fork, &finishing.asked.round));
+        let switching = self
+            .switching
+            .as_ref()
+            .map(|switching| (&switching.fork, &switching.asked.round));
         waiting
-            .chain(self.switching.as_ref().map(|switching| &switching.fork))
-            .find(|fork| fork.access == access)
+            .chain(finishing)
+            .chain(switching)
+            .find(|(fork, _)| fork.access == access)
     }
 
-    /// The fork `session`, among those of the question that waits.
+    /// The fork `session`, among those of the question that waits and the one an answer waits
+    /// for.
     fn fork_mut(&mut self, session: &str) -> Option<&mut TakenFork> {
-        self.armed
-            .as_mut()?
-            .taken
-            .as_mut()?
-            .forks
-            .iter_mut()
+        let waiting = self
+            .armed
+            .as_mut()
+            .and_then(|armed| armed.taken.as_mut())
+            .into_iter()
+            .flat_map(|taken| &mut taken.forks);
+        waiting
+            .chain(self.finishing.as_mut().map(|finishing| &mut finishing.fork))
             .find(|fork| fork.session == session)
     }
 
-    /// Logs `line` about the question that waits.
+    /// Logs `line` about the question that waits, or the one whose answer waits for its fork.
     fn log(&self, line: &str) {
-        let label = label(self.armed.as_ref().and_then(|armed| armed.asked.number));
+        let asked = self
+            .armed
+            .as_ref()
+            .map(|armed| &armed.asked)
+            .or_else(|| self.finishing.as_ref().map(|finishing| &finishing.asked));
+        let label = label(asked.and_then(|asked| asked.number));
         self.host.log(&format!("{label}: {line}"));
     }
 }
@@ -332,6 +354,7 @@ impl ExploreSession {
     /// Watches the question that waits for forks, and drops the forks of a question that no
     /// longer waits. Runs after every input.
     pub(crate) fn run_ahead_reconcile(&mut self) {
+        self.run_ahead_withdraw_finishing();
         let waiting = self.question_for_forks();
         let rounds = self.rounds.clone();
         let on = move || {

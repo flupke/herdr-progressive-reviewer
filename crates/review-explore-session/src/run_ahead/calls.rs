@@ -5,7 +5,7 @@
 use review_explore::InterviewUpdate;
 use review_mcp::{Operation, Request, Response};
 
-use super::TakenFork;
+use super::{RoundKey, TakenFork};
 use crate::ExploreSession;
 
 /// What a discarded fork hears from every call.
@@ -19,23 +19,30 @@ impl ExploreSession {
             request.respond(Err(DISCARDED.into()));
             return None;
         }
-        let Some(fork) = self.run_ahead.fork_with_access(&request.access).cloned() else {
+        let Some((fork, round)) = self
+            .run_ahead
+            .fork_with_access(&request.access)
+            .map(|(fork, round)| (fork.clone(), round.clone()))
+        else {
             return Some(request);
         };
         let result = if matches!(request.operation, Operation::ReviseQuestion(_)) {
             Err("A fork answers its prompt with submit_question or submit_conclusion; it revises no question".into())
         } else {
             crate::submission::update_of(&request.operation)
-                .and_then(|update| self.keep_fork_turn(&fork, update, &request.operation))
+                .and_then(|update| self.keep_fork_turn(&fork, &round, update, &request.operation))
         };
         request.respond(result);
+        // An answer may wait for that turn.
+        self.run_ahead_fork_submitted();
         None
     }
 
-    /// Checks the turn `update` that `fork` submitted, and keeps it for its choice.
+    /// Checks the turn `update` that `fork` of `round` submitted, and keeps it for its choice.
     fn keep_fork_turn(
         &mut self,
         fork: &TakenFork,
+        round: &RoundKey,
         update: InterviewUpdate,
         operation: &Operation,
     ) -> Result<Response, String> {
@@ -55,28 +62,25 @@ impl ExploreSession {
                 Err("This turn is already submitted; end your turn now".into())
             };
         }
-        let round = self.state.round.as_ref().ok_or("No Explore round")?;
-        // The round as it would be had the reviewer picked the fork's choice.
-        let mut answered = round.clone();
+        let saved = self.state.round.as_ref().ok_or("No Explore round")?;
+        // The round as it would be had the reviewer picked the fork's choice; once the
+        // reviewer did, as it is.
+        let mut answered = saved.clone();
+        if !answered.turns.contains_key(&fork.request.request) {
+            answered
+                .post(&fork.request)
+                .map_err(|error| error.to_string())?;
+        }
         answered
-            .post(&fork.request)
-            .and_then(|_| answered.submit(&update))
+            .submit(&update)
             .map_err(|error| error.to_string())?;
         let shown_as = update
             .next
             .as_ref()
             .and_then(|question| answered.exploration.question_number(question))
             .map(Into::into);
-        let round = self
-            .run_ahead
-            .armed
-            .as_ref()
-            .expect("a fork with no turn yet answers the question that waits")
-            .asked
-            .round
-            .clone();
         let kept = Box::new(update.clone());
-        self.update_forks(&round, |forks| {
+        self.update_forks(round, |forks| {
             if let Some(record) = forks.fork_mut(&fork.session) {
                 record.turn = Some(kept);
             }

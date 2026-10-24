@@ -23,6 +23,7 @@ mod composer;
 mod conclusion;
 mod controls;
 mod evidence;
+mod finishing;
 mod flow;
 mod input;
 mod navigation;
@@ -158,6 +159,8 @@ pub struct ExploreComponent {
     /// The path each agent turn took after an answer to a question run-ahead watched, by
     /// Explore request.
     turn_paths: BTreeMap<String, review_turn_path::TurnPath>,
+    /// The turn a fork finishes for the reviewer's bare answer, while the session waits for it.
+    finishing: Option<finishing::FinishingTurn>,
     /// Requests whose marks are listed line by line.
     expanded_marks: BTreeSet<String>,
     /// The answer whose cancellation the session is working on.
@@ -213,6 +216,7 @@ impl ExploreComponent {
             map: false,
             marks: BTreeMap::new(),
             turn_paths: BTreeMap::new(),
+            finishing: None,
             expanded_marks: BTreeSet::new(),
             cancelling: None,
             implementation_requested: false,
@@ -633,6 +637,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::posted);
         subscriptions.subscribe(Self::committed);
         subscriptions.subscribe(Self::turn_path);
+        subscriptions.subscribe(Self::turn_finishing);
         subscriptions.subscribe(Self::answer_cancelled);
         subscriptions.subscribe(Self::storage_failed);
         subscriptions.subscribe(Self::implementation_saved);

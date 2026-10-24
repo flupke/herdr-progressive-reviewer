@@ -34,10 +34,14 @@ pub enum PlainReason {
     NoForks { why: Option<String> },
     /// The setting did not fork the answer's choice.
     NotForked,
-    /// The fork of the answer's choice has not submitted its turn yet.
+    /// The fork of the answer's choice had not submitted its turn yet: an earlier version,
+    /// which did not wait for it, recorded this.
     StillWorking,
     /// The fork of the answer's choice ended without a turn.
     NoTurn,
+    /// The reviewer stopped waiting for the fork of the answer's choice, which had not
+    /// submitted its turn yet.
+    StoppedWaiting,
     /// The reviewer wrote in the round's conversation after the forks were taken, or wrote a
     /// message the agent has not answered yet: the forks know nothing of it.
     ChatMessage,
@@ -105,6 +109,7 @@ impl PlainReason {
             Self::NotForked => Some("Not prepared: only the recommended choice is prepared"),
             Self::StillWorking => Some("Not prepared: the turn for this choice was not ready yet"),
             Self::NoTurn => Some("Not prepared: the turn for this choice did not finish"),
+            Self::StoppedWaiting => Some("Not prepared: you stopped waiting for it"),
             Self::SwitchFailed { .. } => {
                 Some("Not prepared: the agent could not switch to the prepared turn")
             }

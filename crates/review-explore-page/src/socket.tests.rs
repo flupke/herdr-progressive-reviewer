@@ -282,6 +282,7 @@ fn working(request: &str) -> RoundStage {
     RoundStage::AgentWorking {
         request: request.into(),
         sent_at_ms: None,
+        finishing_since_ms: None,
         answer: None,
     }
 }
@@ -593,6 +594,7 @@ async fn a_turn_that_carries_the_answer_shows_it_beside_its_card_with_its_questi
     owner.publish(RoundStage::AgentWorking {
         request: "turn-2".into(),
         sent_at_ms: Some(1_000),
+        finishing_since_ms: None,
         answer: Some(Box::new(sent_answer(question("q2", "one_way")))),
     });
     let address = serve(owner.clone()).await;
@@ -635,6 +637,34 @@ async fn a_turn_that_carries_the_answer_shows_it_beside_its_card_with_its_questi
     let view = next(&mut socket).await["params"]["view"].clone();
     assert_eq!(view["sent"], Value::Null);
     assert_eq!(view["cards"][0]["actions"][0]["method"], "stop");
+}
+
+#[tokio::test]
+async fn a_turn_a_fork_finishes_says_so_since_the_fork_started_and_stop_gives_it_to_the_agent() {
+    let owner = Owner::new(no_round());
+    *lock(&owner.overview) = at_question_2(true);
+    owner.publish(RoundStage::AgentWorking {
+        request: "turn-2".into(),
+        sent_at_ms: None,
+        finishing_since_ms: Some(1_000),
+        answer: Some(Box::new(sent_answer(question("q2", "one_way")))),
+    });
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let card = next(&mut socket).await["params"]["view"]["sent"]["card"].clone();
+    assert_eq!(
+        card["title"],
+        "The agent is finishing a turn it started while you were thinking"
+    );
+    assert_eq!(card["since"], json!({"words": "Started", "ms": 1_000}));
+    let stop = &card["actions"][0];
+    assert_eq!(stop["method"], "stop");
+    assert_eq!(stop["fields"][0]["value"], "turn-2");
+    assert_eq!(
+        stop["hint"],
+        "Your answer goes to the agent, which starts the turn over."
+    );
 }
 
 #[tokio::test]

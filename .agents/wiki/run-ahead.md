@@ -4,9 +4,11 @@ What run-ahead costs and needs, the guarantees that span its crates, how Claude 
 
 Run-ahead forks the pane agent's session while a question waits (setting `RunAhead` in
 [`crates/review-explore-round-settings`](../../crates/review-explore-round-settings), pane key
-`z`). A bare answer continues as the fork of its choice, when that fork submitted its turn;
-any other answer runs the plain chain. The module headers of `agent-fork`, `claude-fork`,
-`review-run-ahead` and `crates/review-explore-session/src/run_ahead.rs` say how each part works.
+`z`). A bare answer continues as the fork of its choice once that fork submitted its turn, and
+waits for a fork still at work; Stop waiting, or a fork that ends without its turn, gives the
+answer to the agent in the pane. Any other answer runs the plain chain. The module headers of
+`agent-fork`, `claude-fork`, `review-run-ahead` and `crates/review-explore-session/src/run_ahead.rs`
+say how each part works.
 
 ## Cost and needs
 
