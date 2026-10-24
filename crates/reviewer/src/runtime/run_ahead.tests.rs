@@ -3,7 +3,6 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 use agent_fork::ProcessStamp;
 use review_explore::{AnswerInput, Command as ExploreCommand};
@@ -12,6 +11,13 @@ use review_run_ahead::{Continuation, DiscardReason, RoundForks};
 
 use super::explore_flow::ExploreFlow;
 use super::*;
+
+#[path = "run_ahead/contract.tests.rs"]
+mod contract;
+
+/// The Claude Code configuration directory of the agent and its forks, in the server's
+/// directory.
+const CLAUDE_CONFIG: &str = "claude-config";
 
 /// The agent a test runs in the agent's pane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,9 +29,6 @@ pub(super) enum StandIn {
     Forkable,
     /// The same, started without the reviewer's Claude Code plugin.
     Unhooked,
-    /// The same, whose forks run the real Claude Code named in `real-claude` in the server's
-    /// directory, with the owner's own configuration and transcripts.
-    ForkedForReal,
 }
 
 impl StandIn {
@@ -37,12 +40,11 @@ impl StandIn {
             variables::HOOKS,
             effects::fixture::test_fork_tools().control.display()
         );
-        let configuration = format!("CLAUDE_CONFIG_DIR={}", root.join("claude-config").display());
+        let configuration = format!("CLAUDE_CONFIG_DIR={}", root.join(CLAUDE_CONFIG).display());
         match self {
             Self::Plain => Vec::new(),
             Self::Forkable => vec![plugin, configuration],
             Self::Unhooked => vec![configuration],
-            Self::ForkedForReal => vec![plugin],
         }
     }
 }
@@ -156,7 +158,7 @@ impl RunAheadFlow {
     }
 
     fn transcript(&self, session: &str) -> PathBuf {
-        stand_in_agent::transcript(&self.root().join("claude-config"), session)
+        stand_in_agent::transcript(&self.root().join(CLAUDE_CONFIG), session)
     }
 
     /// Waits until run-ahead stopped the forks `forks` and deleted their transcripts.
@@ -206,13 +208,27 @@ fn process_group(pid: u32) -> String {
     fields.split_whitespace().nth(2).unwrap().to_owned()
 }
 
-/// The next question, as the fork told the prompt `prompt` submits it.
+/// The next question, as the fork told the prompt `prompt` submits it: its interpretation keeps
+/// the outcome of the choice it was told.
 fn fork_question(flow: &ExploreFlow, prompt: &str) -> serde_json::Value {
+    let choice = prompt_line(prompt, "Selected option ID: ");
+    let outcome = flow
+        .exploration
+        .questions
+        .last()
+        .and_then(|question| {
+            question
+                .alternatives
+                .iter()
+                .find(|alternative| alternative.id == choice)
+        })
+        .map(|alternative| alternative.outcome)
+        .expect("the fork's choice");
     serde_json::json!({
         "instance": prompt_line(prompt, "Explore round: "),
         "request": prompt_line(prompt, "Explore request: "),
         "checkpoint": flow.exploration.comparison.checkpoint,
-        "interpretation": {"answer": prompt_line(prompt, "Answer ID: "), "status": "accepted",
+        "interpretation": {"answer": prompt_line(prompt, "Answer ID: "), "status": outcome,
             "recap": "Keep resolved conversations resolved.", "follow_ups": []},
         "reply": {"text": "I checked the policy.", "evidence": []},
         "topics": [{"id": "topic2", "title": "Policy consequence", "entries": [{"path": "reviewed.rs", "side": "new", "lines": null}], "status": "open"}],
@@ -496,7 +512,7 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
     let ReviewFlowFixture { runtime, herdr, .. } = fixture;
     drop(runtime);
     assert_eq!(
-        project_folder(&herdr.server.root().join("claude-config")),
+        project_folder(&herdr.server.root().join(CLAUDE_CONFIG)),
         BTreeSet::from(["session.jsonl".to_owned(), format!("{fork}.jsonl")]),
     );
 }
@@ -828,7 +844,7 @@ fn a_closing_reviewer_stops_every_fork_and_deletes_its_transcript() {
         );
     }
     assert_eq!(
-        project_folder(&herdr.server.root().join("claude-config")),
+        project_folder(&herdr.server.root().join(CLAUDE_CONFIG)),
         BTreeSet::from(["session.jsonl".to_owned()]),
         "only the agent's own session is left"
     );
@@ -840,384 +856,4 @@ fn project_folder(configuration: &Path) -> BTreeSet<String> {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect()
-}
-
-/// The agent's turns of the real test: Claude Code on the owner's subscription, at the model
-/// the run-ahead trials use.
-const REAL_MODEL: &str = "claude-sonnet-5-5";
-/// How long a real turn may take.
-const REAL_TURN: Duration = Duration::from_secs(900);
-
-/// The change of the real test: one that holds a decision, so the agent asks about it.
-const REAL_CHANGE: &[u8] =
-    b"/// What a resolved review conversation does when the code it is attached to changes.\n\
-      pub enum Reopen {\n    Never,\n    WhenItsLinesChange,\n    WhenItsFileChanges,\n}\n\n\
-      /// The policy every review applies; there is no setting for it.\n\
-      pub const POLICY: Reopen = Reopen::WhenItsFileChanges;\n\n\
-      /// Whether a resolved conversation reopens under `policy`.\n\
-      pub fn reopens(policy: &Reopen, lines_changed: bool, file_changed: bool) -> bool {\n    \
-      match policy {\n        Reopen::Never => false,\n        \
-      Reopen::WhenItsLinesChange => lines_changed,\n        \
-      Reopen::WhenItsFileChanges => file_changed,\n    }\n}\n";
-
-/// A round whose agent is real Claude Code: the stand-in in the pane reports the session that
-/// a headless `claude` takes the agent's turns in, and its forks run `claude` too. Dropping it
-/// stops the reviewer, then deletes the test's project in the owner's Claude Code
-/// configuration, named after the test's temporary repository.
-struct RealRun {
-    run: Option<RunAheadFlow>,
-    /// The agent's session.
-    session: String,
-    /// The agent's flags, which its forks keep.
-    flags: Vec<String>,
-}
-
-impl RealRun {
-    fn start() -> Self {
-        let session = uuid::Uuid::new_v4().to_string();
-        let repository_files = repository_fixture(RepoType::Git);
-        repository_files.write("reviewed.rs", REAL_CHANGE);
-        let herdr = IsolatedHerdrServer::start_forkable(
-            repository_files.root(),
-            &session,
-            StandIn::ForkedForReal,
-        );
-        let real_claude = herdr.directory().real_claude();
-        let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |_| {});
-        fixture
-            .runtime
-            .store
-            .save_explore_run_ahead(RunAhead::Every)
-            .unwrap();
-        // The reviewer's MCP server only, and the unreviewed diffs' temporary directory.
-        let mcp = serde_json::json!({"mcpServers": {"herdr_reviewer": {
-            "command": super::effects::fixture::test_fork_tools().control.with_file_name("reviewer-mcp"),
-            "args": [fixture.endpoint.address().port().to_string()],
-        }}})
-        .to_string();
-        let flags: Vec<String> = [
-            "--strict-mcp-config",
-            "--mcp-config",
-            &mcp,
-            "--permission-mode",
-            "dontAsk",
-            "--add-dir",
-            &std::env::temp_dir().to_string_lossy(),
-        ]
-        .map(str::to_owned)
-        .to_vec();
-        fs::write(real_claude, format!("claude\n{}", flags.join("\n"))).unwrap();
-        Self {
-            run: Some(RunAheadFlow {
-                flow: ExploreFlow::start_on(fixture),
-            }),
-            session,
-            flags,
-        }
-    }
-
-    fn run(&mut self) -> &mut RunAheadFlow {
-        self.run.as_mut().unwrap()
-    }
-
-    /// The kickoff, taken by the agent: the round's first question.
-    fn kickoff(&mut self) -> review_explore::Question {
-        let flow = &mut self.run().flow;
-        let kickoff = flow.exploration.request(None, None).unwrap();
-        flow.fixture
-            .explore(ExploreCommand::Turn(Box::new(kickoff.clone())));
-        flow.wait_for_prompt(&kickoff);
-        let prompt = super::prompts_text(&flow.fixture.herdr.prompts());
-        self.agent_turn(&prompt, None);
-        self.run()
-            .flow
-            .exploration
-            .questions
-            .last()
-            .cloned()
-            .expect("the agent asked a question")
-    }
-
-    /// The agent takes its turn on `prompt`, in the session the pane reports: its own, or the
-    /// session `resumed` once it resumed one, while the test acknowledges each saved turn as
-    /// the pane does.
-    fn agent_turn(&mut self, prompt: &str, resumed: Option<&str>) {
-        let repository = self.run().flow.fixture.runtime.repository.root().to_owned();
-        // The agent in the pane works while the headless agent takes its turn, as Claude Code
-        // in the pane would: forks are taken once it is idle again.
-        self.run().herdr().show_working();
-        let session = match resumed {
-            Some(session) => ["--resume", session],
-            None => ["--session-id", &self.session],
-        };
-        let mut agent = Command::new("claude")
-            .arg("-p")
-            .args(session)
-            .args(["--model", REAL_MODEL])
-            .args(&self.flags)
-            .arg("--allowedTools")
-            .args(claude_fork::SUBMITS)
-            .current_dir(repository)
-            // Never the Herdr this test runs in: the agent's hooks would report to it.
-            .env_clear()
-            .envs(
-                std::env::vars_os()
-                    .filter(|(name, _)| !name.as_encoded_bytes().starts_with(b"HERDR_")),
-            )
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        agent
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(prompt.as_bytes())
-            .unwrap();
-        let flow = &mut self.run().flow;
-        let ended = flow.fixture.runtime.background.clone();
-        let waiting = thread::spawn(move || {
-            let status = agent.wait().unwrap();
-            ended
-                .send(component_core::EventEnvelope::new(RealTurnEnded))
-                .unwrap();
-            status
-        });
-        loop {
-            let event = flow
-                .fixture
-                .runtime
-                .recv_timeout(REAL_TURN)
-                .expect("the agent's turn did not end");
-            if event.downcast_ref::<RealTurnEnded>().is_some() {
-                break;
-            }
-            if let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>() {
-                flow.exploration = committed.round.exploration.clone();
-                let _ = committed.response.send(Ok(committed.applied));
-            }
-        }
-        waiting.join().unwrap();
-        flow.fixture.herdr.show_idle();
-    }
-
-    /// Waits until `count` forks ran to their end.
-    fn wait_for_forks_to_end(&mut self, count: usize) -> RoundForks {
-        let run = self.run();
-        let saved = run.flow.state.wait_within(
-            REAL_TURN,
-            "the forks' end",
-            || {
-                let saved = run.saved();
-                (saved.forks.len() == count && saved.forks.iter().all(|fork| fork.exit.is_some()))
-                    .then_some(saved)
-            },
-            || run.log(),
-        );
-        eprintln!("run-ahead's log:\n{}", run.log());
-        saved
-    }
-
-    /// The transcripts of the owner's Claude Code configuration.
-    fn projects() -> claude_fork::Transcripts {
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-        claude_fork::Transcripts::at(home.join(".claude/projects"))
-    }
-}
-
-impl Drop for RealRun {
-    fn drop(&mut self) {
-        drop(self.run.take());
-        if let Some(own) = Self::projects().find(&self.session) {
-            let _ = fs::remove_dir_all(own.parent().unwrap());
-        }
-    }
-}
-
-#[test]
-#[ignore = "real Claude Code turns on the owner's subscription (claude-sonnet-5-5); run with --ignored"]
-fn a_real_claude_code_fork_takes_its_answer_s_turn_and_the_reviewer_keeps_it() {
-    let mut real = RealRun::start();
-    let question = real.kickoff();
-
-    // One real fork per choice takes its turn and submits it with its own access.
-    let saved = real.wait_for_forks_to_end(question.alternatives.len());
-
-    let run = real.run();
-    let kept: Vec<_> = saved
-        .forks
-        .iter()
-        .filter_map(|fork| fork.turn.as_ref())
-        .collect();
-    assert!(!kept.is_empty(), "no fork's turn was kept: {}", run.log());
-    let requests: std::collections::HashSet<_> = kept.iter().map(|turn| &turn.request).collect();
-    assert_eq!(
-        requests.len(),
-        kept.len(),
-        "each fork submits its own request"
-    );
-    assert!(
-        kept.iter()
-            .all(|turn| turn.instance == run.flow.exploration.instance)
-    );
-    assert!(
-        saved
-            .forks
-            .iter()
-            .all(|fork| fork.usage.is_some_and(|usage| usage.output > 0))
-    );
-    assert_eq!(run.flow.exploration.questions.len(), question_count(run));
-
-    // A Reset stops the forks and deletes their transcripts; the agent's own stays.
-    let processes = run.processes();
-    run.flow.fixture.explore(ExploreCommand::Reset);
-    run.wait_for_saved("the forks' end", |saved| {
-        saved.forks.iter().all(|fork| fork.cleaned).then_some(())
-    });
-    let projects = RealRun::projects();
-    assert!(
-        processes
-            .iter()
-            .all(|(fork, process)| !process.is_running() && projects.find(fork).is_none()),
-        "a fork outlived its round"
-    );
-    assert!(
-        projects.find(&real.session).is_some(),
-        "the agent's own transcript stays"
-    );
-}
-
-/// Says that the real agent's turn ended.
-struct RealTurnEnded;
-
-/// How many questions the saved round has: forks never add one.
-fn question_count(run: &RunAheadFlow) -> usize {
-    run.flow
-        .fixture
-        .runtime
-        .store
-        .load_explore(
-            &run.flow.fixture.review_unit,
-            &run.flow.exploration.instance,
-        )
-        .unwrap()
-        .unwrap()
-        .exploration
-        .questions
-        .len()
-}
-
-#[test]
-#[ignore = "real Claude Code turns on the owner's subscription (claude-sonnet-5-5); run with --ignored"]
-fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
-    let mut real = RealRun::start();
-    let question = real.kickoff();
-    let saved = real.wait_for_forks_to_end(question.alternatives.len());
-    // A fork that asked a question, when one did, so that the agent takes a next turn.
-    let fork = saved
-        .forks
-        .iter()
-        .find(|fork| fork.turn.as_ref().is_some_and(|turn| turn.next.is_some()))
-        .or_else(|| saved.forks.iter().find(|fork| fork.turn.is_some()))
-        .expect("a fork's turn was kept")
-        .clone();
-
-    let run = real.run();
-    // No forks for the next questions: their real turns would cost and prove nothing more here.
-    run.flow
-        .fixture
-        .runtime
-        .store
-        .save_explore_run_ahead(RunAhead::Off)
-        .unwrap();
-    let answered = std::time::Instant::now();
-    let request = run.answer_bare(&fork.choice);
-    let round = run.wait_for_questions_or_conclusion(2);
-    eprintln!(
-        "the prepared turn was saved {:?} after the answer",
-        answered.elapsed()
-    );
-
-    assert_eq!(run.resumed(), std::slice::from_ref(&fork.session));
-    let pane = run.flow.fixture.herdr.pane_id.clone();
-    let agent = run
-        .flow
-        .fixture
-        .herdr
-        .client()
-        .get_agent(&pane)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        agent.agent_session.as_ref().map(|session| &session.value),
-        Some(&fork.session)
-    );
-    let turn = &round.exploration.conversation.last().unwrap().update;
-    assert_eq!(turn.request, request.request);
-    assert!(
-        RealRun::projects().find(&fork.session).is_some(),
-        "the fork's session, now the agent's, keeps its transcript"
-    );
-    if turn.conclusion.is_some() {
-        eprintln!("the fork concluded the round: no next answer to send");
-        return;
-    }
-
-    // The next answer, with a comment, goes to the agent, which resumes the fork's session and
-    // takes its turn from there.
-    run.flow.exploration = round.exploration.clone();
-    let offset = run.herdr().prompts().len();
-    let question = run.flow.exploration.questions.last().cloned().unwrap();
-    let next = run
-        .flow
-        .exploration
-        .request(
-            Some(AnswerInput {
-                option: Some(question.alternatives[0].id.clone()),
-                text: "Yes, and write down why.".into(),
-                in_reply_to: None,
-                first_pick: None,
-                ..AnswerInput::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let next = run.flow.post_turn(&next);
-    run.flow.wait_for_prompt(&next);
-    let prompt = super::prompts_text(&run.herdr().prompts()[offset..]);
-    real.agent_turn(&prompt, Some(&fork.session));
-
-    let run = real.run();
-    let round = run.wait_for_questions_or_conclusion(3);
-    eprintln!("run-ahead's log:\n{}", run.log());
-    assert_eq!(
-        round
-            .exploration
-            .conversation
-            .last()
-            .unwrap()
-            .update
-            .request,
-        next.request,
-        "the agent's turn on the fork's session is accepted"
-    );
-    assert_eq!(
-        round.last_agent_session,
-        review_explore::ConversationBinding::from_agent(&agent)
-    );
-}
-
-impl RunAheadFlow {
-    /// Waits until the saved round has `count` turns of the agent, and returns it.
-    fn wait_for_questions_or_conclusion(&self, count: usize) -> review_explore::ExploreRound {
-        self.flow.state.wait_within(
-            REAL_TURN,
-            &format!("{count} turns"),
-            || {
-                let saved = self.flow.saved();
-                (saved.exploration.conversation.len() >= count).then_some(saved)
-            },
-            || self.log(),
-        )
-    }
 }

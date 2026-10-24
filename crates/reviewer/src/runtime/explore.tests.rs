@@ -96,20 +96,7 @@ impl ExploreFlow {
             statuses.wait_for(herdr_client::protocol::AgentStatus::Working);
             statuses
         });
-        let interpretation = request.answer.as_ref().map(|answer| serde_json::json!({
-            "answer":answer.id,"status":"needs_follow_up","recap":"Recorded: keep resolved; add regression test — follow-up.","follow_ups":["Add regression test"]
-        }));
-        let response = serde_json::json!({
-            "instance":request.instance,"request":request.request,"checkpoint":request.checkpoint,
-            "interpretation":interpretation, "reply":{"text":"I checked the policy.","evidence":[]},
-            "topics":[{"id":format!("topic{version}"),"title":"Policy consequence","entries":[{"path":"reviewed.rs","side":"new","lines":null}],"status":"open"}],
-            "next":{"id":format!("q{version}"),"version":1,"topic":format!("topic{version}"),"text":"Keep resolved conversations resolved?",
-                "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Implements the policy that determines whether completed conversations should reopen"}]},
-            "design":request.is_kickoff().then(|| serde_json::json!({
-                "thesis":"A policy.","overview":{"thesis":"A policy.", "body":"A policy."},"data_flow":{"thesis":"None.", "body":"None."},"algorithm":{"thesis":"None.", "body":"None."},"alternatives":{"thesis":"None.", "body":"None."}
-            })),
-            "conclusion":null,"limitations":[],"findings":[]
-        });
+        let response = agent_update(&request, version);
         for field in ["instance", "request"] {
             let mut mismatched = response.clone();
             mismatched[field] = "another-turn".into();
@@ -257,14 +244,13 @@ impl ExploreFlow {
     }
 
     pub(super) fn saved(&self) -> review_explore::ExploreRound {
-        ReviewStore::open(
-            self.fixture.runtime.state.path(),
-            self.fixture.runtime.repository.root(),
-        )
-        .unwrap()
-        .load_explore(&self.fixture.review_unit, &self.exploration.instance)
-        .unwrap()
-        .unwrap()
+        // Opening a store touches the state directory, which a wait on `state` watches.
+        self.fixture
+            .runtime
+            .store
+            .load_explore(&self.fixture.review_unit, &self.exploration.instance)
+            .unwrap()
+            .unwrap()
     }
 
     fn native_status(&self, status: herdr_client::protocol::AgentStatus) {
@@ -344,6 +330,36 @@ impl ExploreFlow {
             "limitations":[],"findings":[]
         })
     }
+}
+
+/// The update the agent submits on its turn `request`: an interpretation of its answer, if any,
+/// which keeps the outcome of a choice without a comment, the design of a kickoff, and the
+/// question `q{version}` of the topic `topic{version}`, whose choices are `keep` and `change`.
+pub(super) fn agent_update(
+    request: &review_explore::TurnRequest,
+    version: u32,
+) -> serde_json::Value {
+    let interpretation = request.answer.as_ref().map(|answer| {
+        match answer.option.as_ref().filter(|_| answer.text.is_empty()) {
+            Some(option) if option.outcome != TopicStatus::NeedsFollowUp => serde_json::json!({
+                "answer":answer.id,"status":option.outcome,"recap":"Recorded the choice.","follow_ups":[]
+            }),
+            _ => serde_json::json!({
+                "answer":answer.id,"status":"needs_follow_up","recap":"Recorded: keep resolved; add regression test — follow-up.","follow_ups":["Add regression test"]
+            }),
+        }
+    });
+    serde_json::json!({
+        "instance":request.instance,"request":request.request,"checkpoint":request.checkpoint,
+        "interpretation":interpretation, "reply":{"text":"I checked the policy.","evidence":[]},
+        "topics":[{"id":format!("topic{version}"),"title":"Policy consequence","entries":[{"path":"reviewed.rs","side":"new","lines":null}],"status":"open"}],
+        "next":{"id":format!("q{version}"),"version":1,"topic":format!("topic{version}"),"text":"Keep resolved conversations resolved?",
+            "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Implements the policy that determines whether completed conversations should reopen"}]},
+        "design":request.is_kickoff().then(|| serde_json::json!({
+            "thesis":"A policy.","overview":{"thesis":"A policy.", "body":"A policy."},"data_flow":{"thesis":"None.", "body":"None."},"algorithm":{"thesis":"None.", "body":"None."},"alternatives":{"thesis":"None.", "body":"None."}
+        })),
+        "conclusion":null,"limitations":[],"findings":[]
+    })
 }
 
 #[test]

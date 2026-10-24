@@ -67,9 +67,14 @@ impl AgentStatusWatch {
     /// Waits until Herdr reports the agent `status`; fails after [`crate::GUARD`] when it does
     /// not.
     pub fn wait_for(&self, status: AgentStatus) {
+        self.wait_within(crate::GUARD, status);
+    }
+
+    /// [`Self::wait_for`], which fails after `guard` without a report.
+    pub fn wait_within(&self, guard: std::time::Duration, status: AgentStatus) {
         let mut seen = Vec::new();
         while seen.last() != Some(&status) {
-            match self.statuses.recv_timeout(crate::GUARD) {
+            match self.statuses.recv_timeout(guard) {
                 Ok(next) => seen.push(next),
                 Err(error) => panic!(
                     "Herdr did not report the agent of {} {status:?}, only {seen:?}: {error}",

@@ -11,8 +11,8 @@ pub(crate) fn own_configuration() -> Option<PathBuf> {
     std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)
 }
 
-/// The transcript of the agent's session, as Claude Code keeps it: a line per prompt it read and
-/// per answer it gave.
+/// The transcript of the agent's session, as Claude Code keeps it: a line per prompt it read, with
+/// the prompt, and per answer it gave.
 pub(crate) struct StandInTranscript {
     /// Claude Code's configuration directory, and the transcript's path in it.
     path: Option<(PathBuf, PathBuf)>,
@@ -41,16 +41,18 @@ impl StandInTranscript {
         }
     }
 
-    /// The agent read a prompt and answered it.
-    pub(crate) fn turn(&mut self) {
+    /// The agent read `prompt` and answered it.
+    pub(crate) fn turn(&mut self, prompt: &str) {
         let Some((_, path)) = &self.path else {
             return;
         };
         self.turns += 1;
+        let prompt = serde_json::json!({"type": "user", "uuid": format!("prompt-{}", self.turns),
+            "message": {"role": "user", "content": prompt}});
         let mut file = File::options().append(true).open(path).unwrap();
         writeln!(
             file,
-            "{{\"type\":\"user\",\"uuid\":\"prompt-{0}\"}}\n\
+            "{prompt}\n\
              {{\"type\":\"assistant\",\"uuid\":\"answer-{0}\",\"message\":{{\"model\":\"stand-in-model\"}}}}",
             self.turns
         )

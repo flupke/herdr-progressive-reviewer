@@ -1,7 +1,5 @@
 use super::*;
 use std::fs;
-use std::io::Write;
-use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 
 use effects::fixture::EffectsFixture;
@@ -56,6 +54,8 @@ struct IsolatedHerdrServer {
     title_read: std::sync::atomic::AtomicBool,
     /// What the stand-in agent and its forks report.
     events: StandInEvents,
+    /// Whether real Claude Code runs in the agent's pane, in place of the stand-in.
+    real_agent: bool,
 }
 
 impl IsolatedHerdrServer {
@@ -108,6 +108,19 @@ impl IsolatedHerdrServer {
         lifecycle: AgentLifecycle,
         stand_in: run_ahead::StandIn,
     ) -> Self {
+        let server = Self::create(repository_root, agent, |root| stand_in.environment(root));
+        stand_in_agent::install(&stand_in_program(), &server.agent_binary).unwrap();
+        server.start_agent(session, lifecycle);
+        server
+    }
+
+    /// Starts the server and the agent's workspace, whose variables are the stand-in's and those
+    /// `more` gives for the server's directory; no agent runs in its pane yet.
+    fn create(
+        repository_root: &Path,
+        agent: &str,
+        more: impl FnOnce(&Path) -> Vec<String>,
+    ) -> Self {
         let server = HerdrTestServer::start(repository_root);
         let events = StandInEvents::listen(&server.root().join("stand-in.sock"));
         let mut environment = vec![
@@ -116,7 +129,7 @@ impl IsolatedHerdrServer {
             format!("{}={agent}", variables::AGENT),
             events.environment(),
         ];
-        environment.extend(stand_in.environment(server.root()));
+        environment.extend(more(server.root()));
         let repository = repository_root.to_string_lossy();
         let mut arguments = vec![
             "workspace",
@@ -143,20 +156,17 @@ impl IsolatedHerdrServer {
                 .expect("workspace create must return a root pane ID")
                 .to_owned(),
         );
-        let agent_binary = server.root().join(agent);
-        stand_in_agent::install(&stand_in_program(), &agent_binary).unwrap();
-        let server = Self {
+        Self {
+            agent_binary: server.root().join(agent),
             server,
             workspace_id,
             pane_id,
-            agent_binary,
             agent: agent.into(),
             environment,
             title_read: std::sync::atomic::AtomicBool::new(false),
             events,
-        };
-        server.start_agent(session, lifecycle);
-        server
+            real_agent: false,
+        }
     }
 
     /// Runs the agent on the session `session` in the pane, and returns once Herdr knows it:
@@ -291,15 +301,7 @@ impl IsolatedHerdrServer {
     /// The sessions the agent resumed with Claude Code's `/resume`, in order, as far as the
     /// test received its reports.
     fn resumed(&self) -> Vec<String> {
-        self.events
-            .received()
-            .into_iter()
-            .filter(|reported| reported.from == StandInRole::Agent)
-            .filter_map(|reported| match reported.event {
-                StandInEvent::ResumeReceived { session } => Some(session),
-                _ => None,
-            })
-            .collect()
+        resumed_sessions(&self.events.received())
     }
 
     fn run_cli(&self, arguments: &[&str]) -> std::process::Output {
@@ -426,6 +428,19 @@ fn prompts_text(prompts: &[String]) -> String {
         text.push('\n');
         text
     })
+}
+
+/// The sessions the agent resumed with Claude Code's `/resume`, in order, among the events
+/// `received`.
+fn resumed_sessions(received: &[Reported]) -> Vec<String> {
+    received
+        .iter()
+        .filter(|reported| reported.from == StandInRole::Agent)
+        .filter_map(|reported| match &reported.event {
+            StandInEvent::ResumeReceived { session } => Some(session.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Wakes a test on each change of the files under a directory, so that it waits until what the
@@ -639,7 +654,10 @@ impl ReviewFlowFixture {
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
                 .unwrap();
-        herdr.show_idle();
+        // A real agent shows its own state.
+        if !herdr.real_agent {
+            herdr.show_idle();
+        }
         herdr.run_cli(&[
             "pane",
             "split",

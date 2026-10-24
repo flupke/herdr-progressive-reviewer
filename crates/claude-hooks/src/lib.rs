@@ -111,7 +111,7 @@ const PASTE_OPEN: &str = "<pasted_content id=\"";
 /// `prompt` with each long paste in it as it was pasted. Claude Code (2.1.309) reports a long
 /// paste, such as a long prompt Herdr types, wrapped as `<pasted_content id="N">` and a line
 /// break, the text, then `</pasted_content id="N">` and a line break.
-fn unwrap_pastes(prompt: &str) -> String {
+pub fn unwrap_pastes(prompt: &str) -> String {
     let mut text = String::with_capacity(prompt.len());
     let mut rest = prompt;
     while let Some(start) = rest.find(PASTE_OPEN) {

@@ -55,7 +55,7 @@ To change the pinned release:
 ## Tests that call no model
 
 Explore's tests in `make check` use deterministic responses and call no model API; the
-real Claude Code run-ahead tests are opt-in (Opt-in tests). The Explore page's
+run-ahead contract check with real Claude Code is opt-in (Opt-in tests). The Explore page's
 [e2e tests](explore-page-e2e.md) call no model either. A check
 of Explore with a real agent is manual, in a disposable repository and a private Herdr
 server.
@@ -78,7 +78,8 @@ against frozen line-level labels. Offline checks and paid live runs are separate
 jointly compares prompts, metadata, exclusion rules and token windows on an
 audited corpus from repository commits.
 
-Two run-ahead tests run real Claude Code turns: see [Run-ahead](run-ahead.md).
+The run-ahead contract check runs real Claude Code turns: see
+[Run-ahead](run-ahead.md#the-contract-check).
 
 ## Mutation testing
 
