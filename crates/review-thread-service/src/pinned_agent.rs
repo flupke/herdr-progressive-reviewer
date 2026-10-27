@@ -81,6 +81,9 @@ impl PinnedAgent {
             Verdict::Changed(Change::Agent) => {
                 Err("The selected pane is now running a different agent; Reset to start a new round".into())
             }
+            Verdict::Changed(Change::Tab) => Err(
+                "The selected agent moved to another tab; Reset to start a new round".into(),
+            ),
             Verdict::Changed(Change::ProcessGroup) => Err(PROCESS_CHANGED.into()),
             Verdict::Changed(Change::Session) => Err(
                 "The selected pane is now running a different agent conversation; Reset to start a new round"

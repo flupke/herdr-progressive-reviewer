@@ -594,7 +594,7 @@ mod tests {
             agents.clone(),
             None,
             herdr_client::protocol::AgentTarget::new(
-                agent.workspace_id.clone(),
+                agent.tab_id.clone(),
                 Some(agent.pane_id.clone()),
             ),
             Err("No MCP listener in this test".into()),

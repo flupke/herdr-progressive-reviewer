@@ -29,6 +29,15 @@ mod delivery;
 #[path = "mcp/prompts.tests.rs"]
 mod prompts;
 
+/// Where [`ConversationFixture::start_second_agent`] starts the second agent.
+#[derive(Clone, Copy, Debug)]
+enum SecondAgentPlace {
+    /// In a pane split from the first agent's.
+    BesideFirst,
+    /// In the root pane of a new tab of the workspace.
+    AnotherTab,
+}
+
 struct ConversationFixture {
     worker: Option<Worker>,
     target: AgentTarget,
@@ -70,7 +79,7 @@ impl ConversationFixture {
         let endpoint = Endpoint::for_repository(repository.path(), Some(port.number())).unwrap();
         let store = ReviewStore::open(server.server.state_directory(), repository.path()).unwrap();
         let (sender, events) = mpsc::channel();
-        let target = AgentTarget::new(server.workspace_id.clone(), Some(server.pane_id.clone()));
+        let target = AgentTarget::new(server.tab_id.clone(), Some(server.pane_id.clone()));
         let worker = Worker::start(
             ReviewStore::open(server.server.state_directory(), repository.path()).unwrap(),
             server.client(),
@@ -155,31 +164,46 @@ impl ConversationFixture {
             .to_owned()
     }
 
-    /// A second agent, on the session `session`, in a pane of its own, whose state Herdr
-    /// reads from its title.
+    /// A second agent, on the session `session`, in a pane of its own beside the first,
+    /// whose state Herdr reads from its title.
     fn second_agent(&self) -> herdr_client::protocol::Agent {
+        self.start_second_agent(SecondAgentPlace::BesideFirst)
+    }
+
+    /// A second agent as [`Self::second_agent`], in another tab of the workspace, as the lead
+    /// of a herdr-bowtie session is.
+    fn second_agent_in_another_tab(&self) -> herdr_client::protocol::Agent {
+        self.start_second_agent(SecondAgentPlace::AnotherTab)
+    }
+
+    fn start_second_agent(&self, place: SecondAgentPlace) -> herdr_client::protocol::Agent {
         let from = self.server.events().received().len();
         let role = format!("{}=second", stand_in_agent::variables::ROLE);
         let session = format!("{}=session", stand_in_agent::variables::SESSION);
-        let mut arguments = vec![
-            "pane",
-            "split",
-            &self.server.pane_id.0,
-            "--direction",
-            "right",
-            "--no-focus",
-            "--env",
-            &role,
-            "--env",
-            &session,
-        ];
+        let (mut arguments, pane_key) = match place {
+            SecondAgentPlace::BesideFirst => (
+                vec![
+                    "pane",
+                    "split",
+                    &self.server.pane_id.0,
+                    "--direction",
+                    "right",
+                ],
+                "pane",
+            ),
+            SecondAgentPlace::AnotherTab => (
+                vec!["tab", "create", "--workspace", &self.server.workspace_id.0],
+                "root_pane",
+            ),
+        };
+        arguments.extend(["--no-focus", "--env", &role, "--env", &session]);
         for variable in &self.server.environment {
             arguments.extend(["--env", variable]);
         }
-        let split = self.server.server.run_cli_json(&arguments);
-        let pane = split["result"]["pane"]["pane_id"]
+        let created = self.server.server.run_cli_json(&arguments);
+        let pane = created["result"][pane_key]["pane_id"]
             .as_str()
-            .unwrap_or_else(|| panic!("split: {split}"));
+            .unwrap_or_else(|| panic!("{place:?}: {created}"));
         self.server.run_cli(&[
             "pane",
             "run",

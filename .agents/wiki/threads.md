@@ -5,7 +5,12 @@ Which agent gets a comment, how Herdr delivers the wakeup, and what a review acc
 ## Which agent
 
 Comments and Explore share one active-agent selection: the most recently focused live agent
-in the Herdr workspace, with a single-agent fallback. Focus changes, posts, retries
+in the review pane's Herdr tab, with a fallback to the tab's only agent. An agent in another
+tab of the workspace is never prompted, even when it was focused last: in a herdr-bowtie
+session, the lead and each task have a tab of their own in one workspace. An agent loses its
+review access value, and its pin to an Explore round, when its pane moves to another tab. Herdr's `HERDR_TAB_ID`
+does not follow a moved pane, so a review pane moved to another tab keeps its first tab's
+agents until it restarts. Focus changes, posts, retries
 and reopening use that selection; a review stores no recipient of its own. Pending comments
 follow the selection; completed answers belong to the review, so the active agent gets only
 the unanswered work, with each pending thread's full conversation as context.

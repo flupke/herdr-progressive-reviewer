@@ -42,7 +42,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use herdr_client::client::{EventCanceller, HerdrClient};
-use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
+use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, TabId, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_explore_page::{
@@ -78,6 +78,8 @@ pub struct Runtime {
     repository: Repository,
     state_dir: PathBuf,
     workspace_id: WorkspaceId,
+    /// The review pane's tab: review prompts go only to an agent there.
+    tab_id: TabId,
     initial_agent: Option<PaneId>,
     client: HerdrClient,
     theme: Theme,
@@ -141,6 +143,9 @@ impl Runtime {
                 env::var("HERDR_WORKSPACE_ID")
                     .map_err(|_| eyre::eyre!("HERDR_WORKSPACE_ID is not set"))?,
             ),
+            tab_id: TabId(
+                env::var("HERDR_TAB_ID").map_err(|_| eyre::eyre!("HERDR_TAB_ID is not set"))?,
+            ),
             initial_agent: context.focused_pane_id,
             client: HerdrClient::from_env()?,
             theme: Theme::from_env()?,
@@ -183,7 +188,7 @@ impl Runtime {
             Setup {
                 repository: self.repository.clone(),
                 store: settings.clone(),
-                target: AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone()),
+                target: AgentTarget::new(self.tab_id.clone(), self.initial_agent.clone()),
                 agents: self.client.clone(),
                 endpoint: review_mcp::Endpoint::from_env(self.repository.root()),
                 theme: self.theme,
