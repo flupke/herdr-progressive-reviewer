@@ -15,6 +15,12 @@ and reopening use that selection; a review stores no recipient of its own. Pendi
 follow the selection; completed answers belong to the review, so the active agent gets only
 the unanswered work, with each pending thread's full conversation as context.
 
+Each tab has its own review pane too: the open, close and toggle actions act only on the
+review pane of the tab Herdr names in the action's context (Herdr 0.9.5 sends the focused
+tab's `tab_id`), so a toggle in one task's tab leaves the other tabs' review panes open. A
+review pane moved to another tab stays open on the next action of its first tab, which
+records it for the tab it is in.
+
 ## Delivery
 
 - Posting saves the comment, then sends the active agent a wakeup through Herdr's

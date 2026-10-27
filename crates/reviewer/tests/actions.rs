@@ -26,13 +26,13 @@ impl HerdrReader for FakeHerdr {
         unreachable!()
     }
 
-    fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
+    fn list_plugin_panes(&self, tab_id: &TabId) -> Result<Vec<PluginPane>> {
         Ok(self
             .panes
             .lock()
             .unwrap()
             .iter()
-            .filter(|pane| pane.workspace_id == *workspace_id)
+            .filter(|pane| pane.tab_id == *tab_id)
             .cloned()
             .collect())
     }
@@ -86,12 +86,7 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate(repository_type: Re
     let repository = repository_fixture(repository_type);
     let client = FakeHerdr::default();
     *client.race_on_open.lock().unwrap() = true;
-    let context = PluginContext {
-        workspace_id: Some(WorkspaceId("workspace".to_owned())),
-        tab_id: Some(TabId("tab".to_owned())),
-        focused_pane_id: Some(PaneId("agent".to_owned())),
-        focused_pane_cwd: Some(repository.root().to_owned()),
-    };
+    let context = tab_context(repository.root());
     let actions = PaneActions::new(&client);
 
     assert_eq!(
@@ -140,12 +135,7 @@ fn the_review_pane_splits_the_focused_pane_across_its_longer_side(
     let client = FakeHerdr::default();
     *client.focused_size.lock().unwrap() =
         focused.map(|(width, height)| PaneSize { width, height });
-    let context = PluginContext {
-        workspace_id: Some(WorkspaceId("workspace".to_owned())),
-        tab_id: Some(TabId("tab".to_owned())),
-        focused_pane_id: Some(PaneId("agent".to_owned())),
-        focused_pane_cwd: Some(repository.root().to_owned()),
-    };
+    let context = tab_context(repository.root());
 
     PaneActions::new(&client)
         .run(PaneAction::Open, &context)
@@ -154,10 +144,46 @@ fn the_review_pane_splits_the_focused_pane_across_its_longer_side(
     assert_eq!(client.opened.lock().unwrap()[0].direction, direction);
 }
 
+// herdr-bowtie gives the lead and each task a tab of one workspace, each with its own
+// reviewer: an action acts on the review pane of its own tab only.
+#[test_case(PaneAction::Open, &PaneActionResult::Opened(PaneId("review-new".to_owned())); "open")]
+#[test_case(PaneAction::Toggle, &PaneActionResult::Opened(PaneId("review-new".to_owned())); "toggle")]
+#[test_case(PaneAction::Close, &PaneActionResult::AlreadyClosed; "close")]
+fn an_action_keeps_the_review_pane_of_another_tab(action: PaneAction, expected: &PaneActionResult) {
+    let repository = repository_fixture(RepoType::Git);
+    let client = FakeHerdr::default();
+    client
+        .panes
+        .lock()
+        .unwrap()
+        .push(review_pane_in("review-elsewhere", "other-tab"));
+
+    assert_eq!(
+        &PaneActions::new(&client)
+            .run(action, &tab_context(repository.root()))
+            .unwrap(),
+        expected
+    );
+    assert_eq!(client.closed.lock().unwrap().as_slice(), []);
+}
+
+fn tab_context(cwd: &std::path::Path) -> PluginContext {
+    PluginContext {
+        workspace_id: Some(WorkspaceId("workspace".to_owned())),
+        tab_id: Some(TabId("tab".to_owned())),
+        focused_pane_id: Some(PaneId("agent".to_owned())),
+        focused_pane_cwd: Some(cwd.to_owned()),
+    }
+}
+
 fn review_pane(id: &str) -> PluginPane {
+    review_pane_in(id, "tab")
+}
+
+fn review_pane_in(id: &str, tab: &str) -> PluginPane {
     PluginPane {
         pane_id: PaneId(id.to_owned()),
-        tab_id: TabId("tab".to_owned()),
+        tab_id: TabId(tab.to_owned()),
         workspace_id: WorkspaceId("workspace".to_owned()),
         entrypoint_id: EntrypointId("review".to_owned()),
     }

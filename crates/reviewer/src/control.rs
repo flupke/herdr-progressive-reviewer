@@ -2,7 +2,7 @@
 
 use herdr_client::protocol::{
     EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PaneSize,
-    PluginContext, PluginPane, WorkspaceId,
+    PluginContext, PluginPane, TabId,
 };
 use review_repository::repository::Repository;
 
@@ -47,20 +47,21 @@ where
         Self { client }
     }
 
-    /// Run one action using only the immutable action context.
+    /// Run one action on the review pane of the action's tab, using only the immutable action
+    /// context. A herdr-bowtie workspace holds a tab per task, each with its own review pane.
     pub fn run(
         &self,
         action: PaneAction,
         context: &PluginContext,
     ) -> eyre::Result<PaneActionResult> {
-        let workspace = context
-            .workspace_id
+        let tab = context
+            .tab_id
             .as_ref()
-            .ok_or_else(|| missing_context("workspace ID"))?;
-        let panes = self.review_panes(workspace)?;
+            .ok_or_else(|| missing_context("tab ID"))?;
+        let panes = self.review_panes(tab)?;
         match action {
-            PaneAction::Open => self.open(context, &panes),
-            PaneAction::Toggle if panes.is_empty() => self.open(context, &panes),
+            PaneAction::Open => self.open(context, tab, &panes),
+            PaneAction::Toggle if panes.is_empty() => self.open(context, tab, &panes),
             PaneAction::Close | PaneAction::Toggle => self.close(panes),
         }
     }
@@ -68,6 +69,7 @@ where
     fn open(
         &self,
         context: &PluginContext,
+        tab: &TabId,
         panes: &[PluginPane],
     ) -> eyre::Result<PaneActionResult> {
         if let Some(pane) = panes.first() {
@@ -100,11 +102,7 @@ where
             focus: true,
         })?;
 
-        let workspace = context
-            .workspace_id
-            .as_ref()
-            .expect("run checked the workspace ID");
-        let panes = self.review_panes(workspace)?;
+        let panes = self.review_panes(tab)?;
         let winner = panes.first().unwrap_or(&opened).pane_id.clone();
         self.close_duplicates(&panes)?;
         if winner == opened.pane_id {
@@ -125,10 +123,10 @@ where
         Ok(PaneActionResult::Closed)
     }
 
-    fn review_panes(&self, workspace: &WorkspaceId) -> eyre::Result<Vec<PluginPane>> {
+    fn review_panes(&self, tab: &TabId) -> eyre::Result<Vec<PluginPane>> {
         Ok(self
             .client
-            .list_plugin_panes(workspace)?
+            .list_plugin_panes(tab)?
             .into_iter()
             .filter(|pane| pane.entrypoint_id.0 == REVIEW_ENTRYPOINT)
             .collect())

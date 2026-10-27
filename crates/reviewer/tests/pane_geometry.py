@@ -183,7 +183,8 @@ class IsolatedHerdr:
             '[[panes]]\nid = "review"\ntitle = "Geometry probe"\n'
             f'command = {json.dumps(command)}\nplacement = "split"\n')
         self.request("plugin.link", dict(path=str(plugin), enabled=True))
-        context = dict(workspace_id=self.workspace, focused_pane_id=self.original,
+        tab = self.request("pane.get", dict(pane_id=self.original))["pane"]["tab_id"]
+        context = dict(workspace_id=self.workspace, tab_id=tab, focused_pane_id=self.original,
                        focused_pane_cwd=str(self.root / "work"))
         environment = dict(self.env, HERDR_PLUGIN_ID="herdr.progressive-reviewer",
                            HERDR_PLUGIN_STATE_DIR=str(self.root / "plugin-state"),
