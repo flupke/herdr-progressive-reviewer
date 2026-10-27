@@ -136,8 +136,8 @@ pub trait HerdrReader: Send + Sync {
     /// Read the visible text in an agent pane.
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String>;
 
-    /// List plugin-owned panes in one workspace.
-    fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>>;
+    /// List plugin-owned panes in one tab.
+    fn list_plugin_panes(&self, tab_id: &TabId) -> Result<Vec<PluginPane>>;
 
     /// Measure one pane.
     fn pane_size(&self, pane_id: &PaneId) -> Result<PaneSize>;

@@ -513,9 +513,10 @@ impl HerdrClient {
         .map_err(|source| Error::Json { operation, source })
     }
 
-    fn pane_path(&self, workspace_id: &WorkspaceId) -> PathBuf {
-        let mut key = String::with_capacity(workspace_id.0.len() * 2);
-        for byte in workspace_id.0.bytes() {
+    /// One record per tab: each tab of a workspace has its own review pane.
+    fn pane_path(&self, tab_id: &TabId) -> PathBuf {
+        let mut key = String::with_capacity(tab_id.0.len() * 2);
+        for byte in tab_id.0.bytes() {
             use std::fmt::Write as _;
             write!(key, "{byte:02x}").expect("writing to a string cannot fail");
         }
@@ -523,7 +524,7 @@ impl HerdrClient {
     }
 
     fn save_pane(&self, pane: &PluginPane) -> Result<()> {
-        let target = self.pane_path(&pane.workspace_id);
+        let target = self.pane_path(&pane.tab_id);
         let directory = target.parent().expect("a pane record has a parent");
         fs::create_dir_all(directory).map_err(|source| Error::Io {
             operation: "create Herdr pane state",
@@ -563,8 +564,8 @@ impl HerdrClient {
             })
     }
 
-    fn load_pane(&self, workspace_id: &WorkspaceId) -> Result<Option<PluginPane>> {
-        let target = self.pane_path(workspace_id);
+    fn load_pane(&self, tab_id: &TabId) -> Result<Option<PluginPane>> {
+        let target = self.pane_path(tab_id);
         let bytes = match fs::read(&target) {
             Ok(bytes) => bytes,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -584,11 +585,40 @@ impl HerdrClient {
             })
     }
 
+    /// The record of the review pane opened in `tab_id`. A record that earlier versions keyed
+    /// by workspace names its tab: it moves to the tab's key.
+    fn tab_pane(&self, tab_id: &TabId) -> Result<Option<PluginPane>> {
+        if let Some(pane) = self.load_pane(tab_id)? {
+            return Ok(Some(pane));
+        }
+        let Some((path, pane)) = self
+            .pane_records()?
+            .into_iter()
+            .find(|(_, pane)| pane.tab_id == *tab_id)
+        else {
+            return Ok(None);
+        };
+        self.save_pane(&pane)?;
+        let _ = fs::remove_file(path);
+        Ok(Some(pane))
+    }
+
     fn remove_pane(&self, pane_id: &PaneId) -> Result<()> {
+        for (path, pane) in self.pane_records()? {
+            if pane.pane_id == *pane_id {
+                let _ = fs::remove_file(path);
+            }
+        }
+        Ok(())
+    }
+
+    /// Every readable pane record, with its file; a temporary file `save_pane` has not renamed
+    /// yet is no record.
+    fn pane_records(&self) -> Result<Vec<(PathBuf, PluginPane)>> {
         let directory = self.state_dir.join("panes");
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(source) => {
                 return Err(Error::Io {
                     operation: "scan Herdr pane state",
@@ -597,17 +627,20 @@ impl HerdrClient {
                 });
             }
         };
-        for entry in entries.flatten() {
-            let Ok(bytes) = fs::read(entry.path()) else {
-                continue;
-            };
-            if serde_json::from_slice::<PluginPane>(&bytes)
-                .is_ok_and(|pane| pane.pane_id == *pane_id)
-            {
-                let _ = fs::remove_file(entry.path());
-            }
-        }
-        Ok(())
+        Ok(entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .filter_map(|entry| {
+                let bytes = fs::read(entry.path()).ok()?;
+                let pane = serde_json::from_slice::<PluginPane>(&bytes).ok()?;
+                Some((entry.path(), pane))
+            })
+            .collect())
     }
 
     fn synchronize_pane_size(&self, pane_id: &PaneId) -> Result<()> {
@@ -732,8 +765,8 @@ impl HerdrReader for HerdrClient {
         self.agent_screen(pane_id)
     }
 
-    fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
-        let Some(pane) = self.load_pane(workspace_id)? else {
+    fn list_plugin_panes(&self, tab_id: &TabId) -> Result<Vec<PluginPane>> {
+        let Some(pane) = self.tab_pane(tab_id)? else {
             return Ok(Vec::new());
         };
         match self.response(
@@ -741,7 +774,23 @@ impl HerdrReader for HerdrClient {
             &json!({"pane_id": pane.pane_id.0}),
             SOCKET_TIMEOUT,
         )? {
-            Ok(_) => Ok(vec![pane]),
+            Ok(result) => {
+                let current: PaneWire = Self::parse(&result, "pane", method::PANE_GET)?;
+                if current.tab == *tab_id {
+                    Ok(vec![pane])
+                } else {
+                    // The pane moved to another tab, where an action of this tab must not
+                    // close it: it is that tab's review pane now, unless the tab has one.
+                    let _ = fs::remove_file(self.pane_path(tab_id));
+                    if self.load_pane(&current.tab)?.is_none() {
+                        self.save_pane(&PluginPane {
+                            tab_id: current.tab,
+                            ..pane
+                        })?;
+                    }
+                    Ok(Vec::new())
+                }
+            }
             Err(error) if error.code.contains("not_found") => {
                 self.remove_pane(&pane.pane_id)?;
                 Ok(Vec::new())

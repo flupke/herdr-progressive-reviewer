@@ -20,7 +20,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 - [Jev](jev.md): enabling it, where it runs and what it sends, the evidence behind its production settings.
 - [Jev evaluations](jev-evals.md): the splitting comparison and the prompt experiment, opt-in.
 - [Jev history study](jev-history-study.md): the corpus, the method and the commands of the history study and the compact query comparison.
-- [Review threads](threads.md): which agent gets a comment, Herdr's wakeup delivery, access values.
+- [Review threads](threads.md): which agent gets a comment, which review pane an action acts on, Herdr's wakeup delivery, access values.
 - [MCP bridge](mcp-bridge.md): registration with Codex and Claude Code and its gotchas, port conflicts.
 - [Language servers](language-servers.md): direnv, project roots, limits in Explore.
 - [Reviewer runtime](runtime.md): recording UI timings.
