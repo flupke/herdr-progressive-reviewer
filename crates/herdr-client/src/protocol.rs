@@ -178,9 +178,6 @@ pub struct PluginContext {
 /// The session fields needed for initial target selection.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SessionSnapshot {
-    /// The focused workspace, if Herdr reports one.
-    #[serde(default)]
-    pub focused_workspace_id: Option<WorkspaceId>,
     /// The focused pane, if Herdr reports one.
     #[serde(default)]
     pub focused_pane_id: Option<PaneId>,
@@ -328,28 +325,28 @@ pub struct OpenPluginPane {
     pub focus: bool,
 }
 
-/// The shared last-focused agent target for one Herdr workspace.
+/// The shared last-focused agent target for one review pane: only an agent in the pane's own
+/// tab can be the target, since an agent in another tab of the workspace works on something
+/// else, such as another change.
 #[derive(Clone, Debug)]
 pub struct AgentTarget {
-    workspace_id: WorkspaceId,
+    tab_id: TabId,
     focused_pane_ids: Arc<Mutex<Vec<PaneId>>>,
 }
 
 impl AgentTarget {
-    /// Create a target from the pane that opened the reviewer.
-    pub fn new(workspace_id: WorkspaceId, focused_pane_id: Option<PaneId>) -> Self {
+    /// Create the target of the review pane in tab `tab_id`, from the pane that opened it.
+    pub fn new(tab_id: TabId, focused_pane_id: Option<PaneId>) -> Self {
         Self {
-            workspace_id,
+            tab_id,
             focused_pane_ids: Arc::new(Mutex::new(focused_pane_id.into_iter().collect())),
         }
     }
 
-    /// Seed the target from the current session focus.
+    /// Seed the target from the current session focus. A focused pane outside the tab never
+    /// matches an agent of the tab, so it needs no filter here.
     fn initialize(&mut self, port: &(impl AgentPort + ?Sized)) -> Result<()> {
-        let snapshot = port.session_snapshot()?;
-        if snapshot.focused_workspace_id.as_ref() == Some(&self.workspace_id)
-            && let Some(pane_id) = snapshot.focused_pane_id
-        {
+        if let Some(pane_id) = port.session_snapshot()?.focused_pane_id {
             self.observe_focus(&pane_id);
         }
         Ok(())
@@ -365,7 +362,7 @@ impl AgentTarget {
         focused.push(pane_id.clone());
     }
 
-    /// Resolve the current same-workspace implementation agent.
+    /// Resolve the current same-tab implementation agent.
     pub fn resolve(&mut self, port: &(impl AgentPort + ?Sized)) -> Result<Option<Agent>> {
         let agents = port.list_agents()?;
         self.initialize(port)?;
@@ -373,11 +370,11 @@ impl AgentTarget {
             return Ok(Some(agent));
         }
 
-        let mut same_workspace_agents = agents
+        let mut same_tab_agents = agents
             .into_iter()
-            .filter(|agent| agent.workspace_id == self.workspace_id);
-        let only_agent = same_workspace_agents.next();
-        if same_workspace_agents.next().is_some() {
+            .filter(|agent| agent.tab_id == self.tab_id);
+        let only_agent = same_tab_agents.next();
+        if same_tab_agents.next().is_some() {
             return Ok(None);
         }
         Ok(only_agent)
@@ -392,9 +389,7 @@ impl AgentTarget {
             .find_map(|pane_id| {
                 agents
                     .iter()
-                    .find(|agent| {
-                        agent.pane_id == *pane_id && agent.workspace_id == self.workspace_id
-                    })
+                    .find(|agent| agent.pane_id == *pane_id && agent.tab_id == self.tab_id)
                     .cloned()
             })
     }

@@ -247,6 +247,23 @@ fn comments_follow_the_active_agent(retrieved: bool) {
         });
 }
 
+/// In a herdr-bowtie session, the lead's agent has a tab of its own in the review's
+/// workspace. It never gets a comment, even when it was focused last.
+#[test]
+fn an_agent_in_another_tab_never_gets_the_comments() {
+    let fixture = ConversationFixture::start("codex");
+    fixture.new_thread("review", "file.rs", "Before the other tab took focus");
+    fixture.access(1);
+    let other = fixture.second_agent_in_another_tab();
+    assert_ne!(other.tab_id, fixture.server.tab_id);
+    fixture.focus_agent(&other);
+    fixture.new_thread("review", "other.rs", "After the other tab took focus");
+
+    fixture.access(2);
+    assert!(fixture.settled_second_prompts(&other).is_empty());
+    assert_eq!(fixture.settled_wakeups(), 2);
+}
+
 #[test]
 fn changing_focus_hands_pending_comments_to_a_second_agent() {
     let fixture = ConversationFixture::start_with_session("codex", None);

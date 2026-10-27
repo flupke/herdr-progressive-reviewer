@@ -4,13 +4,12 @@ use crate::memory::InMemoryAgents;
 #[test]
 fn focused_pane_remains_pending_until_herdr_detects_its_agent() {
     let agents = InMemoryAgents::default();
-    let workspace_id = workspace_id();
     let pane_id = PaneId("delayed-agent".to_owned());
-    let mut target = AgentTarget::new(workspace_id, Some(pane_id.clone()));
+    let mut target = AgentTarget::new(tab_id(), Some(pane_id.clone()));
 
     assert_eq!(target.resolve(&agents).unwrap(), None);
 
-    agents.upsert_agent(agent(&pane_id.0, "workspace"));
+    agents.upsert_agent(agent(&pane_id.0, "tab"));
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
         Some(pane_id)
@@ -20,9 +19,9 @@ fn focused_pane_remains_pending_until_herdr_detects_its_agent() {
 #[test]
 fn shared_target_handles_use_the_same_focus_history() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("first-agent", "workspace"));
-    agents.upsert_agent(agent("second-agent", "workspace"));
-    let mut explore = AgentTarget::new(workspace_id(), Some(PaneId("first-agent".into())));
+    agents.upsert_agent(agent("first-agent", "tab"));
+    agents.upsert_agent(agent("second-agent", "tab"));
+    let mut explore = AgentTarget::new(tab_id(), Some(PaneId("first-agent".into())));
     let mut comments = explore.clone();
     comments.observe_focus(&PaneId("second-agent".into()));
     assert_eq!(
@@ -43,9 +42,9 @@ fn shared_target_handles_use_the_same_focus_history() {
 #[test]
 fn most_recent_focused_agent_wins() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("first-agent", "workspace"));
-    agents.upsert_agent(agent("second-agent", "workspace"));
-    let mut target = AgentTarget::new(workspace_id(), None);
+    agents.upsert_agent(agent("first-agent", "tab"));
+    agents.upsert_agent(agent("second-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
     target.observe_focus(&PaneId("first-agent".to_owned()));
     target.observe_focus(&PaneId("second-agent".to_owned()));
 
@@ -58,8 +57,8 @@ fn most_recent_focused_agent_wins() {
 #[test]
 fn later_undetected_focus_replaces_the_target_after_detection() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("first-agent", "workspace"));
-    let mut target = AgentTarget::new(workspace_id(), None);
+    agents.upsert_agent(agent("first-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
     target.observe_focus(&PaneId("first-agent".to_owned()));
     target.observe_focus(&PaneId("delayed-agent".to_owned()));
 
@@ -68,7 +67,7 @@ fn later_undetected_focus_replaces_the_target_after_detection() {
         Some(PaneId("first-agent".to_owned()))
     );
 
-    agents.upsert_agent(agent("delayed-agent", "workspace"));
+    agents.upsert_agent(agent("delayed-agent", "tab"));
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
         Some(PaneId("delayed-agent".to_owned()))
@@ -76,13 +75,10 @@ fn later_undetected_focus_replaces_the_target_after_detection() {
 }
 
 #[test]
-fn only_workspace_agent_is_selected_without_agent_focus_history() {
+fn only_tab_agent_is_selected_without_agent_focus_history() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("only-agent", "workspace"));
-    let mut target = AgentTarget::new(
-        workspace_id(),
-        Some(PaneId("progressive-reviewer".to_owned())),
-    );
+    agents.upsert_agent(agent("only-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), Some(PaneId("progressive-reviewer".to_owned())));
 
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
@@ -93,15 +89,15 @@ fn only_workspace_agent_is_selected_without_agent_focus_history() {
 #[test]
 fn only_agent_fallback_does_not_override_an_undetected_focused_agent() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("fallback-agent", "workspace"));
-    let mut target = AgentTarget::new(workspace_id(), Some(PaneId("focused-agent".to_owned())));
+    agents.upsert_agent(agent("fallback-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), Some(PaneId("focused-agent".to_owned())));
 
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
         Some(PaneId("fallback-agent".to_owned()))
     );
 
-    agents.upsert_agent(agent("focused-agent", "workspace"));
+    agents.upsert_agent(agent("focused-agent", "tab"));
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
         Some(PaneId("focused-agent".to_owned()))
@@ -109,12 +105,12 @@ fn only_agent_fallback_does_not_override_an_undetected_focused_agent() {
 }
 
 #[test]
-fn multiple_workspace_agents_are_not_selected_without_focus_history() {
+fn multiple_tab_agents_are_not_selected_without_focus_history() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("first-agent", "workspace"));
-    agents.upsert_agent(agent("second-agent", "workspace"));
-    agents.upsert_agent(agent("other-agent", "other-workspace"));
-    let mut target = AgentTarget::new(workspace_id(), None);
+    agents.upsert_agent(agent("first-agent", "tab"));
+    agents.upsert_agent(agent("second-agent", "tab"));
+    agents.upsert_agent(agent("other-agent", "other-tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
 
     assert_eq!(target.resolve(&agents).unwrap(), None);
 }
@@ -122,9 +118,9 @@ fn multiple_workspace_agents_are_not_selected_without_focus_history() {
 #[test]
 fn current_session_focus_replaces_the_previous_live_agent() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("old-agent", "workspace"));
-    agents.upsert_agent(agent("other-agent", "workspace"));
-    let mut target = AgentTarget::new(workspace_id(), None);
+    agents.upsert_agent(agent("old-agent", "tab"));
+    agents.upsert_agent(agent("other-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
     target.observe_focus(&PaneId("old-agent".to_owned()));
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
@@ -132,10 +128,9 @@ fn current_session_focus_replaces_the_previous_live_agent() {
     );
 
     agents.set_session(SessionSnapshot {
-        focused_workspace_id: Some(workspace_id()),
         focused_pane_id: Some(PaneId("new-agent".to_owned())),
     });
-    agents.upsert_agent(agent("new-agent", "workspace"));
+    agents.upsert_agent(agent("new-agent", "tab"));
 
     assert_eq!(
         target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
@@ -146,10 +141,10 @@ fn current_session_focus_replaces_the_previous_live_agent() {
 #[test]
 fn closed_agent_falls_back_to_the_previous_focused_live_agent() {
     let agents = InMemoryAgents::default();
-    agents.upsert_agent(agent("first-agent", "workspace"));
-    agents.upsert_agent(agent("second-agent", "workspace"));
-    agents.upsert_agent(agent("third-agent", "workspace"));
-    let mut target = AgentTarget::new(workspace_id(), None);
+    agents.upsert_agent(agent("first-agent", "tab"));
+    agents.upsert_agent(agent("second-agent", "tab"));
+    agents.upsert_agent(agent("third-agent", "tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
     target.observe_focus(&PaneId("first-agent".to_owned()));
     target.observe_focus(&PaneId("second-agent".to_owned()));
     target.observe_focus(&PaneId("third-agent".to_owned()));
@@ -166,15 +161,50 @@ fn closed_agent_falls_back_to_the_previous_focused_live_agent() {
     );
 }
 
-fn workspace_id() -> WorkspaceId {
-    WorkspaceId("workspace".to_owned())
+#[test]
+fn an_agent_focused_last_in_another_tab_is_never_selected() {
+    let agents = InMemoryAgents::default();
+    agents.upsert_agent(agent("own-agent", "tab"));
+    agents.upsert_agent(agent("lead-agent", "other-tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
+    target.observe_focus(&PaneId("own-agent".to_owned()));
+    target.observe_focus(&PaneId("lead-agent".to_owned()));
+    agents.set_session(SessionSnapshot {
+        focused_pane_id: Some(PaneId("lead-agent".to_owned())),
+    });
+
+    assert_eq!(
+        target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
+        Some(PaneId("own-agent".to_owned()))
+    );
 }
 
-fn agent(pane_id: &str, workspace_id: &str) -> Agent {
+#[test]
+fn only_agent_fallback_counts_the_agents_of_the_tab_alone() {
+    let agents = InMemoryAgents::default();
+    agents.upsert_agent(agent("lead-agent", "other-tab"));
+    let mut target = AgentTarget::new(tab_id(), None);
+    target.observe_focus(&PaneId("lead-agent".to_owned()));
+
+    assert_eq!(target.resolve(&agents).unwrap(), None);
+
+    agents.upsert_agent(agent("own-agent", "tab"));
+    assert_eq!(
+        target.resolve(&agents).unwrap().map(|agent| agent.pane_id),
+        Some(PaneId("own-agent".to_owned()))
+    );
+}
+
+fn tab_id() -> TabId {
+    TabId("tab".to_owned())
+}
+
+/// An agent in tab `tab_id`; every tab is in the same workspace.
+fn agent(pane_id: &str, tab_id: &str) -> Agent {
     Agent {
         pane_id: PaneId(pane_id.to_owned()),
-        tab_id: TabId("tab".to_owned()),
-        workspace_id: WorkspaceId(workspace_id.to_owned()),
+        tab_id: TabId(tab_id.to_owned()),
+        workspace_id: WorkspaceId("workspace".to_owned()),
         name: None,
         display_agent: None,
         agent: None,

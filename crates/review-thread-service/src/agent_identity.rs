@@ -4,7 +4,7 @@
 //! differences are the named [`IdentityRules`] and the follow mode of a
 //! [`SessionBinding`]; each caller maps a [`Verdict`] to its own errors.
 
-use herdr_client::protocol::{Agent, AgentPort, AgentSession, PaneId, WorkspaceId};
+use herdr_client::protocol::{Agent, AgentPort, AgentSession, PaneId, TabId};
 
 /// How a native session reported now is compared with the bound one.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,8 +70,10 @@ enum SessionBinding {
 /// Why a live agent is not the same agent session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Change {
-    /// The pane, workspace or agent implementation differs.
+    /// The pane or the agent implementation differs.
     Agent,
+    /// The pane moved to another tab.
+    Tab,
     /// The pane's foreground process group differs.
     ProcessGroup,
     /// The pane reports a different native session.
@@ -110,7 +112,9 @@ impl IdentityError {
 #[derive(Clone, Debug)]
 pub(crate) struct AgentIdentity {
     pane_id: PaneId,
-    workspace_id: WorkspaceId,
+    /// A pane moved to another tab works on something else: the reviewer prompts only an
+    /// agent of its own tab.
+    tab_id: TabId,
     agent: Option<String>,
     session: SessionBinding,
     process_group: Option<u32>,
@@ -122,7 +126,7 @@ impl AgentIdentity {
     pub(crate) fn new(agent: &Agent, rules: IdentityRules) -> Self {
         Self {
             pane_id: agent.pane_id.clone(),
-            workspace_id: agent.workspace_id.clone(),
+            tab_id: agent.tab_id.clone(),
             agent: agent.agent.clone(),
             session: agent
                 .agent_session
@@ -172,11 +176,11 @@ impl AgentIdentity {
         port: &dyn AgentPort,
         current: &Agent,
     ) -> Result<Verdict, IdentityError> {
-        if current.pane_id != self.pane_id
-            || current.workspace_id != self.workspace_id
-            || current.agent != self.agent
-        {
+        if current.pane_id != self.pane_id || current.agent != self.agent {
             return Ok(Verdict::Changed(Change::Agent));
+        }
+        if current.tab_id != self.tab_id {
+            return Ok(Verdict::Changed(Change::Tab));
         }
         if let Some(group) = self.process_group
             && process_group(port, &current.pane_id)? != group

@@ -45,6 +45,8 @@ enum AgentLifecycle {
 struct IsolatedHerdrServer {
     server: HerdrTestServer,
     workspace_id: WorkspaceId,
+    /// The tab of the agent's pane, where the review pane would open.
+    tab_id: TabId,
     pane_id: PaneId,
     agent_binary: PathBuf,
     agent: String,
@@ -168,10 +170,17 @@ impl IsolatedHerdrServer {
                 .expect("workspace create must return a root pane ID")
                 .to_owned(),
         );
+        let tab_id = TabId(
+            workspace["result"]["root_pane"]["tab_id"]
+                .as_str()
+                .expect("workspace create must return the root pane's tab ID")
+                .to_owned(),
+        );
         Self {
             agent_binary: server.root().join(agent),
             server,
             workspace_id,
+            tab_id,
             pane_id,
             agent: agent.into(),
             environment,
@@ -702,8 +711,7 @@ impl ReviewFlowFixture {
         ]);
         let mut runtime = EffectsFixture::start(repository_files, |setup| {
             setup.agents = herdr.client();
-            setup.target =
-                AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone()));
+            setup.target = AgentTarget::new(herdr.tab_id.clone(), Some(herdr.pane_id.clone()));
             setup.endpoint = Ok(endpoint);
             setup.hook_directory = Some(herdr.hook_directory());
             adjust(setup);

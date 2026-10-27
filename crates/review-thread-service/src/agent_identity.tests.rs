@@ -68,23 +68,36 @@ fn a_different_session_is_a_changed_session() {
 }
 
 #[test]
-fn a_different_pane_workspace_or_agent_is_a_changed_agent() {
+fn a_different_pane_or_agent_is_a_changed_agent() {
     let port = port();
     for rules in [IdentityRules::REVIEW_ACCESS, IdentityRules::PINNED_AGENT] {
         let original = agent(Some(session("original")));
         let mut identity = AgentIdentity::new(&original, rules);
         let mut pane = original.clone();
         pane.pane_id.0 = "another-pane".into();
-        let mut workspace = original.clone();
-        workspace.workspace_id.0 = "another-workspace".into();
         let mut implementation = original;
         implementation.agent = Some("claude".into());
-        for other in [pane, workspace, implementation] {
+        for other in [pane, implementation] {
             assert_eq!(
                 identity.check(&port, &other),
                 Ok(Verdict::Changed(Change::Agent))
             );
         }
+    }
+}
+
+#[test]
+fn a_pane_moved_to_another_tab_is_a_changed_tab() {
+    let port = port();
+    for rules in [IdentityRules::REVIEW_ACCESS, IdentityRules::PINNED_AGENT] {
+        let original = agent(Some(session("original")));
+        let mut identity = AgentIdentity::new(&original, rules);
+        let mut moved = original;
+        moved.tab_id.0 = "another-tab".into();
+        assert_eq!(
+            identity.check(&port, &moved),
+            Ok(Verdict::Changed(Change::Tab))
+        );
     }
 }
 

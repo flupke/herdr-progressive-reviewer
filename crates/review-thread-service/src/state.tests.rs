@@ -44,7 +44,7 @@ impl Service {
         let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
         let agents = InMemoryAgents::default();
         agents.upsert_agent(agent("first", "session-1"));
-        let target = AgentTarget::new(workspace(), Some(pane("first")));
+        let target = AgentTarget::new(tab(), Some(pane("first")));
         let errors = Arc::new(Mutex::new(Vec::new()));
         let wakeups = Arc::new(Mutex::new(Vec::new()));
         let round_messages = Arc::new(Mutex::new(Vec::new()));
@@ -368,6 +368,10 @@ fn resolving_the_thread_cancels_its_pending_wakeup() {
     assert!(service.errors().is_empty());
 }
 
+fn tab() -> TabId {
+    TabId("tab".into())
+}
+
 fn workspace() -> WorkspaceId {
     WorkspaceId("workspace".into())
 }
@@ -379,7 +383,7 @@ fn pane(id: &str) -> PaneId {
 fn agent(pane_id: &str, session: &str) -> Agent {
     Agent {
         pane_id: pane(pane_id),
-        tab_id: TabId("tab".into()),
+        tab_id: tab(),
         workspace_id: workspace(),
         name: None,
         display_agent: None,
@@ -494,7 +498,7 @@ impl SlowWorker {
                 release: Mutex::new(released),
             },
             None,
-            AgentTarget::new(workspace(), Some(pane("first"))),
+            AgentTarget::new(tab(), Some(pane("first"))),
             Err("No MCP listener in this test".into()),
             |_| Err("No MCP listener in this test".into()),
             move |event| {

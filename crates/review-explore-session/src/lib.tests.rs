@@ -482,7 +482,11 @@ impl AgentPort for GatedAgents {
 }
 
 fn target() -> AgentTarget {
-    AgentTarget::new(workspace(), Some(PaneId(PANE.into())))
+    AgentTarget::new(tab(), Some(PaneId(PANE.into())))
+}
+
+fn tab() -> TabId {
+    TabId("tab".into())
 }
 
 fn workspace() -> WorkspaceId {
@@ -492,7 +496,7 @@ fn workspace() -> WorkspaceId {
 fn agent() -> Agent {
     Agent {
         pane_id: PaneId(PANE.into()),
-        tab_id: TabId("tab".into()),
+        tab_id: tab(),
         workspace_id: workspace(),
         name: None,
         display_agent: None,

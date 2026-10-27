@@ -61,6 +61,19 @@ fn a_different_agent_in_the_pane_fails() {
 }
 
 #[test]
+fn an_agent_moved_to_another_tab_fails() {
+    let port = InMemoryAgents::default();
+    let pinned = PinnedAgent::new(agent(Some("original")));
+    let mut moved = agent(Some("original"));
+    moved.tab_id.0 = "another-tab".into();
+    port.upsert_agent(moved);
+    assert_eq!(
+        pinned.current(&port),
+        Err("The selected agent moved to another tab; Reset to start a new round".into())
+    );
+}
+
+#[test]
 fn a_retry_without_a_session_is_bound_to_its_process() {
     let port = InMemoryAgents::default();
     assert_eq!(

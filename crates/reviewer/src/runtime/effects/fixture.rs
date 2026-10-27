@@ -6,7 +6,7 @@ use std::time::Duration;
 use component_core::{ApplicationEvent, EventEnvelope};
 use crossbeam_channel::{Sender as EventSender, unbounded};
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{AgentTarget, WorkspaceId};
+use herdr_client::protocol::{AgentTarget, TabId};
 use review_repository::repository::{RepoType, Repository};
 use review_significance::JevClassifier;
 use review_source::ReviewCheckpoint;
@@ -49,7 +49,7 @@ impl EffectsFixture {
         let mut setup = Setup {
             repository: repository.clone(),
             store: store.clone(),
-            target: AgentTarget::new(WorkspaceId("test".into()), None),
+            target: AgentTarget::new(TabId("test".into()), None),
             agents: HerdrClient::new(
                 "/nonexistent/reviewer-test.sock".into(),
                 "reviewer-test".into(),
