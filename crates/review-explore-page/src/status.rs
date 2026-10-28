@@ -204,7 +204,8 @@ impl StatusCard {
     /// earlier round offers Reset only, and shows its own card in place of the stage's.
     pub(crate) fn above_stage(round: &RoundSnapshot, offers_actions: bool) -> Vec<Self> {
         let mut cards = Vec::new();
-        if !offers_actions {
+        // A past round says what it is above the page, with the way back to the round.
+        if !offers_actions && !round.past {
             cards.push(Self::earlier());
         }
         cards.extend(Self::of_stage(round, offers_actions));
@@ -366,6 +367,14 @@ impl StatusCard {
         card.role(StatusRole::Alert)
     }
 
+    /// Why a request about a past round did not go through: the page shows it read only.
+    pub(crate) fn read_only() -> Self {
+        Self::new(StatusKind::Info, "notice", "This past round is read only")
+            .reason("Nothing on a past round can change.")
+            .next("Go back to the current round to act on it.")
+            .role(StatusRole::Alert)
+    }
+
     fn earlier() -> Self {
         Self::new(StatusKind::Info, "earlier", "This is an earlier round")
             .reason("Another review pane saved a newer round of this review.")
@@ -390,7 +399,8 @@ impl StatusCard {
                 started_at_ms,
             } => vec![Self::starting(start, *started_at_ms)],
             RoundStage::AgentWorking { .. } | RoundStage::Interrupted { .. } => {
-                if round.stage.sent().is_some() && offers_actions {
+                // A past round shows the answer its turn carries, with the card beside it.
+                if round.stage.sent().is_some() && (offers_actions || round.past) {
                     Vec::new()
                 } else {
                     Self::of_turn(round, offers_actions).into_iter().collect()
@@ -402,9 +412,9 @@ impl StatusCard {
     }
 
     /// The card of the agent's turn the round waits for, which it works on or which waits for
-    /// Retry, with the action that fits; `None` in another stage, and for an interrupted turn
-    /// when the page offers no action on the round. `offers_actions` tells whether the page
-    /// offers actions on the round.
+    /// Retry, with the action that fits; for a past round, where the round stopped. `None` in
+    /// another stage, and for an interrupted turn of an earlier round. `offers_actions` tells
+    /// whether the page offers actions on the round.
     pub(crate) fn of_turn(round: &RoundSnapshot, offers_actions: bool) -> Option<Self> {
         let sent = Sent::of(round);
         match &round.stage {
@@ -429,12 +439,64 @@ impl StatusCard {
                 attempt,
                 interruption,
                 ..
-            } => offers_actions.then(|| {
+            } if offers_actions => {
                 let turn = request.as_deref().zip(attempt.as_deref());
-                Self::interrupted(request.is_some(), turn, interruption, sent)
-            }),
+                Some(Self::interrupted(
+                    request.is_some(),
+                    turn,
+                    interruption,
+                    sent,
+                ))
+            }
+            RoundStage::Interrupted {
+                request,
+                interruption,
+                ..
+            } => round
+                .past
+                .then(|| Self::stopped(request.is_some(), interruption, sent)),
             _ => None,
         }
+    }
+
+    /// Where a past round stood when it was last saved, with no action: on a turn the agent had
+    /// not answered, which carries `sent` of the reviewer's, interrupted for `interruption`, or
+    /// with no turn at all when not `any`. The record cannot tell a round that ended there from one
+    /// still running in another review pane.
+    fn stopped(any: bool, interruption: &Interruption, sent: Option<Sent>) -> Self {
+        use StatusKind::{Danger, Info, Warn};
+        const ID: &str = "stopped";
+        let (subject, what) = match sent {
+            Some(sent) => (sent.subject(), sent.noun()),
+            None => ("The turn's prompt", "the turn's prompt"),
+        };
+        let card = match interruption {
+            _ if !any => Self::new(Info, ID, "The round had no turn to answer"),
+            Interruption::Failed(failure) => {
+                Self::new(Danger, ID, format!("{subject} did not reach the agent"))
+                    .reason(failure.as_str())
+            }
+            Interruption::NotStarted => Self::new(
+                Warn,
+                ID,
+                format!("The agent had not started on {what} when the round was saved"),
+            ),
+            Interruption::Uncertain => Self::new(
+                Warn,
+                ID,
+                format!("The round was sending {what} when it was saved"),
+            )
+            .reason("Whether the agent received it is unknown."),
+            Interruption::Stopped => Self::new(
+                Info,
+                ID,
+                "The agent had not answered when the round was saved",
+            ),
+        };
+        card.next(
+            "A round still running in another review pane moves on there; this page follows it.",
+        )
+        .role(StatusRole::Note)
     }
 
     /// The cards of the start cover: why the reviewer's latest start failed, when it did, and

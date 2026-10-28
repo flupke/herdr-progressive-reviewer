@@ -77,3 +77,5 @@ Related pages: what the agent's prompts and tools guarantee is in [Explore agent
 - The next round's kickoff lists none of the reset rounds' decisions and tells the agent
   that they are void, even when its agent session still holds them.
 - The review marks that the reset rounds applied stay.
+- A reset round stays readable, read only, as a past round on the Explore page of this
+  machine; nothing deletes a saved round.

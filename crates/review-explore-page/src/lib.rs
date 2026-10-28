@@ -23,6 +23,7 @@ mod diagram;
 mod files;
 mod notice;
 mod page;
+mod past;
 mod round;
 mod rpc;
 mod socket;
@@ -39,6 +40,7 @@ pub use command::{
 pub use conversation::{PageConversation, ThreadSender, ThreadsFeed, ThreadsPublisher};
 pub use files::PageFiles;
 pub use page::{ExplorePage, PageEvent};
+pub use past::{PastChange, PastRound, PastRoundEntry, PastRounds, PastRoundsPublisher};
 pub use round::{
     Answered, AnsweredQuestion, ImplementationState, Interruption, LatestAnswer,
     PageImplementation, PageQuiz, PageRound, PublishedRound, QuestionMarks, QuestionRevised,

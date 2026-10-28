@@ -6,7 +6,7 @@ use review_explore_page::RoundStage;
 
 use super::*;
 use crate::test_page::{
-    Shared, loopback, no_round, path, published, share_on_loopback, status, working,
+    PAST, Shared, loopback, no_round, path, published, share_on_loopback, status, working,
 };
 
 #[test]
@@ -78,25 +78,79 @@ fn a_reset_closes_the_rounds_page_and_opens_a_new_one_for_the_next_round() {
     );
 }
 
-#[test]
-fn a_reset_on_the_network_page_hands_that_page_the_start_screens_token() {
+/// A socket open to `path` of the page at `address`, behind the token of `url`.
+fn socket(
+    address: std::net::SocketAddr,
+    url: &str,
+    path: &str,
+) -> tokio_tungstenite::tungstenite::WebSocket<TcpStream> {
+    use tokio_tungstenite::tungstenite::client;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-    use tokio_tungstenite::tungstenite::{Message, client};
 
-    let shared = Shared::start();
-    shared.start_round("r1");
-    let token = shared.first.rsplit('=').next().unwrap();
-    let host = shared.address.to_string();
-    let mut upgrade = format!("ws://{host}/ws").into_client_request().unwrap();
+    let token = url.rsplit('=').next().unwrap();
+    let mut upgrade = format!("ws://{address}{path}")
+        .into_client_request()
+        .unwrap();
     let headers = upgrade.headers_mut();
-    let cookie = format!("explore_token_{}={token}", shared.address.port());
+    let cookie = format!("explore_token_{}={token}", address.port());
     headers.insert("cookie", cookie.parse().unwrap());
-    headers.insert("origin", format!("http://{host}").parse().unwrap());
-    let stream = TcpStream::connect(shared.address).unwrap();
+    headers.insert("origin", format!("http://{address}").parse().unwrap());
+    let stream = TcpStream::connect(address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    let (mut socket, _) = client(upgrade, stream).unwrap();
+    client(upgrade, stream).unwrap().0
+}
+
+/// The view of the first message `socket` reads.
+fn first_view(
+    socket: &mut tokio_tungstenite::tungstenite::WebSocket<TcpStream>,
+) -> serde_json::Value {
+    use tokio_tungstenite::tungstenite::Message;
+
+    loop {
+        let Message::Text(text) = socket.read().unwrap() else {
+            continue;
+        };
+        let message: serde_json::Value = serde_json::from_str(&text).unwrap();
+        if message["method"] == "state" {
+            return message["params"]["view"].clone();
+        }
+    }
+}
+
+#[test]
+fn only_the_page_on_this_machine_lists_and_opens_past_rounds() {
+    let shared = Shared::start();
+    let path = format!("/ws?past={PAST}");
+    let loopback = shared.host.url().to_owned();
+    let port = loopback
+        .trim_start_matches("http://127.0.0.1:")
+        .split('/')
+        .next()
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
+    let here = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+
+    let mut on_this_machine = socket(here, &loopback, &path);
+    let mut on_the_network = socket(shared.address, &shared.first, &path);
+
+    let view = first_view(&mut on_this_machine);
+    assert_eq!(view["past"]["round"], PAST);
+    assert_eq!(view["past_rounds"][0]["rounds"][0]["id"], PAST);
+    let view = first_view(&mut on_the_network);
+    assert!(view["past"].is_null(), "{}", view["past"]);
+    assert!(view["past_rounds"].is_null(), "{}", view["past_rounds"]);
+}
+
+#[test]
+fn a_reset_on_the_network_page_hands_that_page_the_start_screens_token() {
+    use tokio_tungstenite::tungstenite::Message;
+
+    let shared = Shared::start();
+    shared.start_round("r1");
+    let mut socket = socket(shared.address, &shared.first, "/ws");
 
     let reset = r#"{"id":1,"method":"reset","params":{"round":"r1"}}"#;
     socket.send(Message::Text(reset.into())).unwrap();

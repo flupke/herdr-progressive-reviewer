@@ -2,8 +2,9 @@
 // the chat's bubble at its left on a desktop, the product's name, the review's revision and
 // title, the round rail, and the ⋯ menu, with the bubble beside it below the desk's two
 // columns. "Design ▾" on the rail opens the design map in place; the menu copies the round's
-// link, opens the agent's conversation (chat.js), and holds Back to the drawing board while a
-// question waits (drawing-board.js) and Reset, each behind its confirmation. The masthead's bottom hairline is an element of its
+// link, opens the agent's conversation (chat.js), lists the past rounds on this machine and leads
+// back from one (past.js), and holds Back to the drawing board while a question waits
+// (drawing-board.js) and Reset, each behind its confirmation. The masthead's bottom hairline is an element of its
 // own, which the meter draws on. On a phone the rail shows chips: the design, the current
 // step, the screen in view and the screens beside it, and the review's title moves into the menu
 // (masthead.css, swipe.css). The browser tab's title says whose turn it is, after the count of
@@ -25,6 +26,7 @@ import { requestChat } from './chat.js';
 import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { drawingBoardConfirmation } from './drawing-board.js';
+import { backLink, pastList } from './past.js';
 import { revisionCode, revisionText } from './revision.js';
 import { earlierQuestion, quizItem, STAGE } from './route.js';
 
@@ -35,7 +37,7 @@ import { earlierQuestion, quizItem, STAGE } from './route.js';
  * @typedef {{ kind: 'design' } | { kind: 'question', number: number } | { kind: 'quiz' } | null} Viewing */
 
 const RESET_HINT =
-  'Reset closes this round for good: it is no longer shown, its agent can no longer post to it, and the page offers to start a new round. Its records stay saved.';
+  'Reset closes this round for good: its agent can no longer post to it, and the page offers to start a new round. It stays readable as a past round, from this menu.';
 
 export class Masthead {
   /**
@@ -62,8 +64,8 @@ export class Masthead {
     header.append(h('div', { class: 'masthead-line', id: 'masthead-line' }));
     /** @type {Open} */
     this.open = null;
-    /** The confirmation the menu shows in place of its entries: Reset's, Back to the drawing
-     * board's, or none. @type {'reset' | 'drawing-board' | null} */
+    /** What the menu shows in place of its entries: Reset's confirmation, Back to the drawing
+     * board's, the list of past rounds, or none. @type {'reset' | 'drawing-board' | 'past' | null} */
     this.confirming = null;
     /** The round Reset closes, as the latest view offers it. @type {string | null} */
     this.resets = null;
@@ -76,6 +78,10 @@ export class Masthead {
     /** The step of the screen a swipe would turn to, whose chip fills. @type {string | null} */
     this.aimed = null;
     document.addEventListener('click', (event) => this.clickOutside(event));
+    // A link of the menu, to a past round or back from one, closes it.
+    addEventListener('hashchange', () => {
+      if (this.open) this.close(false);
+    });
     addEventListener('resize', () => this.fit());
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || !this.open) return;
@@ -132,12 +138,16 @@ export class Masthead {
     const chat = view.conversation !== null;
     const notify = this.notifier.state();
     const asked = view.question?.answerable ? view.question : null;
+    const pastRounds = view.past_rounds ?? [];
+    const shownPast = view.past?.round ?? null;
     const confirmation = () => {
       if (round !== null && this.confirming === 'reset') return resetConfirmation(round);
       if (asked !== null && this.confirming === 'drawing-board') return drawingBoardConfirmation(asked);
+      if (pastRounds.length > 0 && this.confirming === 'past') return pastList(pastRounds, shownPast);
       return null;
     };
-    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat, notify, this.boardFor]), () =>
+    const key = [view.review, round, view.rail.length > 0, this.confirming, chat, notify, this.boardFor, pastRounds, shownPast];
+    this.menu.show(keyOf(key), () =>
       h(
         'div',
         { class: 'menu' },
@@ -158,6 +168,7 @@ export class Masthead {
           { class: 'menu-popover', id: 'round-menu', hidden: true },
           view.review ? h('p', { class: 'menu-review' }, reviewParts(view.review)) : null,
           confirmation() ?? [
+                shownPast !== null ? backLink('menu-item') : null,
                 copyLink(view.rail.length > 0 ? "Copy the round's link" : "Copy the page's link"),
                 chat
                   ? h(
@@ -174,6 +185,14 @@ export class Masthead {
                     )
                   : null,
                 notifyItem(notify, () => this.toggleNotify()),
+                pastRounds.length > 0
+                  ? h(
+                      'button',
+                      { class: 'menu-item', type: 'button', onclick: () => this.listPast() },
+                      'Past rounds…',
+                      h('span', { class: 'menu-note' }, 'read only'),
+                    )
+                  : null,
                 round !== null || asked !== null ? h('hr', {}) : null,
                 asked !== null
                   ? h(
@@ -262,6 +281,14 @@ export class Masthead {
     this.redraw();
     const confirm = this.header.querySelector('#round-menu button[type="submit"]');
     if (confirm instanceof HTMLElement) confirm.focus();
+  }
+
+  /** Replaces the menu's entries with the list of past rounds. */
+  listPast() {
+    this.confirming = 'past';
+    this.redraw();
+    const first = this.header.querySelector('#round-menu .past-round');
+    if (first instanceof HTMLElement) first.focus();
   }
 
   /** @param {Open} what */

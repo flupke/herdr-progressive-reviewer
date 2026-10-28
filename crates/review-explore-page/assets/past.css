@@ -1,0 +1,31 @@
+/* Past rounds (client/past.js): the line above the screens while the page shows a past round,
+   read only, with the way back to the round the page follows; and the ⋯ menu's list of past
+   rounds, grouped by change, each round named by its date, small. */
+.past-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 24px;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font-size: 15px;
+}
+.past-banner p { margin: 0; }
+.past-banner .eyebrow { margin: 0 8px 0 0; }
+.past-title { font-weight: 600; overflow-wrap: anywhere; }
+.past-date { margin-left: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.past-waits { margin-right: 10px; color: var(--warn); font-weight: 600; }
+.past-back { white-space: nowrap; }
+
+.past-list { display: grid; gap: 10px; max-height: min(60vh, 480px); overflow-y: auto; }
+.past-list > .eyebrow { margin: 0; padding: 0 10px; }
+.past-change ul { margin: 0; padding: 0; list-style: none; }
+.past-change-title { margin: 0; padding: 0 10px 2px; font-weight: 600; overflow-wrap: anywhere; }
+.past-change-title .revision { margin-left: 6px; font-size: 12px; font-weight: normal; white-space: nowrap; }
+.past-round { min-height: 32px; padding-block: 5px; color: var(--muted); font-size: 13px; text-decoration: none; }
+.past-round[aria-current="page"] { color: var(--ink); font-weight: 600; }
+/* The menu's links read as its other entries. */
+a.menu-item { color: inherit; text-decoration: none; }

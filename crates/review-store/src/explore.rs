@@ -6,7 +6,7 @@
 //! Explore session.
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
-use review_explore::{ExploreHistory, ExploreRound, ViewSave};
+use review_explore::{ExploreHistory, ExploreRound, RoundHeading, ViewSave};
 use review_run_ahead::RoundForks;
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -194,6 +194,24 @@ pub struct SavedRound {
     pub run_ahead: RoundForks,
 }
 
+/// The file of a saved round, and when it was last written.
+#[derive(Clone, Debug)]
+pub struct SavedRoundFile {
+    path: PathBuf,
+    saved_at: SystemTime,
+}
+
+impl SavedRoundFile {
+    /// Where the round is saved: it names one round of one review.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn saved_at(&self) -> SystemTime {
+        self.saved_at
+    }
+}
+
 impl ReviewStore {
     /// Watch this namespace with the existing filesystem event infrastructure.
     pub fn explore_directory(&self) -> PathBuf {
@@ -232,6 +250,36 @@ impl ReviewStore {
             }
         }
         Ok(saved)
+    }
+
+    /// The file of every saved round of every review of this repository, readable or not, read
+    /// without a lock as [`Self::saved_explore_rounds`] reads them. A missing Explore directory
+    /// holds no rounds.
+    pub fn saved_explore_round_files(&self) -> Result<Vec<SavedRoundFile>> {
+        let mut files = Vec::new();
+        let directory = self.explore_directory();
+        if !directory.exists() {
+            return Ok(files);
+        }
+        for review in Self::explore_entries(&directory)? {
+            let review = review?.path();
+            if !review.is_dir() {
+                continue;
+            }
+            for (instance, saved_at) in Self::round_files_in(&review)? {
+                files.push(SavedRoundFile {
+                    path: review.join(format!("{instance}.json")),
+                    saved_at,
+                });
+            }
+        }
+        Ok(files)
+    }
+
+    /// The heading of the round `file` holds; `None` for a round saved in an earlier format, or
+    /// one that cannot be read.
+    pub fn read_round_heading(&self, file: &SavedRoundFile) -> Option<RoundHeading> {
+        Self::read_explore(&file.path, MAX_DOMAIN).ok().flatten()
     }
 
     /// The review and the identity of every round of every review of this repository whose

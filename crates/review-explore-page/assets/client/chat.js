@@ -61,6 +61,8 @@ export class Chat {
     this.open = false;
     /** @type {ConversationView | null} */
     this.conversation = null;
+    /** Whether the chat shows a past round's conversation. */
+    this.past = false;
     /** The position the page asked to mark read through, so that it asks once. */
     this.readAsked = -1;
     this.bubble = h(
@@ -155,6 +157,7 @@ export class Chat {
   update(view, place) {
     const conversation = view.conversation;
     this.conversation = conversation;
+    this.past = view.past !== null;
     this.bubble.hidden = conversation === null;
     if (!conversation) {
       if (this.open) this.close(false);
@@ -240,10 +243,11 @@ export class Chat {
     this.redraw();
   }
 
-  /** Marks the replies the chat shows read, once for each position. */
+  /** Marks the replies the chat shows read, once for each position: never in a past round, which
+   * the page shows read only. */
   markRead() {
     const conversation = this.conversation;
-    if (!this.seen() || !conversation || conversation.unread === 0) return;
+    if (!this.seen() || !conversation || conversation.unread === 0 || this.past) return;
     if (conversation.read_through === this.readAsked) return;
     this.readAsked = conversation.read_through;
     this.call({ method: 'read-messages', params: { round: conversation.round, through: conversation.read_through } }).catch(() => {

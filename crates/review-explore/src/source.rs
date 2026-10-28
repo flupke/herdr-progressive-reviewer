@@ -164,13 +164,17 @@ impl Source {
     }
 
     pub fn read_text(&self, root: &Path) -> eyre::Result<String> {
-        let bytes = self.read(root)?;
-        eyre::ensure!(
-            !bytes.contains(&0),
-            "Non-text source; use file-level evidence"
-        );
-        Ok(String::from_utf8(bytes)?)
+        text(self.read(root)?)
     }
+}
+
+/// `bytes` as text, or why they cannot be cited as lines: a NUL byte, or invalid UTF-8.
+pub(crate) fn text(bytes: Vec<u8>) -> eyre::Result<String> {
+    eyre::ensure!(
+        !bytes.contains(&0),
+        "Non-text source; use file-level evidence"
+    );
+    Ok(String::from_utf8(bytes)?)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]

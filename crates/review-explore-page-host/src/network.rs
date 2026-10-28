@@ -88,9 +88,11 @@ impl Shares {
 }
 
 impl PageNetwork {
+    /// The network page of the page of `round`, which offers no past round: those stay on this
+    /// machine (ADR 0003, ADR 0004).
     pub(crate) fn new(round: PageRound, runtime: Handle) -> Self {
         Self {
-            round,
+            round: round.without_past_rounds(),
             runtime,
             shares: Arc::default(),
         }

@@ -23,6 +23,7 @@ pub(crate) use self::question::QuestionView;
 use self::sent::SentView;
 use crate::blind::FirstPicks;
 use crate::conversation::ThreadsSnapshot;
+use crate::past::{PastChange, PastRound};
 use crate::round::{LatestAnswer, ReviewName, RoundSnapshot, RoundStage, TurnResponse};
 use crate::status::StatusCard;
 
@@ -72,6 +73,22 @@ pub(crate) struct PageView {
     /// The terms of the change with their definitions, which the page marks wherever they
     /// appear, and lists at the end of the design; empty when no round is running.
     glossary: std::collections::BTreeMap<String, String>,
+    /// The past round the page shows in place of the round it follows, read only.
+    past: Option<PastView>,
+    /// The saved rounds of the repository, without the round the page follows, which the ⋯ menu
+    /// lists by change; `None` on a page that offers none, as the page on the network.
+    past_rounds: Option<Vec<PastChange>>,
+}
+
+/// The past round the page shows, read only, and the round the page follows meanwhile.
+#[derive(Debug, Serialize, TS)]
+struct PastView {
+    /// The past round's identity, which the page's address names.
+    round: String,
+    /// When the round was last saved, in milliseconds since the epoch.
+    saved_at_ms: u64,
+    /// Whether the round the page follows waits for the reviewer meanwhile.
+    current_waits: bool,
 }
 
 /// The start cover, when no round is running.
@@ -156,7 +173,7 @@ impl PageView {
         picks: &FirstPicks,
         threads: Option<&ThreadsSnapshot>,
     ) -> Self {
-        // An earlier round offers Reset only.
+        // An earlier round offers Reset only, and a past round nothing.
         let offers_actions = !round.earlier;
         let cards = StatusCard::above_stage(round, offers_actions);
         let start = round.stage.offered_start().map(|start| StartView {
@@ -180,7 +197,10 @@ impl PageView {
             response: round.stage.response().map(ResponseView::new),
             question: QuestionView::of(round, picks),
             conclusion: ConclusionView::of(round, offers_actions),
-            reset: round.round.clone().filter(|_| !storage_failed),
+            reset: round
+                .round
+                .clone()
+                .filter(|_| !storage_failed && !round.past),
             earlier: round.earlier,
             cards,
             mermaid: crate::diagram::script_path(),
@@ -206,6 +226,42 @@ impl PageView {
                 .as_ref()
                 .map(|overview| overview.glossary.clone())
                 .unwrap_or_default(),
+            past: None,
+            past_rounds: None,
+        }
+    }
+
+    /// The view of the past round `past`, shown in place of the round `followed`, which the page
+    /// follows. Its conversation comes from the review threads `live` of the page when they hold
+    /// its review, which they keep current, else from the threads read with the round.
+    pub(crate) fn of_past(
+        past: &PastRound,
+        followed: &RoundSnapshot,
+        live: Option<&ThreadsSnapshot>,
+    ) -> Self {
+        let threads = live
+            .filter(|live| {
+                past.snapshot
+                    .review_unit
+                    .as_ref()
+                    .is_some_and(|unit| live.threads(unit).is_some())
+            })
+            .unwrap_or(&past.threads);
+        Self {
+            past: Some(PastView {
+                round: past.id().to_owned(),
+                saved_at_ms: past.saved_at_ms,
+                current_waits: followed.waits_for_reviewer(),
+            }),
+            ..Self::new(&past.snapshot, &FirstPicks::default(), Some(threads))
+        }
+    }
+
+    /// The view, whose ⋯ menu lists `past_rounds`, the saved rounds of the repository.
+    pub(crate) fn listing(self, past_rounds: Option<Vec<PastChange>>) -> Self {
+        Self {
+            past_rounds,
+            ..self
         }
     }
 }

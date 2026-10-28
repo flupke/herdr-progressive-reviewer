@@ -30,10 +30,14 @@ pub(crate) struct SentView {
 
 impl SentView {
     /// The answer the agent's turn of `round` carries, if any, while the page offers actions on
-    /// the round (`offers_actions`): an earlier round shows only that it is one, and the turn's
-    /// card above the stage (design review, finding 6).
+    /// the round (`offers_actions`), or of a past round, which stopped on that turn: an earlier
+    /// round shows only that it is one, and the turn's card above the stage (design review,
+    /// finding 6).
     pub(crate) fn of(round: &RoundSnapshot, offers_actions: bool) -> Option<Self> {
-        let sent = round.stage.sent().filter(|_| offers_actions)?;
+        let sent = round
+            .stage
+            .sent()
+            .filter(|_| offers_actions || round.past)?;
         let number = round.sent_number();
         // What the answer covers as a whole, as the gain line said before it was sent.
         let marked = sent.marked.covered_phrase(MarkTense::Applied);

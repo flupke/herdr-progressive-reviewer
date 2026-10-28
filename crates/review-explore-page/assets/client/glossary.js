@@ -8,8 +8,9 @@
 import { h } from './dom.js';
 
 /** What a term is never marked inside: code blocks, diagrams, the citations' code lines, text
- * boxes, controls and links, the glossary's own list, and a term already marked. */
-const UNMARKED = 'pre, svg, .diagram, .code-frame, textarea, input, button, a, .glossary, .term, .term-tip';
+ * boxes, controls and links, the glossary's own list, a term already marked, and the line that
+ * names a past round. */
+const UNMARKED = 'pre, svg, .diagram, .code-frame, textarea, input, button, a, .glossary, .term, .term-tip, .past-banner';
 
 /** What may not touch a term on either side for it to count: a letter, a mark that combines
  * with one, a digit or an underscore. */

@@ -155,7 +155,8 @@ impl QuestionView {
         else {
             return None;
         };
-        let blind = round.stage.blind();
+        // A past round shows the recommendation it showed the reviewer then.
+        let blind = round.stage.blind().filter(|_| !round.past);
         let picked = blind.as_ref().and_then(|blind| {
             let round = round.round.as_deref()?;
             picks

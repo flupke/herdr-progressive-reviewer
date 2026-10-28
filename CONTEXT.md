@@ -244,7 +244,18 @@ A question of the current Explore round that the reviewer already answered: a do
 step of the round rail. The Explore page shows it read only, with the answer kept,
 the review marks it led to, and what the agent recorded of the answer.
 _Avoid_: previous question, history, earlier round (a round that a newer round of
-the review replaced)
+the review replaced), past round (a whole round other than the current one)
+
+**Past round**:
+A saved Explore round of the repository other than the one the Explore page follows:
+of any change, from any workspace, reset, replaced or still running elsewhere. The
+page on this machine lists them in its ⋯ menu, grouped by change and named by the
+change's title, each by its date, and opens one read only, as it was last saved, at
+an address of its own: its design, each question with the answer kept, the quiz, the
+conclusion and its round conversation, with the code it cited as the round saw it.
+Nothing on it acts. The page on the network and through the tunnel offers none.
+_Avoid_: archive, old round, earlier round (a round of the current review that a
+newer one replaced, which the pane still shows)
 
 **Meter**:
 The line under the Explore page's masthead that shows the share of the changed lines
@@ -288,8 +299,8 @@ _Avoid_: verdict, outcome
 
 **Reset**:
 Closing the current Explore round and returning to the start screen. The round's
-records stay saved, but it is no longer shown or reopened, and its agent can no
-longer post to it. The next round starts over: the decisions of the rounds reset
+records stay saved, and it stays readable as a past round on the Explore page, but
+the pane no longer reopens it, and its agent can no longer post to it. The next round starts over: the decisions of the rounds reset
 before it no longer stand, and its agent is told so.
 _Avoid_: new round (which is what Start begins), clear, restart
 

@@ -516,10 +516,44 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'question-2-menu',
-    about: "The masthead's ⋯ menu: Copy the round's link, Open the agent's conversation, and Reset this round.",
+    about: "The masthead's ⋯ menu: Copy the round's link, Open the agent's conversation, Past rounds, and Reset this round.",
     async reach(session, page) {
       await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
+    },
+  },
+  {
+    name: 'past-rounds-menu',
+    about: "The ⋯ menu's past rounds: the repository's saved rounds, grouped by change, the change with the newest round first, each round named by its date.",
+    async reach(session, page) {
+      await question(session, page, 2);
+      await page.getByRole('button', { name: 'Round menu' }).click();
+      await page.getByRole('button', { name: /^Past rounds/ }).click();
+    },
+  },
+  {
+    name: 'past-round',
+    about:
+      'A past round of another change, read only, at its conclusion: the line above says which round it is and when, that the current round waits for the reviewer, and leads back to it.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await page.getByRole('button', { name: 'Round menu' }).click();
+      await page.getByRole('button', { name: /^Past rounds/ }).click();
+      await page.getByRole('navigation', { name: 'Past rounds' }).getByRole('link').first().click();
+      await page.getByRole('region', { name: 'Past round' }).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+  {
+    name: 'past-round-question',
+    about: 'A past round left at its second question: its choices, read only, with nothing to pick or send.',
+    async reach(session, page) {
+      await question(session, page, 1);
+      await page.getByRole('button', { name: 'Round menu' }).click();
+      await page.getByRole('button', { name: /^Past rounds/ }).click();
+      await page.getByRole('navigation', { name: 'Past rounds' }).getByRole('link').last().click();
+      await page.getByRole('region', { name: 'Question 2' }).waitFor();
+      await page.mouse.move(0, 0);
     },
   },
   {

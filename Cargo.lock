@@ -4162,6 +4162,7 @@ dependencies = [
  "review-explore-page-opening",
  "review-explore-page-settings",
  "review-explore-page-tunnel",
+ "review-repository",
  "review-test-support",
  "review-types",
  "serde",
