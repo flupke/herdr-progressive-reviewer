@@ -62,6 +62,8 @@ pub struct SearchStatusChanged {
 pub struct LocationSelection {
     pub operation: Operation,
     pub locations: Vec<SourceLocation>,
+    /// Files the language server has not indexed since they changed on disk.
+    pub unindexed_files: usize,
     pub selected: usize,
     pub scroll: usize,
 }

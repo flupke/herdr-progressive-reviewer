@@ -4,7 +4,7 @@ use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
-use crate::api::{Command, Event};
+use crate::api::{Command, Event, FileChange};
 use crate::language::Project;
 use crate::server::Server;
 
@@ -32,6 +32,7 @@ impl Manager {
                         let _ = server.commands.send(Command::Restart);
                     }
                 }
+                Command::FilesChanged(changes) => self.files_changed(&changes),
                 command => self.route(command),
             }
         }
@@ -41,7 +42,7 @@ impl Manager {
         let path = match &mut command {
             Command::OpenDocument(path) => path,
             Command::Request { query, .. } => &mut query.path,
-            Command::Restart | Command::Shutdown => return,
+            Command::FilesChanged(_) | Command::Restart | Command::Shutdown => return,
         };
         if path.is_relative() {
             *path = self.root.join(&path);
@@ -59,6 +60,21 @@ impl Manager {
             .or_insert_with(|| ServerWorker::start(project, self.events.clone()));
         if let Err(error) = server.commands.send(command) {
             self.fail_request(&error.0, "Language server worker stopped");
+        }
+    }
+
+    /// Send each running server the changes under its project root. A server that has not
+    /// started reads the files when it starts.
+    fn files_changed(&self, changes: &[FileChange]) {
+        for (project, server) in &self.servers {
+            let changes: Vec<_> = changes
+                .iter()
+                .filter(|change| change.path.starts_with(&project.root))
+                .cloned()
+                .collect();
+            if !changes.is_empty() {
+                let _ = server.commands.send(Command::FilesChanged(changes));
+            }
         }
     }
 

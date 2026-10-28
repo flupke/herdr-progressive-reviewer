@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufReader, BufWriter};
@@ -12,20 +12,24 @@ use lsp_server::{ErrorCode, Message, Notification, Request, RequestId, Response}
 use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::{
-    ClientCapabilities, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, HoverClientCapabilities, HoverParams,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkupKind,
-    PartialResultParams, Position, PositionEncodingKind, ReferenceContext, ReferenceParams,
-    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier,
+    ClientCapabilities, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse,
+    HoverClientCapabilities, HoverParams, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkupKind, PartialResultParams, Position, PositionEncodingKind, ReferenceContext,
+    ReferenceParams, RegistrationParams, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, UnregistrationParams, Uri, VersionedTextDocumentIdentifier,
     WorkDoneProgressParams, WorkspaceFolder,
 };
 
-use crate::api::{Event, Operation, Query, ServerStartup, SourceLocation};
+use crate::api::{
+    Event, FileChange, FileChangeKind, Operation, Query, ServerStartup, SourceLocation,
+};
 use crate::language::{Language, LanguageServer, Project};
 use crate::process::{ServerProcess, StderrOutput};
 use crate::reader::MessageReader;
 use crate::source::{ServerLocation, encoded_column, hover_markdown, path_uri};
+use crate::watched_files::WatchedFiles;
 
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(300);
@@ -79,6 +83,9 @@ pub(super) struct Session {
     next_id: i32,
     encoding: PositionEncodingKind,
     documents: HashMap<PathBuf, (String, i32)>,
+    watched_files: WatchedFiles,
+    /// Files changed on disk that the server's index misses until it restarts.
+    unindexed: BTreeSet<PathBuf>,
     state: State,
 }
 
@@ -136,6 +143,8 @@ impl Session {
             next_id: 1,
             encoding: PositionEncodingKind::UTF16,
             documents: HashMap::new(),
+            watched_files: WatchedFiles::new(&project.root),
+            unindexed: BTreeSet::new(),
             state: State::Stopped,
         };
         if let Err(error) = session.initialize(&project.root, now) {
@@ -329,6 +338,46 @@ impl Session {
         Ok(())
     }
 
+    /// Tell the server about files that changed on disk: resync the open documents among
+    /// them, and send the changes its watchers match.
+    pub(super) fn files_changed(&mut self, changes: &[FileChange]) -> Result<(), String> {
+        for change in changes {
+            let deleted = change.kind == FileChangeKind::Deleted;
+            let open = self.documents.contains_key(&change.path);
+            // A deleted file leaves the index through its watcher event; an open document
+            // changes through `sync_document`, which reindexes it.
+            if deleted {
+                // A deleted directory takes its files with it.
+                self.unindexed
+                    .retain(|path| !path.starts_with(&change.path));
+            } else if !open && self.server.misses_disk_change(&change.path) {
+                self.unindexed.insert(change.path.clone());
+            } else {
+                self.unindexed.remove(&change.path);
+            }
+            if deleted || !open {
+                continue;
+            }
+            // The file may be gone again, or unreadable for a moment: the next change or
+            // query reads it again.
+            if let (Ok(text), Ok(uri)) = (fs::read_to_string(&change.path), path_uri(&change.path))
+            {
+                self.sync_document(&change.path, uri, &text)?;
+            }
+        }
+        let events = self.watched_files.events(changes);
+        if events.is_empty() {
+            return Ok(());
+        }
+        self.write(
+            &Notification::new(
+                lsp_types::notification::DidChangeWatchedFiles::METHOD.to_owned(),
+                DidChangeWatchedFilesParams { changes: events },
+            )
+            .into(),
+        )
+    }
+
     pub(super) fn open_document(&mut self, path: &Path) -> Result<(), String> {
         let text = fs::read_to_string(path)
             .map_err(|error| format!("could not read {}: {error}", path.display()))?;
@@ -374,6 +423,7 @@ impl Session {
             return Ok(());
         };
         if let Some(version) = changed_version {
+            self.unindexed.remove(path);
             self.write(
                 &Notification::new(
                     lsp_types::notification::DidChangeTextDocument::METHOD.to_owned(),
@@ -506,6 +556,7 @@ impl Session {
                 operation,
                 snapshot_id: query.snapshot_id,
                 locations: self.normalize_locations(ServerLocation::from_definition(locations)),
+                unindexed_files: 0,
             }),
             Operation::References => {
                 response_value::<Option<Vec<Location>>>(response).map(|locations| {
@@ -520,6 +571,7 @@ impl Session {
                                 .filter_map(|location| ServerLocation::from_lsp(&location))
                                 .collect(),
                         ),
+                        unindexed_files: self.unindexed.len(),
                     }
                 })
             }
@@ -589,6 +641,7 @@ impl Session {
     }
 
     fn respond(&mut self, request: Request) -> Result<(), String> {
+        self.track_registrations(&request);
         let result = match request.method.as_str() {
             "workspace/configuration" => request
                 .params
@@ -614,6 +667,30 @@ impl Session {
             }
         };
         self.write(&Response::new_ok(request.id, result).into())
+    }
+
+    fn track_registrations(&mut self, request: &Request) {
+        match request.method.as_str() {
+            "client/registerCapability" => {
+                if let Ok(params) =
+                    serde_json::from_value::<RegistrationParams>(request.params.clone())
+                {
+                    for registration in params.registrations {
+                        self.watched_files.register(registration);
+                    }
+                }
+            }
+            "client/unregisterCapability" => {
+                if let Ok(params) =
+                    serde_json::from_value::<UnregistrationParams>(request.params.clone())
+                {
+                    for unregistration in &params.unregisterations {
+                        self.watched_files.unregister(unregistration);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn write(&mut self, message: &Message) -> Result<(), String> {

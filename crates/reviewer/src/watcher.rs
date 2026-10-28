@@ -15,8 +15,10 @@ use review_repository::repository::{MetadataScope, MetadataWatch, WatchPlan};
 
 const DEBOUNCE: Duration = Duration::from_millis(100);
 
+mod file_changes;
 mod source;
 mod state;
+use file_changes::FileChanges;
 use source::SourceWatch;
 
 enum WatchCommand {
@@ -168,6 +170,7 @@ struct WatchState {
     notified: AtomicBool,
     failed: AtomicBool,
     watching: AtomicBool,
+    file_changes: FileChanges,
     /// What notified, for the tests to wait on.
     #[cfg(test)]
     notifications: tests::Notifications,
@@ -202,6 +205,7 @@ pub(super) struct RepositoryWatcher {
     commands: Sender<WatchCommand>,
     state: Arc<WatchState>,
     next_refresh: Option<Instant>,
+    lsp_file_changes: Option<review_lsp::FileChangeSender>,
 }
 
 impl RepositoryWatcher {
@@ -247,6 +251,19 @@ impl RepositoryWatcher {
             commands,
             state,
             next_refresh: None,
+            lsp_file_changes: None,
+        }
+    }
+
+    /// Sends the files that change to `sender` with each refresh, from then on.
+    pub(super) fn send_file_changes_to(&mut self, sender: review_lsp::FileChangeSender) {
+        self.lsp_file_changes = Some(sender);
+    }
+
+    /// Sends the files changed since the last refresh, when a sender takes them.
+    pub(super) fn send_file_changes(&self) {
+        if let Some(sender) = &self.lsp_file_changes {
+            self.state.file_changes.send(sender);
         }
     }
 
@@ -352,14 +369,18 @@ impl ActiveWatcher {
         if !changes_external_rules && !changes_ignore_rules && !self.rules.includes_event(event) {
             return Ok(());
         }
-        state.notify(&event.paths);
-
         if changes_external_rules {
             self.refresh_external_rules()?;
-            return Ok(());
+        } else {
+            self.refresh_changed_ignore_rules(event)?;
+            self.refresh_changed_directories(event)?;
         }
-        self.refresh_changed_ignore_rules(event)?;
-        self.refresh_changed_directories(event)?;
+        // After the refreshes, so that a directory that appears is read with its own ignore
+        // rules, and before the notification, whose refresh sends the changes.
+        state
+            .file_changes
+            .record(event, |path, is_dir| self.rules.includes(path, is_dir));
+        state.notify(&event.paths);
         Ok(())
     }
 

@@ -1169,6 +1169,7 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
         toast_id: query.toast_id,
         snapshot_id: query.snapshot_id.clone(),
         locations: vec![target.clone()],
+        unindexed_files: 0,
     });
     let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id, mode, ..
@@ -1240,6 +1241,7 @@ fn delayed_lsp_results_cannot_leave_a_closed_or_replaced_peek() {
             toast_id: query.toast_id,
             snapshot_id: query.snapshot_id.clone(),
             locations: vec![location.clone()],
+            unindexed_files: 0,
         });
         assert!(
             actions.is_empty(),

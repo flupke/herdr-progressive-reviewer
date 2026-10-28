@@ -41,6 +41,8 @@ fn session(state: State) -> Session {
         next_id: 1,
         encoding: PositionEncodingKind::UTF16,
         documents: std::collections::HashMap::new(),
+        watched_files: crate::watched_files::WatchedFiles::new(std::path::Path::new("/")),
+        unindexed: std::collections::BTreeSet::new(),
         state,
     }
 }
@@ -97,6 +99,8 @@ fn session_with_output(state: State) -> (Session, BufReader<ChildStdout>) {
             next_id: 1,
             encoding: PositionEncodingKind::UTF16,
             documents: std::collections::HashMap::new(),
+            watched_files: crate::watched_files::WatchedFiles::new(std::path::Path::new("/")),
+            unindexed: std::collections::BTreeSet::new(),
             state,
         },
         output,
@@ -754,4 +758,157 @@ fn shutdown_and_server_requests_write_protocol_responses() {
         panic!("workspace response was not sent");
     };
     assert_eq!(response.response_result.unwrap(), serde_json::Value::Null);
+}
+
+fn file_change(path: &std::path::Path, kind: crate::api::FileChangeKind) -> crate::api::FileChange {
+    crate::api::FileChange {
+        path: path.to_owned(),
+        kind,
+    }
+}
+
+#[test]
+fn registered_watchers_hear_the_file_changes_they_match() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let (mut session, mut output) = session_with_output(State::Ready);
+    session.watched_files = crate::watched_files::WatchedFiles::new(root);
+    let changes = [
+        file_change(
+            &root.join("lib/page.ex"),
+            crate::api::FileChangeKind::Created,
+        ),
+        file_change(
+            &root.join("lib/page.rs"),
+            crate::api::FileChangeKind::Changed,
+        ),
+    ];
+    // Nothing goes out before the server registers its watchers.
+    session.files_changed(&changes).unwrap();
+
+    session
+        .respond(lsp_server::Request::new(
+            RequestId::from(3),
+            "client/registerCapability".to_owned(),
+            serde_json::json!({ "registrations": [{
+                "id": "watch",
+                "method": "workspace/didChangeWatchedFiles",
+                "registerOptions": { "watchers": [{ "globPattern": "**/*.{ex,exs}" }] },
+            }] }),
+        ))
+        .unwrap();
+    let Message::Response(response) = read_message(&mut session, &mut output) else {
+        panic!("the registration was not answered");
+    };
+    assert_eq!(response.id, RequestId::from(3));
+
+    session.files_changed(&changes).unwrap();
+    let Message::Notification(notification) = read_message(&mut session, &mut output) else {
+        panic!("the file changes were not sent");
+    };
+    assert_eq!(notification.method, "workspace/didChangeWatchedFiles");
+    let page = crate::source::path_uri(root).unwrap().as_str().to_owned() + "/lib/page.ex";
+    assert_eq!(
+        notification.params,
+        serde_json::json!({ "changes": [{ "uri": page, "type": 1 }] })
+    );
+}
+
+/// The unindexed files a references response reports, once `session` sent its query.
+fn unindexed_files(session: &mut Session, path: &std::path::Path) -> usize {
+    std::fs::write(path, "fn main() {}\n").unwrap();
+    session
+        .request(
+            Operation::References,
+            query(path.to_owned()),
+            Instant::now(),
+        )
+        .unwrap();
+    let event = session
+        .handle_response(
+            Response::new_ok(RequestId::from(session.next_id - 1), serde_json::json!([])),
+            Instant::now(),
+        )
+        .unwrap();
+    let Some(Event::Locations {
+        unindexed_files, ..
+    }) = event
+    else {
+        panic!("no locations: {event:?}");
+    };
+    unindexed_files
+}
+
+#[test]
+fn expert_counts_the_changed_files_it_has_not_indexed() {
+    use crate::api::FileChangeKind::{Changed, Created, Deleted};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let open = root.join("open.ex");
+    let created = root.join("created.ex");
+    let deleted = root.join("deleted.exs");
+    let template = root.join("page.heex");
+    let queried = root.join("queried.ex");
+    std::fs::write(&open, "defmodule Open do\nend\n").unwrap();
+    std::fs::write(&created, "defmodule Created do\nend\n").unwrap();
+    let (mut session, mut output) = session_with_output(State::Ready);
+    session.server = crate::language::LanguageServer::Expert;
+    session.open_document(&open).unwrap();
+    read_message(&mut session, &mut output);
+
+    std::fs::write(&open, "defmodule Open do\n  def changed, do: :ok\nend\n").unwrap();
+    session
+        .files_changed(&[
+            file_change(&open, Changed),
+            file_change(&created, Created),
+            file_change(&deleted, Changed),
+            file_change(&template, Changed),
+        ])
+        .unwrap();
+    // The open document changes through the editor's protocol, which reindexes it.
+    let Message::Notification(change) = read_message(&mut session, &mut output) else {
+        panic!("the open document was not resynced");
+    };
+    assert_eq!(change.method, "textDocument/didChange");
+    session
+        .files_changed(&[file_change(&deleted, Deleted)])
+        .unwrap();
+    let moved_out = root.join("moved/lib.ex");
+    session
+        .files_changed(&[file_change(&moved_out, Created)])
+        .unwrap();
+    session
+        .files_changed(&[file_change(&root.join("moved"), Deleted)])
+        .unwrap();
+    // `created.ex` alone: `deleted.exs` and the moved directory left the index, Expert does
+    // not index templates.
+    assert_eq!(unindexed_files(&mut session, &queried), 1);
+
+    // Opening a file does not reindex it; a change of the open document does.
+    session.open_document(&created).unwrap();
+    assert_eq!(unindexed_files(&mut session, &queried), 1);
+    std::fs::write(
+        &created,
+        "defmodule Created do\n  def changed, do: :ok\nend\n",
+    )
+    .unwrap();
+    session
+        .files_changed(&[file_change(&created, Changed)])
+        .unwrap();
+    assert_eq!(unindexed_files(&mut session, &queried), 0);
+}
+
+#[test]
+fn rust_analyzer_counts_no_file_changed_on_disk() {
+    let directory = tempfile::tempdir().unwrap();
+    // An Elixir file, which only Expert would miss.
+    let changed = directory.path().join("lib.ex");
+    let mut session = session(State::Ready);
+    session
+        .files_changed(&[file_change(&changed, crate::api::FileChangeKind::Created)])
+        .unwrap();
+    assert_eq!(
+        unindexed_files(&mut session, &directory.path().join("main.rs")),
+        0
+    );
 }

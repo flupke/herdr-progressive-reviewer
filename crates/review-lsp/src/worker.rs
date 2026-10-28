@@ -3,7 +3,7 @@ use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
-use crate::api::{Command, Event, Operation, Query};
+use crate::api::{Command, Event, FileChange, Operation, Query};
 use crate::manager::Manager;
 
 /// A running LSP worker.
@@ -38,6 +38,11 @@ impl Worker {
         self.send(Command::Request { operation, query })
     }
 
+    /// Return a sender, for another thread, of the files that change on disk.
+    pub fn file_change_sender(&self) -> FileChangeSender {
+        FileChangeSender(self.commands.clone())
+    }
+
     /// Restart active language servers and reopen known documents.
     pub fn restart(&self) -> Result<(), String> {
         self.send(Command::Restart)
@@ -57,6 +62,18 @@ impl Worker {
         self.commands
             .send(command)
             .map_err(|_| "LSP worker stopped".to_owned())
+    }
+}
+
+/// Tells a worker's running language servers about files that changed on disk, so that their
+/// indexes follow the edits made outside the review.
+#[derive(Clone, Debug)]
+pub struct FileChangeSender(Sender<Command>);
+
+impl FileChangeSender {
+    /// Send one batch of changes; a stopped worker ignores it.
+    pub fn send(&self, changes: Vec<FileChange>) {
+        let _ = self.0.send(Command::FilesChanged(changes));
     }
 }
 

@@ -8,7 +8,8 @@ mod reader;
 mod server;
 mod session;
 mod source;
+mod watched_files;
 mod worker;
 
-pub use api::{Event, Operation, Query, ServerStartup, SourceLocation};
-pub use worker::Worker;
+pub use api::{Event, FileChange, FileChangeKind, Operation, Query, ServerStartup, SourceLocation};
+pub use worker::{FileChangeSender, Worker};

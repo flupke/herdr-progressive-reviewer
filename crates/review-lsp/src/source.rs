@@ -131,11 +131,28 @@ pub(super) fn path_uri(path: &Path) -> Result<Uri, String> {
     let path = path
         .canonicalize()
         .map_err(|error| format!("could not resolve {}: {error}", path.display()))?;
+    file_uri(path)
+}
+
+/// The URI of a file that changed on disk, which may be gone: its nearest ancestor that still
+/// exists resolves as `path_uri` resolves a whole path.
+pub(super) fn changed_path_uri(path: &Path) -> Result<Uri, String> {
+    let resolved = path
+        .ancestors()
+        .find_map(|ancestor| {
+            let rest = path.strip_prefix(ancestor).ok()?;
+            Some(ancestor.canonicalize().ok()?.join(rest))
+        })
+        .ok_or_else(|| format!("could not resolve {}", path.display()))?;
+    file_uri(resolved)
+}
+
+fn file_uri(path: PathBuf) -> Result<Uri, String> {
     let url = Url::from_file_path(path).map_err(|()| "could not create a file URI".to_owned())?;
     Uri::from_str(url.as_str()).map_err(|error| error.to_string())
 }
 
-fn uri_path(uri: &Uri) -> Option<PathBuf> {
+pub(super) fn uri_path(uri: &Uri) -> Option<PathBuf> {
     Url::parse(uri.as_str()).ok()?.to_file_path().ok()
 }
 

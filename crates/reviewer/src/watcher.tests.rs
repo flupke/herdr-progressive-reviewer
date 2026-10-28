@@ -236,6 +236,7 @@ fn notification_debounces_before_poll() {
         commands,
         state: Arc::clone(&state),
         next_refresh: None,
+        lsp_file_changes: None,
     };
 
     state.notified.store(true, Ordering::Relaxed);
@@ -256,6 +257,7 @@ fn notification_during_watcher_start_keeps_its_debounce_deadline() {
         commands,
         state: Arc::clone(&state),
         next_refresh: None,
+        lsp_file_changes: None,
     };
     state.notified.store(true, Ordering::Relaxed);
     state.watching.store(true, Ordering::Relaxed);
@@ -281,6 +283,31 @@ fn disk_content_change_schedules_a_repository_poll() {
     assert!(
         refresh_comes_due(&mut watcher),
         "content change did not schedule a poll"
+    );
+}
+
+#[test]
+fn changed_working_tree_files_are_kept_for_the_language_servers() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    fs::write(root.join(".gitignore"), "_build/\n").unwrap();
+    fs::create_dir(root.join("_build")).unwrap();
+    let watcher = RepositoryWatcher::new(working_tree_plan(root));
+    let mut observer = Observer::of(&watcher);
+    observer.wait_for(started);
+
+    // The watcher handles events in order: the ignored file's came before the other's.
+    fs::write(root.join("_build/compiled.ex"), "").unwrap();
+    let source = root.join("page.ex");
+    fs::write(&source, "").unwrap();
+    observer.wait_for(about(&source));
+
+    assert_eq!(
+        watcher.state.file_changes.take(),
+        [review_lsp::FileChange {
+            path: source,
+            kind: review_lsp::FileChangeKind::Created,
+        }]
     );
 }
 
@@ -350,6 +377,7 @@ fn failed_watcher_reports_once_without_periodic_scans() {
         commands,
         state: Arc::clone(&state),
         next_refresh: None,
+        lsp_file_changes: None,
     };
     state.failed.store(true, Ordering::Relaxed);
 

@@ -309,6 +309,11 @@ impl Effects {
             .sender(self.front().comments.thread_commands())
     }
 
+    /// Where the repository watcher sends the files that change on disk.
+    pub(super) fn lsp_file_changes(&self) -> review_lsp::FileChangeSender {
+        self.lsp.file_change_sender()
+    }
+
     /// Language-server events, which the runtime forwards on its own schedule.
     pub(super) fn lsp_events(&self) -> EventReceiver<review_lsp::Event> {
         self.lsp.event_receiver()

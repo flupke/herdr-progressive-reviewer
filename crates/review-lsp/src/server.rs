@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender, after, never, select};
 
-use crate::api::{Command, Event, ServerStartup};
+use crate::api::{Command, Event, FileChange, ServerStartup};
 use crate::language::Project;
 use crate::session::Session;
 
@@ -82,6 +82,10 @@ impl Server {
                 self.restart();
                 ServerLoopControl::Continue
             }
+            Command::FilesChanged(changes) => {
+                self.files_changed(&changes);
+                ServerLoopControl::Continue
+            }
             command => {
                 self.queue(command);
                 ServerLoopControl::Continue
@@ -110,12 +114,23 @@ impl Server {
             Command::Request { query, .. } => {
                 self.open_documents.insert(query.path.clone());
             }
-            Command::Restart | Command::Shutdown => return,
+            Command::FilesChanged(_) | Command::Restart | Command::Shutdown => return,
         }
         self.pending.push_back(command);
         if self.session.is_none()
             && let Err(message) = self.start_session()
         {
+            self.fail_session(&message);
+        }
+    }
+
+    /// Pass the changes to the running session at once: a session that starts later reads
+    /// the files then.
+    fn files_changed(&mut self, changes: &[FileChange]) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        if let Err(message) = session.files_changed(changes) {
             self.fail_session(&message);
         }
     }
@@ -235,7 +250,7 @@ impl Server {
                     .as_mut()
                     .expect("session exists")
                     .request(operation, query, Instant::now()),
-                Command::Restart | Command::Shutdown => Ok(()),
+                Command::FilesChanged(_) | Command::Restart | Command::Shutdown => Ok(()),
             };
             if let Err(message) = result {
                 self.fail(request.0, request.1, message);

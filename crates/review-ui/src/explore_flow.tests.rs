@@ -22,6 +22,7 @@ fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
                 end_byte_column: 1,
             })
             .collect(),
+        unindexed_files: 0,
     });
 
     let selector = fixture
