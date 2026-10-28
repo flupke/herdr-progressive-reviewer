@@ -305,3 +305,48 @@ fn a_snapshot_of_another_revision_reads_its_own_files_and_leaves_the_working_cop
         .unwrap();
     assert_eq!(second_snapshot.files.len(), 1);
 }
+
+#[test]
+fn a_snapshot_of_a_divergent_change_says_it_is_divergent() {
+    let fixture = JjFixture::new(JjLayout::NonColocated);
+    let repository = Repository::discover(fixture.root()).unwrap();
+    fixture.new_change("first");
+    let operation = String::from_utf8(
+        fixture
+            .jj(["op", "log", "--no-graph", "-n1", "-T", "id"])
+            .stdout,
+    )
+    .unwrap();
+    fixture.jj(["describe", "-m", "one"]);
+    // A second description at the earlier operation makes the change divergent.
+    fixture.jj([
+        "--at-op",
+        &operation,
+        "--ignore-working-copy",
+        "describe",
+        "-m",
+        "two",
+    ]);
+    let change_id = ChangeId::from(fixture.change_id());
+
+    let error = repository.snapshot_of(&change_id).unwrap_err();
+
+    assert!(matches!(error, crate::Error::DivergentChange), "{error:?}");
+}
+
+#[test]
+fn a_snapshot_of_a_change_the_repository_lacks_is_no_divergence() {
+    let fixture = JjFixture::new(JjLayout::NonColocated);
+    let repository = Repository::discover(fixture.root()).unwrap();
+
+    let error = repository
+        .snapshot_of(&ChangeId::from(
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk".to_owned(),
+        ))
+        .unwrap_err();
+
+    assert!(
+        matches!(error, crate::Error::CommandFailed { .. }),
+        "{error:?}"
+    );
+}

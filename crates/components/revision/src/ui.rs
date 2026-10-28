@@ -11,19 +11,18 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
-use ui_frame::Frame;
+use ui_frame::{Frame, with_footer};
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
 /// How much of one revision of the history is reviewed, once the worker computed it.
-#[derive(Clone, Copy)]
 pub(super) enum RevisionShare {
     /// The share of its changed lines that review marks cover, in whole percent.
     Percent(u64),
     /// It changes no line.
     NothingToReview,
-    /// The worker could not read it.
-    Unreadable,
+    /// The worker could not compute it, for this reason.
+    Unreadable(String),
 }
 
 pub(super) struct RevisionHistorySelection {
@@ -104,6 +103,11 @@ impl RevisionHistorySelection {
     /// Shows how much of the revision of `change_id` is reviewed.
     pub(super) fn reviewed(&mut self, change_id: ChangeId, share: RevisionShare) {
         self.reviewed.insert(change_id, share);
+    }
+
+    /// The reviewed share of the revision of `line`, once the worker computed it.
+    fn share_of(&self, line: &RevisionHistoryLine) -> Option<&RevisionShare> {
+        self.reviewed.get(line.change_id.as_ref()?)
     }
 
     pub(super) fn row_count(&self) -> usize {
@@ -248,6 +252,7 @@ impl SelectableRevision {
 struct SelectorPopup {
     area: Rect,
     inner: Rect,
+    footer: Option<Line<'static>>,
 }
 
 impl SelectorPopup {
@@ -266,7 +271,13 @@ impl SelectorPopup {
         Self {
             area,
             inner: Block::default().borders(Borders::ALL).inner(area),
+            footer: None,
         }
+    }
+
+    /// Shows `footer`, if any, on the bottom border.
+    fn with_footer(self, footer: Option<Line<'static>>) -> Self {
+        Self { footer, ..self }
     }
 
     fn render(
@@ -279,9 +290,12 @@ impl SelectorPopup {
         highlighted_line: Option<usize>,
     ) {
         Clear.render(self.area, buffer);
-        Frame::Popup
-            .block(*palette, title)
-            .render(self.area, buffer);
+        let block = Frame::Popup.block(*palette, title);
+        match self.footer.clone() {
+            Some(footer) => with_footer(block, footer),
+            None => block,
+        }
+        .render(self.area, buffer);
         let visible_rows = usize::from(self.inner.height).max(1);
         let scroll = viewport_line.saturating_add(1).saturating_sub(visible_rows);
         Paragraph::new(lines)
@@ -372,25 +386,35 @@ pub(super) fn render_history(
         .iter()
         .map(|history_line| history_row(history_line, selection, palette))
         .collect::<Vec<_>>();
-    SelectorPopup::new(area, selection.lines.len()).render(
-        buffer,
-        title,
-        palette,
-        lines,
-        selection.selected_line,
-        selection
-            .lines
-            .get(selection.selected_line)
-            .filter(|line| selection.is_selectable(line))
-            .map(|_| selection.selected_line),
-    );
+    let selected = selection
+        .lines
+        .get(selection.selected_line)
+        .filter(|line| selection.is_selectable(line));
+    // The question mark of a row does not say why: the bottom border does, for the selected row.
+    let reason = selected
+        .and_then(|line| match selection.share_of(line) {
+            Some(RevisionShare::Unreadable(reason)) => Some(reason),
+            _ => None,
+        })
+        .map(|reason| Line::styled(format!("? {reason}"), Style::default().fg(palette.warning)));
+    SelectorPopup::new(area, selection.lines.len())
+        .with_footer(reason)
+        .render(
+            buffer,
+            title,
+            palette,
+            lines,
+            selection.selected_line,
+            selected.map(|_| selection.selected_line),
+        );
 }
 
 /// One row of the history: jj's graph, then the revision's reviewed share, then its change ID
 /// and description, as `@  45% nolqkwnw Cover users…`: one space on each side of the share,
 /// right-aligned to the width of `100%` so that the change IDs line up. The share is a dot while
 /// the worker computes it, a dash on a revision with nothing to review, a question mark on one it
-/// could not read, and blank on an immutable revision, which is not reviewed here.
+/// could not compute, whose reason the bottom border shows while the row is selected, and blank
+/// on an immutable revision, which is not reviewed here.
 fn history_row(
     line: &RevisionHistoryLine,
     selection: &RevisionHistorySelection,
@@ -408,15 +432,11 @@ fn history_row(
     ) else {
         return Line::raw(line.plain_text.clone());
     };
-    let share = line
-        .change_id
-        .as_ref()
-        .and_then(|id| selection.reviewed.get(id));
-    let mark = match (line.is_immutable, share) {
+    let mark = match (line.is_immutable, selection.share_of(line)) {
         (true, _) => String::new(),
         (false, Some(RevisionShare::Percent(percent))) => format!("{percent}%"),
         (false, Some(RevisionShare::NothingToReview)) => "–".to_owned(),
-        (false, Some(RevisionShare::Unreadable)) => "?".to_owned(),
+        (false, Some(RevisionShare::Unreadable(_))) => "?".to_owned(),
         (false, None) => "·".to_owned(),
     };
     let mut spans = graph.spans;

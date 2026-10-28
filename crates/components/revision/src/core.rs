@@ -218,10 +218,10 @@ impl RevisionComponent {
         }) = &mut self.state
             && *load_id == event.load_id
         {
-            let share = match event.progress {
-                None => RevisionShare::Unreadable,
-                Some(progress) if progress.is_empty() => RevisionShare::NothingToReview,
-                Some(progress) => RevisionShare::Percent(progress.percent()),
+            let share = match &event.progress {
+                Err(reason) => RevisionShare::Unreadable(reason.clone()),
+                Ok(progress) if progress.is_empty() => RevisionShare::NothingToReview,
+                Ok(progress) => RevisionShare::Percent(progress.percent()),
             };
             selection.reviewed(event.change_id.clone(), share);
         }

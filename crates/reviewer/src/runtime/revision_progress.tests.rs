@@ -107,6 +107,7 @@ impl Reviewed {
     fn compute(&self, progress: &mut HistoryProgress) -> Option<u64> {
         progress
             .compute(&self.repository, &self.tracker, &self.store, &self.review)
+            .ok()
             .map(review_state::ReviewProgress::percent)
     }
 }
@@ -261,7 +262,7 @@ fn a_share_is_computed_again_once_the_commit_or_the_marks_change() {
 }
 
 #[test]
-fn a_revision_that_cannot_be_read_has_no_share() {
+fn a_revision_that_cannot_be_read_has_a_reason_instead_of_a_share() {
     let reviewed = Reviewed::new();
     let mut progress = HistoryProgress::default();
     let missing = ChangeId::from("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk".to_owned());
@@ -273,5 +274,10 @@ fn a_revision_that_cannot_be_read_has_no_share() {
         &missing,
     );
 
-    assert_eq!(share, None);
+    assert!(
+        share
+            .as_ref()
+            .is_err_and(|reason| reason.starts_with("could not read the revision: ")),
+        "{share:?}"
+    );
 }

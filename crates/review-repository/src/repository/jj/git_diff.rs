@@ -68,7 +68,8 @@ impl<'a> JjGitDiffParser<'a> {
         block: &[u8],
         path_statistics: &mut BTreeMap<RepoPath, DiffStatistics>,
     ) -> Result<()> {
-        if block
+        let header = Self::header(block);
+        if header
             .windows(DESCRIPTION_DIFF_PATHS.len())
             .any(|window| window == DESCRIPTION_DIFF_PATHS)
         {
@@ -77,7 +78,7 @@ impl<'a> JjGitDiffParser<'a> {
 
         let statistics = DiffStatistics::from_unified_diff(block);
         let mut matched = false;
-        for line in block.split(|byte| *byte == b'\n') {
+        for line in header.split(|byte| *byte == b'\n') {
             let Some(path_bytes) = Self::path_from_marker_line(line)? else {
                 continue;
             };
@@ -95,6 +96,16 @@ impl<'a> JjGitDiffParser<'a> {
             ));
         }
         Ok(())
+    }
+
+    /// The lines of `block` before its first hunk: a hunk line can read as a path marker, such
+    /// as a removed line that starts with `-- `.
+    fn header(block: &[u8]) -> &[u8] {
+        let end = block
+            .windows(4)
+            .position(|window| window == b"\n@@ ")
+            .map_or(block.len(), |newline| newline + 1);
+        &block[..end]
     }
 
     fn path_from_marker_line(line: &[u8]) -> Result<Option<Vec<u8>>> {

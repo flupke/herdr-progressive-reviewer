@@ -135,21 +135,24 @@ impl RepositoryBackend for JjBackend {
         repository: &Repository,
         change_id: &ChangeId,
     ) -> Result<Option<SnapshotIdentity>> {
-        SnapshotIdentity::parse_jj(
-            &repository
-                .run_jj([
-                    "--ignore-working-copy",
-                    "--color=always",
-                    "log",
-                    "--no-graph",
-                    "-r",
-                    change_id.as_str(),
-                    "-T",
-                    IDENTITY_TEMPLATE,
-                ])?
-                .stdout,
-        )
-        .map(Some)
+        let output = repository.output_jj([
+            "--ignore-working-copy",
+            "--color=always",
+            "log",
+            "--no-graph",
+            "-r",
+            change_id.as_str(),
+            "-T",
+            IDENTITY_TEMPLATE,
+        ])?;
+        if !output.status.success() {
+            return Err(if is_divergent(repository, change_id)? {
+                Error::DivergentChange
+            } else {
+                command_failed(&output)
+            });
+        }
+        SnapshotIdentity::parse_jj(&output.stdout).map(Some)
     }
 
     fn read_files(
@@ -358,10 +361,7 @@ impl Repository {
     {
         let output = self.output_jj(arguments)?;
         if !output.status.success() {
-            return Err(Error::CommandFailed {
-                operation: "read jj repository".to_owned(),
-                code: output.status.code(),
-            });
+            return Err(command_failed(&output));
         }
         Ok(output)
     }
@@ -389,6 +389,30 @@ fn baseline_exists(repository: &Repository, baseline: &str) -> Result<bool> {
         ])?
         .status
         .success())
+}
+
+/// The error of a jj command that read the repository and failed.
+fn command_failed(output: &Output) -> Error {
+    Error::CommandFailed {
+        operation: "read jj repository".to_owned(),
+        code: output.status.code(),
+    }
+}
+
+/// Whether several visible commits have `change_id`, which jj refuses to resolve to one.
+fn is_divergent(repository: &Repository, change_id: &ChangeId) -> Result<bool> {
+    let output = repository.output_jj([
+        "--ignore-working-copy",
+        "log",
+        "--no-graph",
+        "-r",
+        &format!("change_id({})", change_id.as_str()),
+        "-T",
+        r#"commit_id ++ "\n""#,
+    ])?;
+    // A second line names a second commit.
+    let mut lines = output.stdout.iter().filter(|byte| **byte == b'\n');
+    Ok(output.status.success() && lines.nth(1).is_some())
 }
 
 fn jj_exact_fileset(path: &RepoPath) -> OsString {

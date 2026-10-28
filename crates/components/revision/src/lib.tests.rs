@@ -526,25 +526,31 @@ fn the_share_goes_between_jj_graph_and_the_change_id() {
 }
 
 #[test]
-fn a_history_revision_that_cannot_be_read_shows_a_question_mark() {
+fn a_history_revision_that_cannot_be_read_shows_a_question_mark_and_its_reason_when_selected() {
     let (mut bus, target) = mounted_component();
     set_current_revision(&mut bus);
     send_key(&mut bus, Key::Char('v'));
     send_key(&mut bus, Key::Char('v'));
     bus.publish(RevisionHistoryLoaded {
         load_id: history_load_id(0),
-        result: Ok(vec![history_line("lost")]),
+        result: Ok(vec![history_line("lost"), history_line("alpha")]),
     })
     .unwrap();
 
     bus.publish(RevisionProgressLoaded {
         load_id: history_load_id(0),
         change_id: ChangeId::from("lost".to_owned()),
-        progress: None,
+        progress: Err("the change is divergent".to_owned()),
     })
     .unwrap();
+    bus.publish(progress_loaded(0, "alpha")).unwrap();
 
-    assert!(rendered_component(&bus, target).contains("   ? lost"));
+    let screen = rendered_component(&bus, target);
+    assert!(screen.contains("   ? lost"), "{screen}");
+    assert!(screen.contains("╰ ? the change is divergent ─"), "{screen}");
+    send_key(&mut bus, Key::Char('j'));
+    let screen = rendered_component(&bus, target);
+    assert!(!screen.contains("divergent"), "{screen}");
 }
 
 #[test]
@@ -562,7 +568,7 @@ fn a_history_revision_with_nothing_to_review_shows_a_dash() {
     bus.publish(RevisionProgressLoaded {
         load_id: history_load_id(0),
         change_id: ChangeId::from("empty".to_owned()),
-        progress: Some(std::iter::empty::<(DiffStatistics, &ReviewState)>().collect()),
+        progress: Ok(std::iter::empty::<(DiffStatistics, &ReviewState)>().collect()),
     })
     .unwrap();
 
@@ -596,11 +602,9 @@ fn progress_loaded(load_id: u64, change_id: &str) -> RevisionProgressLoaded {
     RevisionProgressLoaded {
         load_id: history_load_id(load_id),
         change_id: ChangeId::from(change_id.to_owned()),
-        progress: Some(
-            [(line, &reviewed), (line, &unreviewed)]
-                .into_iter()
-                .collect(),
-        ),
+        progress: Ok([(line, &reviewed), (line, &unreviewed)]
+            .into_iter()
+            .collect()),
     }
 }
 
