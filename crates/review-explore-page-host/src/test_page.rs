@@ -10,8 +10,9 @@ use std::time::Duration;
 use herdr_client::protocol::WorkspaceId;
 use review_explore::{RoundOverview, TabTitle};
 use review_explore_page::{
-    CommandRefusal, CommandSender, PageCommand, PageRound, PublishedRound, Recovery,
-    RoundPublisher, RoundStage,
+    CommandRefusal, CommandSender, PageCommand, PageRound, PastChange, PastRound, PastRoundEntry,
+    PastRounds, PastRoundsPublisher, PublishedRound, Recovery, ReviewName, RoundPublisher,
+    RoundStage,
 };
 
 use crate::{NetworkAccess, NetworkListener, PageDirectory, PageHost};
@@ -115,8 +116,36 @@ pub(crate) fn request(
     response
 }
 
+/// The identity of the one past round of the tests' pages.
+pub(crate) const PAST: &str = "past-1";
+
+/// The saved rounds of the tests' pages: the round `PAST` alone, which the page lists and opens.
+fn past_rounds() -> PastRounds {
+    let publisher = PastRoundsPublisher::default();
+    publisher.publish(vec![PastChange {
+        title: "An earlier change".into(),
+        revision: review_repository::repository::ShortRevision::default(),
+        rounds: vec![PastRoundEntry {
+            id: PAST.into(),
+            saved_at_ms: 1_000,
+        }],
+    }]);
+    PastRounds::new(&publisher, |id| {
+        (id == PAST).then(|| {
+            PastRound::new(
+                published(PAST),
+                working(),
+                ReviewName::default(),
+                None,
+                1_000,
+            )
+        })
+    })
+}
+
 /// A page host of the round that `RoundPublisher` publishes, whose owner takes a Reset and
-/// refuses every other command, with its records under `state`.
+/// refuses every other command, with its records under `state`. Its page on this machine
+/// offers one past round, `PAST`.
 pub(crate) fn page_host(state: &std::path::Path) -> (Arc<RoundPublisher>, PageHost) {
     let round = Arc::new(RoundPublisher::default());
     let owner = Arc::downgrade(&round);
@@ -130,7 +159,7 @@ pub(crate) fn page_host(state: &std::path::Path) -> (Arc<RoundPublisher>, PageHo
         _ => reply.send(Err(CommandRefusal::Stale)),
     });
     let host = PageHost::start(
-        PageRound::new(round.subscribe(), commands),
+        PageRound::new(round.subscribe(), commands).with_past_rounds(past_rounds()),
         &PageDirectory::new(state),
         &WorkspaceId("w1".into()),
         std::path::Path::new("/repositories/drafts"),

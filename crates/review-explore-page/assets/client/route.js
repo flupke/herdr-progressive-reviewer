@@ -12,6 +12,12 @@
 // - any other fragment, or none, shows the round's current stage; `#round` names it, for a link
 //   back from the design.
 //
+// A past round, which only the page on this machine opens from its ⋯ menu, adds its identity to
+// each of these: `#round@<id>` shows its stage, `#design@<id>` its design, `#question-2@<id>` its
+// second question. While a past round shows, a link of the page to one of its screens keeps the
+// identity (a link marked `data-leave-past` leaves the past round), and the page opens the
+// round's socket again for the round the address names (main.js).
+//
 // The design opens the round: the first time a tab shows a round that waits for the answer to
 // its first question, the page shows the design screen, whatever the address said before.
 
@@ -23,6 +29,8 @@ export const DESIGN = '#design';
 export const STAGE = '#round';
 
 const PART = /^#design-part-([1-9][0-9]*)$/;
+/** The identity of a past round at the end of an address. */
+const PAST = /@([A-Za-z0-9-]+)$/;
 const QUESTION = /^#question-([1-9][0-9]*)$/;
 const QUIZ = /^#quiz-([1-9][0-9]*)$/;
 
@@ -51,7 +59,7 @@ export function quizItem(number) {
  *   | { screen: 'quiz', item: number } | { screen: 'stage' }} Route
  * @returns {Route} */
 export function route() {
-  const hash = location.hash;
+  const hash = location.hash.replace(PAST, '');
   if (hash === DESIGN) return { screen: 'design', part: null };
   const part = PART.exec(hash);
   if (part) return { screen: 'design', part: Number(part[1]) };
@@ -60,6 +68,47 @@ export function route() {
   const quiz = QUIZ.exec(hash);
   return quiz ? { screen: 'quiz', item: Number(quiz[1]) } : { screen: 'stage' };
 }
+
+/** The past round the address names, by its identity; `null` for the round the page follows. */
+export function pastRound() {
+  return PAST.exec(location.hash)?.[1] ?? null;
+}
+
+/** `address`, one of the page's screens, in the past round `past`, or as it is with `null`.
+ * @param {string} address
+ * @param {string | null} past */
+function inPast(address, past) {
+  return past === null ? address : `${address}@${past}`;
+}
+
+/** The address of the stage of the past round `id`.
+ * @param {string} id */
+export function pastAddress(id) {
+  return inPast(STAGE, id);
+}
+
+/** `address`, one of the page's screens, in the past round the address names, if any.
+ * @param {string} address */
+export function here(address) {
+  return inPast(address, pastRound());
+}
+
+/** The address without the past round it names: the page follows its round again. */
+export function leavePast() {
+  history.replaceState(history.state, '', location.hash.replace(PAST, '') || STAGE);
+}
+
+// While a past round shows, a link to a screen of the page opens that screen of the past round.
+document.addEventListener('click', (event) => {
+  const past = pastRound();
+  if (past === null || event.defaultPrevented || !(event.target instanceof Element)) return;
+  const link = event.target.closest('a[href^="#"]');
+  if (!(link instanceof HTMLAnchorElement) || link.dataset.leavePast !== undefined) return;
+  const address = link.getAttribute('href') ?? '';
+  if (PAST.test(address)) return;
+  event.preventDefault();
+  location.hash = inPast(address, past);
+});
 
 const storage = (() => {
   try {
@@ -84,7 +133,8 @@ let shownBySelf = null;
  */
 export function openRound(view, waitingFor) {
   const round = view.question?.round ?? null;
-  const opening = view.design !== null && round !== null && waitingFor === 1;
+  // A past round opens where the reviewer asked.
+  const opening = view.design !== null && round !== null && waitingFor === 1 && view.past === null;
   if (shownBySelf !== null && !(opening && round === shownBySelf)) {
     if (location.hash === DESIGN) history.replaceState(history.state, '', STAGE);
     shownBySelf = null;

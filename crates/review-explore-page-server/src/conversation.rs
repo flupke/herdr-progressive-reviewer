@@ -55,6 +55,12 @@ impl SessionThreads {
         REVIEW.into()
     }
 
+    /// The threads as they are now, each message stamped by the session's clock, as a past
+    /// round of the session reads them.
+    pub(crate) fn stamped(&self) -> ReviewThreads {
+        self.clock.stamped(&self.threads)
+    }
+
     pub(crate) fn subscribe(&self) -> ThreadsFeed {
         self.publisher.subscribe()
     }

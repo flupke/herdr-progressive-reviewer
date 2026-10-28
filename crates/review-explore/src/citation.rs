@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use review_repository::diff::{DiffRow, NoticeKind, parse_file_diff};
+use review_repository::repository::{RepoPath, Repository, Snapshot};
 use review_source::SourceLineRange;
 
 use crate::{CodeLocation, Comparison, Source, SourceSide};
@@ -36,6 +37,9 @@ pub enum Uncitable {
     /// The file is neither part of the change nor tracked by the repository, such as an ignored
     /// `.env`: see [`Comparison::tracked_cited_lines`].
     Untracked,
+    /// The repository no longer holds the code a saved round cited, and the round's saved diff
+    /// does not hold the cited lines: see [`Comparison::saved_cited_lines`].
+    Gone,
 }
 
 impl std::fmt::Display for Uncitable {
@@ -53,20 +57,41 @@ impl std::fmt::Display for Uncitable {
                 "File-level evidence · the citation names the whole file, not lines of it, \
                  so no lines show here.",
             ),
-            Self::NoTextDiff(kind) => output.write_str(match kind {
-                NoticeKind::Binary => "File-level evidence · the change of this file is binary.",
-                NoticeKind::Conflict => {
-                    "File-level evidence · this file has an unresolved conflict, so the change \
-                     shows no lines of it."
-                }
-                NoticeKind::Unsupported => {
-                    "File-level evidence · the change of this file has no text diff."
-                }
-            }),
+            Self::NoTextDiff(kind) => output.write_str(no_text_diff(*kind)),
             Self::Untracked => output.write_str(
                 "This file is not part of the repository's tracked files, so its lines do not \
                  show here.",
             ),
+            Self::Gone => output.write_str(
+                "The code this round cited is no longer available: the repository no longer \
+                 holds the commit the round reviewed, and the round's saved diff does not hold \
+                 these lines.",
+            ),
+        }
+    }
+}
+
+/// [`Uncitable::Range`] unless `content` holds the lines `range`.
+fn check_range(range: &SourceLineRange, content: &str) -> Result<(), Uncitable> {
+    if range.first_line == 0
+        || range.last_line < range.first_line
+        || range.last_line as usize > content.lines().count()
+    {
+        return Err(Uncitable::Range);
+    }
+    Ok(())
+}
+
+/// Why a file whose change is `kind` shows no lines.
+fn no_text_diff(kind: NoticeKind) -> &'static str {
+    match kind {
+        NoticeKind::Binary => "File-level evidence · the change of this file is binary.",
+        NoticeKind::Conflict => {
+            "File-level evidence · this file has an unresolved conflict, so the change shows no \
+             lines of it."
+        }
+        NoticeKind::Unsupported => {
+            "File-level evidence · the change of this file has no text diff."
         }
     }
 }
@@ -112,6 +137,47 @@ impl CitedLines {
             rows,
             old_content,
             new_content,
+        })
+    }
+
+    /// The lines `range` of the change's rows `diff` of one file, on `side`, with no content:
+    /// [`Uncitable::Gone`] unless the rows hold every line of the range.
+    fn in_diff_alone(
+        path: String,
+        side: SourceSide,
+        range: &SourceLineRange,
+        diff: &[DiffRow],
+    ) -> Result<Self, Uncitable> {
+        if let Some(DiffRow::Notice { kind, .. }) = diff
+            .iter()
+            .find(|row| matches!(row, DiffRow::Notice { .. }))
+        {
+            return Err(Uncitable::NoTextDiff(*kind));
+        }
+        let file = FileRows {
+            side,
+            rows: diff
+                .iter()
+                .filter(|row| {
+                    matches!(
+                        row,
+                        DiffRow::Context { .. } | DiffRow::Add { .. } | DiffRow::Delete { .. }
+                    )
+                })
+                .cloned()
+                .collect(),
+        };
+        let rows = file.cited(range).map_err(|_| Uncitable::Gone)?;
+        // Between two hunks, the rows skip the lines the change left alone.
+        let lines = rows.iter().filter(|row| file.line(row).is_some()).count();
+        if lines != (range.last_line - range.first_line + 1) as usize {
+            return Err(Uncitable::Gone);
+        }
+        Ok(Self {
+            path,
+            rows,
+            old_content: None,
+            new_content: None,
         })
     }
 
@@ -209,7 +275,7 @@ impl FileRows {
     }
 
     /// The rows from the first line of `range` on this side to its last.
-    fn cited(self, range: &SourceLineRange) -> Result<Vec<DiffRow>, Uncitable> {
+    fn cited(&self, range: &SourceLineRange) -> Result<Vec<DiffRow>, Uncitable> {
         let first = self
             .rows
             .iter()
@@ -236,12 +302,8 @@ impl Comparison {
         let content = source
             .read_text(root)
             .map_err(|error| Uncitable::Unreadable(error.to_string()))?;
-        if location.lines.as_ref().is_some_and(|range| {
-            range.first_line == 0
-                || range.last_line < range.first_line
-                || range.last_line as usize > content.lines().count()
-        }) {
-            return Err(Uncitable::Range);
+        if let Some(range) = &location.lines {
+            check_range(range, &content)?;
         }
         let file = self
             .files
@@ -295,31 +357,111 @@ impl Comparison {
     ) -> Result<CitedLines, Uncitable> {
         let range = location.lines.as_ref().ok_or(Uncitable::WholeFile)?;
         let cited = self.cited_source(location, root)?;
-        let Some(index) = cited.file else {
-            let path = cited.source.display_path.clone();
-            return Ok(CitedLines::unchanged(path, range, cited.content));
+        let path = cited.source.display_path.clone();
+        self.lines_of(
+            location,
+            range,
+            path,
+            cited.content,
+            cited.file,
+            |side, path| {
+                self.source(&CodeLocation {
+                    path: path.clone(),
+                    side,
+                    lines: None,
+                })?
+                .read_text(root)
+                .ok()
+                .map(String::into_bytes)
+            },
+        )
+    }
+
+    /// The lines `location` cites as the round saw them, whatever the working copy holds now:
+    /// read from `repository` at the round's checkpoint, else from the change's saved diff;
+    /// [`Uncitable::Gone`] when neither holds them.
+    pub fn saved_cited_lines(
+        &self,
+        location: &CodeLocation,
+        repository: &Repository,
+    ) -> Result<CitedLines, Uncitable> {
+        let range = location.lines.as_ref().ok_or(Uncitable::WholeFile)?;
+        location.relative_path().ok_or(Uncitable::Path)?;
+        let path = location.path.display();
+        let index = self
+            .files
+            .iter()
+            .position(|file| location.side.path_in(file) == Some(&location.path));
+        let Some(content) = self.saved_file(repository, location.side, &location.path) else {
+            let index = index.ok_or(Uncitable::Gone)?;
+            return CitedLines::in_diff_alone(path, location.side, range, &self.diff_of(index));
+        };
+        let text = crate::source::text(content)
+            .map_err(|error| Uncitable::Unreadable(error.to_string()))?;
+        check_range(range, &text)?;
+        self.lines_of(location, range, path, text, index, |side, path| {
+            self.saved_file(repository, side, path)
+        })
+    }
+
+    /// The lines `range` that `location` cites in `content`, the text of its file at `path`:
+    /// unchanged rows when the change leaves the file alone, else the rows of the change of its
+    /// file `index`, whose other side `read` reads.
+    fn lines_of(
+        &self,
+        location: &CodeLocation,
+        range: &SourceLineRange,
+        path: String,
+        content: String,
+        index: Option<usize>,
+        read: impl Fn(SourceSide, &RepoPath) -> Option<Vec<u8>>,
+    ) -> Result<CitedLines, Uncitable> {
+        let Some(index) = index else {
+            return Ok(CitedLines::unchanged(path, range, content));
         };
         let file = &self.files[index];
-        let diff = parse_file_diff(self.diffs.get(index).map_or(&[], Vec::as_slice), file);
-        let read = |side: SourceSide| {
+        let content = content.into_bytes();
+        let side = |side: SourceSide| {
             if side == location.side {
-                return Some(cited.content.clone().into_bytes());
+                return Some(content.clone());
             }
-            self.source(&CodeLocation {
-                path: side.path_in(file)?.clone(),
-                side,
-                lines: None,
-            })?
-            .read_text(root)
-            .ok()
-            .map(String::into_bytes)
+            read(side, side.path_in(file)?)
         };
         CitedLines::in_diff(
             location,
-            &diff,
-            read(SourceSide::Old),
-            read(SourceSide::New),
+            &self.diff_of(index),
+            side(SourceSide::Old),
+            side(SourceSide::New),
         )
+    }
+
+    /// The rows of the change of its file `index`.
+    fn diff_of(&self, index: usize) -> Vec<DiffRow> {
+        parse_file_diff(
+            self.diffs.get(index).map_or(&[], Vec::as_slice),
+            &self.files[index],
+        )
+    }
+
+    /// The file at `path` on `side` of the change as the round saw it, read from `repository`:
+    /// the round's checkpoint for the new side, its base for the old one. `None` when the
+    /// repository no longer holds it.
+    fn saved_file(
+        &self,
+        repository: &Repository,
+        side: SourceSide,
+        path: &RepoPath,
+    ) -> Option<Vec<u8>> {
+        match side {
+            SourceSide::New => repository.file_at(&self.checkpoint.checkpoint, path).ok(),
+            SourceSide::Old => {
+                let snapshot = Snapshot {
+                    identity: self.base.clone()?,
+                    files: Vec::new(),
+                };
+                repository.base_file_at(&snapshot, path).ok()
+            }
+        }
     }
 }
 

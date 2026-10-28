@@ -55,6 +55,8 @@ struct Owner {
     thread_commands: Arc<Mutex<Vec<String>>>,
     /// While set, the owner keeps its replies here and sends none, as an owner still at work.
     held: Arc<Mutex<Option<Vec<CommandReply>>>>,
+    /// The saved rounds the page lists and opens; `None` for a page that offers none.
+    past: Option<crate::PastRounds>,
 }
 
 impl Owner {
@@ -77,6 +79,7 @@ impl Owner {
             threads: Arc::default(),
             thread_commands: Arc::default(),
             held: Arc::default(),
+            past: None,
         };
         owner.publish(stage);
         owner
@@ -274,7 +277,12 @@ impl Rounds for Owner {
             reply.send(owner.take_thread_command(command));
         });
         let conversation = PageConversation::new(self.threads.subscribe(), threads);
-        Some(PageRound::new(self.publisher.subscribe(), commands).with_conversation(conversation))
+        let round =
+            PageRound::new(self.publisher.subscribe(), commands).with_conversation(conversation);
+        Some(match &self.past {
+            Some(past) => round.with_past_rounds(past.clone()),
+            None => round,
+        })
     }
 }
 
@@ -397,7 +405,14 @@ impl Upgrade {
     }
 
     async fn connect(self, address: SocketAddr) -> Result<Socket, Error> {
-        let mut request = format!("ws://{address}/ws").into_client_request().unwrap();
+        self.connect_to(address, "/ws").await
+    }
+
+    /// Connects to `path` of the page at `address`: the socket's own, with its query.
+    async fn connect_to(self, address: SocketAddr, path: &str) -> Result<Socket, Error> {
+        let mut request = format!("ws://{address}{path}")
+            .into_client_request()
+            .unwrap();
         let headers = request.headers_mut();
         headers.insert("host", HeaderValue::from_str(&self.host).unwrap());
         for (name, value) in [("origin", self.origin), ("cookie", self.cookie)] {
@@ -1775,3 +1790,6 @@ async fn a_request_the_agent_may_have_received_is_sent_again_only_in_place_of_it
     assert_eq!(applied(&reply(&mut socket, 2).await), Some(true));
     assert_eq!(owner.commands(), ["implement"]);
 }
+
+#[path = "socket.past.tests.rs"]
+mod past;

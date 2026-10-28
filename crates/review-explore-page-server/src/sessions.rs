@@ -6,20 +6,23 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::{
-    AgentRecord, Alternative, CancelFrom, Decision, DiagramError, EarlierQuestion, KeptAnswer,
-    MarkCounts, Question, QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock,
-    TurnMarks,
+    AgentRecord, Alternative, CancelFrom, Decision, Design, DiagramError, EarlierQuestion,
+    KeptAnswer, MarkCounts, Question, QuizAnswers, QuizProgress, QuizResponse, RoundOverview,
+    StartBlock, TurnMarks,
 };
 use review_explore_citations::Citation;
 use review_explore_page::{
     Answered, AnsweredQuestion, CommandRefusal, CommandSender, ImplementationState, Interruption,
-    LatestAnswer, PageCommand, PageConversation, PageImplementation, PageRound, PublishedRound,
-    QuestionMarks, Recovery, RoundPublisher, RoundStage, Rounds, SentAnswer, ThreadSender, Token,
+    LatestAnswer, PageCommand, PageConversation, PageImplementation, PageRound, PastChange,
+    PastRound, PastRoundEntry, PastRounds, PastRoundsPublisher, PublishedRound, QuestionMarks,
+    Recovery, ReviewName, RoundPublisher, RoundStage, Rounds, SentAnswer, ThreadSender, Token,
     Waiting,
 };
 use review_explore_tally::MarkTally;
+use review_repository::repository::ShortRevision;
 use review_threads::{ReviewThreads, ThreadCommand};
 use review_turn_path::{PlainReason, TurnPath};
+use review_types::ReviewUnit;
 use serde::Serialize;
 
 use crate::conversation::{SentMessage, SessionThreads};
@@ -102,6 +105,43 @@ struct Session {
     earlier: bool,
     /// How the session's page follows the round.
     page: PageLink,
+    /// The past rounds of the session, newest first: two of other changes, saved before it
+    /// opened, then each round the reviewer reset.
+    past: Vec<PastRound>,
+    /// Publishes the list of the past rounds to the session's page.
+    past_list: PastRoundsPublisher,
+}
+
+/// What the page shows of a session's round besides its stage, which the round the session
+/// publishes borrows.
+struct RoundParts {
+    id: String,
+    review: ReviewUnit,
+    design: Design,
+    overview: RoundOverview,
+    earlier_citations: Vec<Arc<[Citation]>>,
+}
+
+impl RoundParts {
+    /// The round of `session` with these parts.
+    fn round<'a>(&'a self, session: &'a Session) -> PublishedRound<'a> {
+        PublishedRound {
+            id: &self.id,
+            review_unit: &self.review,
+            design: (session.asked > 0).then_some(&self.design),
+            changed_files: session.data.change().0.len(),
+            // The latest start from the page says who wrote the change.
+            author: if session.starts.last().is_some_and(|start| start.others) {
+                review_explore::ChangeAuthor::Other
+            } else {
+                review_explore::ChangeAuthor::Reviewer
+            },
+            cancellable: session.answered.last(),
+            earlier: session.earlier,
+            overview: &self.overview,
+            earlier_citations: &self.earlier_citations,
+        }
+    }
 }
 
 /// The clock of the sessions: the time now, or always the same time, so that two gallery runs
@@ -132,6 +172,9 @@ impl Clock {
         threads
     }
 }
+
+/// A day, in milliseconds.
+const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
 
 /// The time of a fixed clock, in milliseconds since the epoch: the gallery's pages stand 42
 /// seconds after it (`tests/explore-page/gallery/gallery.ts`).
@@ -178,6 +221,53 @@ pub(crate) struct SentStart {
 }
 
 impl Session {
+    /// A session `id` behind `token` whose agent posts `data` and asked `asked` questions, which
+    /// published nothing yet.
+    fn new(
+        id: String,
+        token: Token,
+        clock: Clock,
+        data: &'static dyn RoundData,
+        asked: usize,
+    ) -> Self {
+        let round = RoundPublisher::default();
+        round.name(data.review());
+        Self {
+            id,
+            token,
+            clock,
+            turn_answer: None,
+            sent_at_ms: Some(clock.now_ms()),
+            data,
+            round,
+            rounds: 1,
+            running: true,
+            asked,
+            latest_question: (asked > 0).then(|| data.question_stage(asked, None)),
+            concluded: false,
+            answers: Vec::new(),
+            diagram_errors: Vec::new(),
+            starts: Vec::new(),
+            implementations: Vec::new(),
+            quiz: None,
+            turns: 0,
+            attempts: 0,
+            offers: 0,
+            answered: Vec::new(),
+            decisions: Vec::new(),
+            answered_questions: Vec::new(),
+            taken_up: 0,
+            answer_marks: Vec::new(),
+            marked_by_hand: 0,
+            actions: Vec::new(),
+            threads: SessionThreads::new(clock),
+            earlier: false,
+            page: PageLink::Following,
+            past: Vec::new(),
+            past_list: PastRoundsPublisher::default(),
+        }
+    }
+
     /// The identity of the session's latest round.
     fn round_id(&self) -> String {
         format!("{}-{}", self.id, self.rounds)
@@ -186,9 +276,18 @@ impl Session {
     /// Publishes `stage` of the latest round, with the design once the agent asked its first
     /// question, and the reviewer's latest answer, which the reviewer may cancel.
     fn publish(&mut self, stage: RoundStage) {
-        let id = self.round_id();
-        let design = self.data.design();
-        let items = self.data.quiz_items().len();
+        if let PageLink::Held { unseen } = &mut self.page {
+            *unseen = Some(Box::new(stage));
+            return;
+        }
+        let parts = self.parts(&stage);
+        let tally = self.tally(&stage);
+        let round = self.running.then(|| parts.round(self));
+        self.round.publish_counted(round, stage, tally);
+    }
+
+    /// What the page shows of the latest round besides its stage, at `stage`.
+    fn parts(&self, stage: &RoundStage) -> RoundParts {
         let (mut earlier, earlier_citations): (Vec<_>, Vec<_>) = self.answered_questions
             [..self.taken_up]
             .iter()
@@ -217,35 +316,69 @@ impl Session {
                 asked: self.asked,
                 concluded: self.concluded,
                 quiz: self.quiz.as_ref().map(|answers| QuizProgress {
-                    items,
+                    items: self.data.quiz_items().len(),
                     answers: Some(answers),
                 }),
             }
-            .overview(&stage)
+            .overview(stage)
         };
-        let review = SessionThreads::review();
-        let round = self.running.then(|| PublishedRound {
-            id: &id,
-            review_unit: &review,
-            design: (self.asked > 0).then_some(&design),
-            changed_files: self.data.change().0.len(),
-            // The latest start from the page says who wrote the change.
-            author: if self.starts.last().is_some_and(|start| start.others) {
-                review_explore::ChangeAuthor::Other
-            } else {
-                review_explore::ChangeAuthor::Reviewer
-            },
-            cancellable: self.answered.last(),
-            earlier: self.earlier,
-            overview: &overview,
-            earlier_citations: &earlier_citations,
-        });
-        if let PageLink::Held { unseen } = &mut self.page {
-            *unseen = Some(Box::new(stage));
-        } else {
-            let tally = self.tally(&stage);
-            self.round.publish_counted(round, stage, tally);
+        RoundParts {
+            id: self.round_id(),
+            review: SessionThreads::review(),
+            design: self.data.design(),
+            overview,
+            earlier_citations,
         }
+    }
+
+    /// Keeps the latest round, at the stage it stands at, as a past round, saved now.
+    fn save_past(&mut self) {
+        let past = self.past_at(self.data.review(), self.clock.now_ms());
+        self.past.insert(0, past);
+        self.list_past();
+    }
+
+    /// The latest round, at the stage it stands at, as a past round of the change `review`,
+    /// saved at `saved_at_ms`.
+    fn past_at(&self, review: ReviewName, saved_at_ms: u64) -> PastRound {
+        let mut stage = self.stage();
+        // A past round asks nothing of its quiz, as the review tool shows a saved round.
+        if let RoundStage::Conclusion { quiz, .. } = &mut stage {
+            quiz.takes_answers = false;
+        }
+        let parts = self.parts(&stage);
+        PastRound::new(
+            parts.round(self),
+            stage,
+            review,
+            Some(self.threads.stamped()),
+            saved_at_ms,
+        )
+    }
+
+    /// Publishes the list of the session's past rounds, grouped by change in the order of their
+    /// newest rounds, as the review tool lists them.
+    fn list_past(&self) {
+        let mut changes: Vec<PastChange> = Vec::new();
+        for past in &self.past {
+            let review = past.review();
+            let entry = PastRoundEntry {
+                id: past.id().to_owned(),
+                saved_at_ms: past.saved_at_ms(),
+            };
+            match changes
+                .iter_mut()
+                .find(|change| change.title == review.title)
+            {
+                Some(change) => change.rounds.push(entry),
+                None => changes.push(PastChange {
+                    title: review.title.clone(),
+                    revision: review.revision.clone(),
+                    rounds: vec![entry],
+                }),
+            }
+        }
+        self.past_list.publish(changes);
     }
 
     /// How much of the change the review marks cover while the round is at `stage`.
@@ -854,6 +987,9 @@ impl Session {
         };
         let stage = stage.ok_or(CommandRefusal::Stale)?;
         if matches!(stage, RoundStage::NoRound { .. }) {
+            if self.running {
+                self.save_past();
+            }
             self.running = false;
             self.forget_round();
         }
@@ -1108,50 +1244,22 @@ impl Sessions {
 
     /// Opens a session behind `token` whose agent asked `asked` questions: it shows the latest,
     /// or the agent works on its first one. Its agent posts `data`, or the server's data set.
+    /// Two rounds of other changes are saved before it, as past rounds.
     pub(crate) fn open(&self, token: Token, asked: usize, data: Option<&'static dyn RoundData>) {
         let data = data.unwrap_or(self.data);
-        let latest_question = (asked > 0).then(|| data.question_stage(asked, None));
-        let sent_at_ms = Some(self.clock.now_ms());
-        let stage = latest_question.clone().unwrap_or(RoundStage::AgentWorking {
-            request: "turn-0".into(),
-            sent_at_ms,
-            finishing_since_ms: None,
-            answer: None,
-        });
-        let round = RoundPublisher::default();
-        round.name(data.review());
-        let mut session = Session {
-            id: format!("session-{}", self.lock().len() + 1),
-            token,
-            clock: self.clock,
-            turn_answer: None,
-            sent_at_ms,
-            data,
-            round,
-            rounds: 1,
-            running: true,
-            asked,
-            latest_question,
-            concluded: false,
-            answers: Vec::new(),
-            diagram_errors: Vec::new(),
-            starts: Vec::new(),
-            implementations: Vec::new(),
-            quiz: None,
-            turns: 0,
-            attempts: 0,
-            offers: 0,
-            answered: Vec::new(),
-            decisions: Vec::new(),
-            answered_questions: Vec::new(),
-            taken_up: 0,
-            answer_marks: Vec::new(),
-            marked_by_hand: 0,
-            actions: Vec::new(),
-            threads: SessionThreads::new(self.clock),
-            earlier: false,
-            page: PageLink::Following,
-        };
+        let id = format!("session-{}", self.lock().len() + 1);
+        let mut session = Session::new(id, token, self.clock, data, asked);
+        session.past = past_rounds(&session.id, self.clock, data);
+        session.list_past();
+        let stage = session
+            .latest_question
+            .clone()
+            .unwrap_or(RoundStage::AgentWorking {
+                request: "turn-0".into(),
+                sent_at_ms: session.sent_at_ms,
+                finishing_since_ms: None,
+                answer: None,
+            });
         session.publish(stage);
         self.lock().push(session);
     }
@@ -1174,6 +1282,9 @@ impl Sessions {
                 | RoundStage::StartFailed { .. }
         );
         if !running {
+            if session.running {
+                session.save_past();
+            }
             session.forget_round();
         } else if !session.running {
             // A running stage after none starts the session's next round.
@@ -1337,6 +1448,15 @@ impl Sessions {
         find(&mut self.lock(), token).map(|session| session.threads.sent())
     }
 
+    /// The past round `id` of the session behind `token`, or `None` when it has none.
+    fn past_round(&self, token: &str, id: &str) -> Option<PastRound> {
+        find(&mut self.lock(), token)?
+            .past
+            .iter()
+            .find(|past| past.id() == id)
+            .cloned()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Session>> {
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -1344,10 +1464,17 @@ impl Sessions {
 
 impl Rounds for Sessions {
     fn find(&self, token: &str) -> Option<PageRound> {
-        let (stages, threads) = {
+        let opener = self.clone();
+        let owner = token.to_owned();
+        let open = move |id: &str| opener.past_round(&owner, id);
+        let (stages, threads, past) = {
             let mut sessions = self.lock();
             let session = find(&mut sessions, token)?;
-            (session.round.subscribe(), session.threads.subscribe())
+            (
+                session.round.subscribe(),
+                session.threads.subscribe(),
+                PastRounds::new(&session.past_list, open),
+            )
         };
         let sessions = self.clone();
         let owner = token.to_owned();
@@ -1361,9 +1488,90 @@ impl Rounds for Sessions {
         });
         Some(
             PageRound::new(stages, commands)
-                .with_conversation(PageConversation::new(threads, sender)),
+                .with_conversation(PageConversation::new(threads, sender))
+                .with_past_rounds(past),
         )
     }
+}
+
+/// The two rounds saved before the session `session` opened, of two changes other than its
+/// own, newest first: one that ended at its conclusion, the quiz answered, and one left at its
+/// second question.
+fn past_rounds(session: &str, clock: Clock, data: &'static dyn RoundData) -> Vec<PastRound> {
+    let saved = [
+        (
+            "Keep the reviewer's draft across reloads",
+            ("kq", "vmtsxy"),
+            1,
+            vec![
+                Step::Kickoff,
+                Step::Question {
+                    path: RunAheadPath::Unwatched,
+                },
+                Step::Answer {
+                    after_first_pick: false,
+                },
+                Step::Question {
+                    path: RunAheadPath::Unwatched,
+                },
+                Step::Answer {
+                    after_first_pick: false,
+                },
+                Step::Conclude { quiz: true },
+            ],
+        ),
+        (
+            "Name the queue's flush policy",
+            ("pw", "nlzrot"),
+            3,
+            vec![
+                Step::Kickoff,
+                Step::Question {
+                    path: RunAheadPath::Unwatched,
+                },
+                Step::Answer {
+                    after_first_pick: false,
+                },
+                Step::Question {
+                    path: RunAheadPath::Unwatched,
+                },
+            ],
+        ),
+    ];
+    saved
+        .into_iter()
+        .enumerate()
+        .map(|(index, (title, (prefix, rest), days_ago, steps))| {
+            let mut past = Session::new(
+                format!("{session}-past-{}", index + 1),
+                Token::random(),
+                clock,
+                data,
+                0,
+            );
+            for step in steps {
+                if let Some(stage) = past.stage_after(step, None) {
+                    past.publish(stage);
+                }
+            }
+            if let Some(quiz) = &mut past.quiz {
+                for item in 0..data.quiz_items().len() {
+                    let _ = quiz.record(&data.quiz_items(), QuizResponse::Pick { item, answer: 0 });
+                }
+                let stage = past.conclusion(None);
+                past.publish(stage);
+            }
+            let review = ReviewName {
+                title: title.to_owned(),
+                revision: ShortRevision {
+                    prefix: prefix.to_owned(),
+                    rest: rest.to_owned(),
+                },
+                ..data.review()
+            };
+            past.past_at(review, clock.now_ms() - days_ago * DAY_MS)
+        })
+        .collect()
 }
 
 fn find<'a>(sessions: &'a mut [Session], token: &str) -> Option<&'a mut Session> {

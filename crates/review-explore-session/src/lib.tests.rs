@@ -34,6 +34,8 @@ mod not_started;
 mod page;
 #[path = "page_actions.tests.rs"]
 mod page_actions;
+#[path = "past.tests.rs"]
+mod past;
 #[path = "quiz.tests.rs"]
 mod quiz;
 #[path = "recovery.tests.rs"]

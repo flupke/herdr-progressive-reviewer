@@ -26,6 +26,18 @@ pub(crate) struct ThreadsSnapshot {
 }
 
 impl ThreadsSnapshot {
+    /// The snapshot that holds `threads`, the threads of one review, or none.
+    pub(crate) fn of(threads: Option<ReviewThreads>) -> Self {
+        Self {
+            revision: 0,
+            by_review: threads
+                .into_iter()
+                .map(|threads| (threads.review_unit.clone(), Arc::new(threads)))
+                .collect(),
+            failures: HashMap::new(),
+        }
+    }
+
     /// The threads of the review `unit`, once their owner loaded them.
     pub(crate) fn threads(&self, unit: &ReviewUnit) -> Option<&ReviewThreads> {
         self.by_review.get(unit).map(Arc::as_ref)

@@ -48,6 +48,8 @@ forwards (the public `Host`, an `https://` `Origin`).
   reviewer until the round ends, and on the start screen before it; a Reset from such a
   copy hands it the next start screen's token too
   ([ADR 0003](../adr/0003-serve-the-explore-page-on-the-network.md)).
+- No past round: the page on the network lists none in its ⋯ menu and opens none, even
+  from a copied link. Only the page on this machine offers them.
 - A reviewer that cannot serve the page on the network (no network address, an unknown
   interface, all ten ports taken) keeps the page on this machine.
 - A firewall that drops incoming connections blocks the phone: the ten ports from the
@@ -62,7 +64,7 @@ forwards (the public `Host`, an `https://` `Origin`).
   change code in the repository with the list they send. There are no roles and no
   read-only mode.
 - **The round's network token.** The link carries the token of the phone's QR code, which
-  opens only the running round. The token of the page on this machine, which the pane
+  opens only the running round, and no past round. The token of the page on this machine, which the pane
   keeps across rounds and restarts, never goes through the tunnel.
 - **Cloudflare sees the page.** The traffic is encrypted between the browser and
   Cloudflare, and between Cloudflare and `cloudflared`, but Cloudflare forwards the page's

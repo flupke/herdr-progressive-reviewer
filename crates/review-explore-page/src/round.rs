@@ -19,7 +19,7 @@ use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::blind::BlindQuestion;
-use crate::{CommandSender, PageConversation, PageQuizResponse, Token, Waiting};
+use crate::{CommandSender, PageConversation, PageQuizResponse, PastRounds, Token, Waiting};
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -441,12 +441,20 @@ impl ReviewName {
     /// The review of the repository at `root`, at the snapshot `identity`.
     pub fn of(root: &Path, identity: &SnapshotIdentity) -> Self {
         Self {
+            revision: identity.short_revision(),
+            title: identity.title().to_owned(),
+            ..Self::unnamed(root)
+        }
+    }
+
+    /// The review of the repository at `root`, of a change with neither revision nor title.
+    pub fn unnamed(root: &Path) -> Self {
+        Self {
             repository: root.file_name().map_or_else(
                 || root.display().to_string(),
                 |name| name.to_string_lossy().into_owned(),
             ),
-            revision: identity.short_revision(),
-            title: identity.title().to_owned(),
+            ..Self::default()
         }
     }
 }
@@ -550,6 +558,9 @@ pub(crate) struct RoundSnapshot {
     pub(crate) cancellable: Option<LatestAnswer>,
     /// Whether the round is an earlier one, which the reviewer can only Reset.
     pub(crate) earlier: bool,
+    /// Whether the round is a past round, which the page shows read only: no action, not even
+    /// Reset, and no blind pick.
+    pub(crate) past: bool,
     /// Where the round stands as a whole: its rail and the tab title.
     pub(crate) overview: Option<Arc<RoundOverview>>,
     /// The citations of each earlier question of the overview, in the same order.
@@ -722,6 +733,7 @@ impl RoundSnapshot {
             author: round.map(|round| round.author).unwrap_or_default(),
             cancellable: round.and_then(|round| round.cancellable.cloned()),
             earlier: round.is_some_and(|round| round.earlier),
+            past: false,
             overview: round.map(|round| Arc::new(round.overview.clone())),
             earlier_citations: round
                 .map_or_else(|| Arc::from([]), |round| round.earlier_citations.into()),
@@ -729,6 +741,25 @@ impl RoundSnapshot {
             review,
             start_block,
             tally: None,
+        }
+    }
+
+    /// The snapshot of `stage` of the past round `round`, of the change `review`.
+    pub(crate) fn past(round: PublishedRound<'_>, stage: RoundStage, review: ReviewName) -> Self {
+        Self {
+            past: true,
+            ..Self::new(0, Some(round), stage, Some(review), None)
+        }
+    }
+
+    /// Whether the round waits for the reviewer: a question to answer, a conclusion with no
+    /// implementation request yet, or a turn to retry.
+    pub(crate) fn waits_for_reviewer(&self) -> bool {
+        match &self.stage {
+            RoundStage::Question { .. } => true,
+            RoundStage::Conclusion { implementation, .. } => implementation.is_none(),
+            RoundStage::Interrupted { request, .. } => request.is_some(),
+            _ => false,
         }
     }
 }
@@ -926,6 +957,9 @@ pub struct PageRound {
     /// The review threads, which hold the round's conversation; `None` when the page offers no
     /// conversation.
     pub(crate) conversation: Option<PageConversation>,
+    /// The saved rounds of the repository, which the page lists and opens read only; `None`
+    /// on a page that offers none, as the page on the network.
+    pub(crate) past: Option<PastRounds>,
 }
 
 impl PageRound {
@@ -934,7 +968,23 @@ impl PageRound {
             stages,
             commands,
             conversation: None,
+            past: None,
         }
+    }
+
+    /// The round, whose page lists and opens the saved rounds `past` too.
+    #[must_use]
+    pub fn with_past_rounds(mut self, past: PastRounds) -> Self {
+        self.past = Some(past);
+        self
+    }
+
+    /// The round, whose page offers no saved round: the page on the network and through the
+    /// tunnel.
+    #[must_use]
+    pub fn without_past_rounds(mut self) -> Self {
+        self.past = None;
+        self
     }
 
     /// The round, whose conversation the page reads from and writes to `conversation`.

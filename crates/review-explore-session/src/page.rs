@@ -6,8 +6,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use review_explore::{
-    Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound, ImplementationDelivery,
-    KeptAnswer, Question, ReviewerAnswer, RoundOverview, TurnMarks, TurnRequest,
+    CitedLines, CodeLocation, Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound,
+    ImplementationDelivery, KeptAnswer, Question, ReviewerAnswer, RoundOverview, TurnMarks,
+    TurnRequest, Uncitable,
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
@@ -15,7 +16,7 @@ use review_explore_page::{
     LatestAnswer, PageAnswer, PageCommand, PageImplement, PageImplementation, PageQuiz,
     PublishedRound, QuestionMarks, Recovery, ReviewName, RoundStage, SentAnswer, TurnResponse,
 };
-use review_repository::repository::SnapshotIdentity;
+use review_repository::repository::{Repository, SnapshotIdentity};
 use review_run_ahead::TurnPath;
 use review_source::ReviewCheckpoint;
 
@@ -37,19 +38,50 @@ struct Shown {
     citations: Vec<Arc<[Citation]>>,
 }
 
+/// Where the page reads the lines a citation names: the working copy, for the round the session
+/// owns, or the repository at a saved round's checkpoint, for a past round.
+#[derive(Clone, Copy)]
+pub(crate) enum CitedCode<'a> {
+    /// The working copy at this root.
+    WorkingCopy(&'a Path),
+    /// The repository, at the round's checkpoint, else the round's saved diff.
+    Saved(&'a Repository),
+}
+
+impl CitedCode<'_> {
+    /// The lines `location` names in the change `comparison`.
+    fn lines(
+        self,
+        comparison: &Comparison,
+        location: &CodeLocation,
+    ) -> Result<CitedLines, Uncitable> {
+        match self {
+            // The page may be open from the network: it shows no file outside the change and
+            // the repository's tracked files.
+            Self::WorkingCopy(root) => comparison.tracked_cited_lines(location, root),
+            Self::Saved(repository) => comparison.saved_cited_lines(location, repository),
+        }
+    }
+}
+
 impl PageCitations {
-    /// The citations of `question`, with the lines `comparison` has for them in `root`.
-    fn of(&mut self, question: &Question, comparison: &Comparison, root: &Path) -> Arc<[Citation]> {
-        self.lists(std::slice::from_ref(&question.evidence), comparison, root)
+    /// The citations of `question`, with the lines `comparison` has for them in `code`.
+    fn of(
+        &mut self,
+        question: &Question,
+        comparison: &Comparison,
+        code: CitedCode<'_>,
+    ) -> Arc<[Citation]> {
+        self.lists(std::slice::from_ref(&question.evidence), comparison, code)
             .swap_remove(0)
     }
 
-    /// Each list of `lists` cited, with the lines `comparison` has for them in `root`.
-    fn lists(
+    /// Each list of `lists` cited, with the lines `comparison` has for them in `code`.
+    pub(crate) fn lists(
         &mut self,
         lists: &[Vec<EvidenceRef>],
         comparison: &Comparison,
-        root: &Path,
+        code: CitedCode<'_>,
     ) -> Vec<Arc<[Citation]>> {
         if let Some(shown) = &self.shown
             && shown.checkpoint == comparison.checkpoint
@@ -62,9 +94,7 @@ impl PageCitations {
             .map(|list| {
                 list.iter()
                     .map(|evidence| {
-                        // The page may be open from the network: it shows no file outside the
-                        // change and the repository's tracked files.
-                        let lines = comparison.tracked_cited_lines(&evidence.location, root);
+                        let lines = code.lines(comparison, &evidence.location);
                         self.colors.cite(evidence.clone(), lines)
                     })
                     .collect()
@@ -109,7 +139,7 @@ impl ExploreSession {
                 self.earlier_citations.lists(
                     &lists,
                     &round.exploration.comparison,
-                    self.repository.root(),
+                    CitedCode::WorkingCopy(self.repository.root()),
                 )
             });
         let round = self
@@ -342,14 +372,14 @@ impl ExploreSession {
             };
         };
         let exploration = &round.exploration;
-        let root = self.repository.root();
+        let code = CitedCode::WorkingCopy(self.repository.root());
         if let Some(request) = exploration.pending_request() {
             // A turn saved as pending that no prompt of this process carries, after a
             // reopening or Stop waiting, waits for Retry.
             let delivering = self.state.pending.as_ref().is_some_and(|(instance, id)| {
                 *instance == request.instance && *id == request.request
             });
-            let answer = sent_answer(round, request, &mut self.citations, root);
+            let answer = sent_answer(round, request, &mut self.citations, code);
             return if delivering {
                 RoundStage::AgentWorking {
                     request: request.request.clone(),
@@ -365,7 +395,7 @@ impl ExploreSession {
             };
         }
         if let Some(retry) = exploration.retry_request() {
-            let answer = sent_answer(round, retry, &mut self.citations, root);
+            let answer = sent_answer(round, retry, &mut self.citations, code);
             return interrupted(round, retry, answer);
         }
         let sending = self.state.implementation.is_some();
@@ -379,23 +409,23 @@ impl ExploreSession {
                 paths: self.run_ahead.turn_paths(),
             },
             &mut self.citations,
-            root,
+            code,
         )
     }
 }
 
 /// The reviewer's answer that the turn `request` of `round` carries, with the question it
-/// answers, whose citations `citations` finds in the change in `root`, and the marks it applied.
-fn sent_answer(
+/// answers, whose citations `citations` finds in the change in `code`, and the marks it applied.
+pub(crate) fn sent_answer(
     round: &ExploreRound,
     request: &TurnRequest,
     citations: &mut PageCitations,
-    root: &Path,
+    code: CitedCode<'_>,
 ) -> Option<Box<SentAnswer>> {
     let answer = request.answer.as_ref()?;
     Some(Box::new(SentAnswer {
         question: answer.question.as_ref().map(|question| AnsweredQuestion {
-            citations: citations.of(question, &round.exploration.comparison, root),
+            citations: citations.of(question, &round.exploration.comparison, code),
             question: Box::new(question.clone()),
             picked_blind: answer.first_pick.is_some(),
         }),
@@ -412,7 +442,7 @@ fn sent_answer(
 
 /// The turn `request` of `round`, which the agent is not working on, and why; `answer` is the
 /// reviewer's answer the turn carries.
-fn interrupted(
+pub(crate) fn interrupted(
     round: &ExploreRound,
     request: &TurnRequest,
     answer: Option<Box<SentAnswer>>,
@@ -441,21 +471,22 @@ fn waiting_question(exploration: &Exploration) -> Option<&Question> {
 
 /// What the page shows of the agent's latest turn besides the turn itself.
 #[derive(Clone, Copy)]
-struct LatestTurn<'a> {
+pub(crate) struct LatestTurn<'a> {
     /// Whether this process sends an implementation request.
-    sending: bool,
+    pub(crate) sending: bool,
     /// Whether the round can save the reviewer's answers to the conclusion's quiz.
-    takes_quiz_answers: bool,
+    pub(crate) takes_quiz_answers: bool,
     /// The path each turn took after an answer to a question run-ahead watched, by request.
-    paths: &'a BTreeMap<String, TurnPath>,
+    pub(crate) paths: &'a BTreeMap<String, TurnPath>,
 }
 
-/// The question or conclusion the agent's latest turn posted, as `latest` says to show it.
-fn latest_turn(
+/// The question or conclusion the agent's latest turn posted, as `latest` says to show it, with
+/// its citations' lines from `code`.
+pub(crate) fn latest_turn(
     round: &ExploreRound,
     latest: LatestTurn<'_>,
     citations: &mut PageCitations,
-    root: &Path,
+    code: CitedCode<'_>,
 ) -> RoundStage {
     let exploration = &round.exploration;
     // A round with no turn to answer and none to send again: only Reset is left.
@@ -486,7 +517,7 @@ fn latest_turn(
                 .latest_implementation(request)
                 .map(|delivery| page_implementation(delivery, latest.sending)),
             quiz: PageQuiz {
-                proofs: citations.lists(&proofs, &exploration.comparison, root),
+                proofs: citations.lists(&proofs, &exploration.comparison, code),
                 answers: exploration
                     .quiz_answers(request)
                     .cloned()
@@ -500,7 +531,7 @@ fn latest_turn(
         Some(question) => RoundStage::Question {
             number: exploration.questions.len(),
             question: Box::new(question.clone()),
-            citations: citations.of(question, &exploration.comparison, root),
+            citations: citations.of(question, &exploration.comparison, code),
             marks: QuestionMarks::requested(&turn.update),
             response,
             answer_cancelled: exploration.cancelled_since_last_turn(),

@@ -40,6 +40,6 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 
 ## Explore page
 
-- [Explore page: architecture](explore-page.md): the socket's checks, the actions for each state of a round, Markdown and diagrams, what the session publishes, the page's address, the chat.
+- [Explore page: architecture](explore-page.md): the socket's checks, the actions for each state of a round, Markdown and diagrams, what the session publishes, the page's address, the chat, past rounds.
 - [Explore page: client](explore-page-client.md): how its modules are served, adding a screen, the generated types and their check.
 - [Explore page: network and tunnel](explore-page-sharing.md): what the network listener and the tunnel expose, and the test stand-ins.

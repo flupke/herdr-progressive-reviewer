@@ -10,6 +10,18 @@ use test_case::test_case;
 /// A change that rewrites the third line of `policy.rs`, next to an unchanged `caller.rs` and
 /// a changed binary file.
 fn change(kind: RepoType) -> (Box<dyn ReviewRepositoryFixture>, Comparison) {
+    let (fixture, comparison, _) = change_in_repository(kind);
+    (fixture, comparison)
+}
+
+/// The change of [`change`], with its repository and the directory of the repository's state.
+fn change_in_repository(
+    kind: RepoType,
+) -> (
+    Box<dyn ReviewRepositoryFixture>,
+    Comparison,
+    (Repository, tempfile::TempDir),
+) {
     let fixture = repository_fixture(kind);
     fixture.write("policy.rs", b"fn a() {}\nfn b() {}\nfn c() {}\nfn d() {}\n");
     fixture.write("caller.rs", b"fn main() {}\nfn helper() {}\n");
@@ -26,7 +38,7 @@ fn change(kind: RepoType) -> (Box<dyn ReviewRepositoryFixture>, Comparison) {
         .with_state_root(state.path());
     let snapshot = complete_repository_snapshot(&repository);
     let comparison = Comparison::prepare(&repository, &snapshot).unwrap();
-    (fixture, comparison)
+    (fixture, comparison, (repository, state))
 }
 
 fn location(path: &str, side: SourceSide, lines: Option<(u32, u32)>) -> CodeLocation {
@@ -138,4 +150,74 @@ fn citations_without_lines_of_text_say_why(kind: RepoType) {
         cite(location("../policy.rs", SourceSide::New, Some((1, 1)))),
         Err(Uncitable::Path)
     );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_saved_round_cites_the_code_of_its_checkpoint_once_the_working_copy_moved_on(kind: RepoType) {
+    let (fixture, comparison, (repository, _state)) = change_in_repository(kind);
+    fixture.write("policy.rs", b"fn a() {}\nfn b() {}\nfn c3() {}\n");
+    fixture.write("caller.rs", b"fn main() {}\nfn other() {}\n");
+    // The repository takes the working copy's new state: jj hides the round's commit.
+    complete_repository_snapshot(&repository);
+
+    let changed = comparison
+        .saved_cited_lines(
+            &location("policy.rs", SourceSide::New, Some((1, 4))),
+            &repository,
+        )
+        .unwrap();
+    let left_alone = comparison
+        .saved_cited_lines(
+            &location("caller.rs", SourceSide::New, Some((2, 2))),
+            &repository,
+        )
+        .unwrap();
+
+    assert_eq!(
+        numbers(&changed.rows),
+        [
+            (Some(1), Some(1)),
+            (Some(2), Some(2)),
+            (Some(3), None),
+            (None, Some(3)),
+            (Some(4), Some(4))
+        ]
+    );
+    assert!(
+        changed
+            .new_content
+            .unwrap()
+            .ends_with(b"fn c2() {}\nfn d() {}\n")
+    );
+    assert_eq!(
+        left_alone.rows,
+        [DiffRow::Context {
+            old_line: 2,
+            new_line: 2,
+            text: " fn helper() {}".into()
+        }]
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_saved_round_whose_code_is_gone_cites_its_saved_diff_or_says_it_is_gone(kind: RepoType) {
+    let (_fixture, mut comparison, (repository, _state)) = change_in_repository(kind);
+    // The repository no longer holds the round's commit, nor its base.
+    comparison.checkpoint.checkpoint = "0123456789abcdef0123456789abcdef01234567".into();
+    comparison.base = None;
+    let cite = |path: &str, lines| {
+        comparison.saved_cited_lines(&location(path, SourceSide::New, Some(lines)), &repository)
+    };
+
+    let changed = cite("policy.rs", (2, 3)).unwrap();
+
+    assert_eq!(
+        numbers(&changed.rows),
+        [(Some(2), Some(2)), (Some(3), None), (None, Some(3))]
+    );
+    assert_eq!(changed.new_content, None);
+    assert_eq!(cite("caller.rs", (2, 2)), Err(Uncitable::Gone));
+    assert_eq!(cite("policy.rs", (2, 9)), Err(Uncitable::Gone));
 }

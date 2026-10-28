@@ -46,7 +46,7 @@ use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, TabId, Workspac
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_explore_page::{
-    CommandSender, PageConversation, PageRound, RoundFeed, RoundPublisher, ThreadsFeed,
+    CommandSender, PageConversation, PageRound, PastRounds, RoundFeed, RoundPublisher, ThreadsFeed,
 };
 use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener, TunnelProgram};
 use review_explore_page_settings::ExplorePageSettings;
@@ -169,14 +169,7 @@ impl Runtime {
         let _ = app.publish(ui_events::ExploreRoundSettingsLoaded(
             settings.explore_round_settings()?,
         ));
-        let area = terminal.terminal.size()?;
-        let _ = app.update(UserInput::Resize {
-            width: area.width,
-            height: area.height,
-        });
-        terminal
-            .terminal
-            .draw(|frame| frame.render_widget(app.frame(), frame.area()))?;
+        Self::draw_first_frame(&mut terminal, &mut app)?;
         // Before anything reads the review state, while the pane shows: the first migration
         // backs up the per-workspace states, which takes a moment.
         Self::migrate_workspace_states(&self.repository, &settings, &mut app);
@@ -214,9 +207,13 @@ impl Runtime {
                 interactive: input_sender.clone(),
             },
         );
+        let saved =
+            explore_session::SavedRoundsReader::new(settings.clone(), self.repository.clone());
+        let (past_rounds, past) = saved.serve();
         let page = self.serve_explore_page(
             page_stages,
             page_threads.subscribe(),
+            past_rounds,
             &explore_page,
             TunnelProgram::cloudflared(claude_fork::ForkTools::beside_current_exe()?.wrapper()),
             &mut effects,
@@ -225,7 +222,7 @@ impl Runtime {
         let mut event_producers = RuntimeEventProducers::new();
         event_producers.forward_herdr_events(self.client.clone(), event_sender.clone());
         let mut terminal_events = TerminalEventProducer::start(input_sender, in_vision_session());
-        Self::watch_explore_storage(&watcher, &settings, &effects, event_sender.clone());
+        Self::watch_explore_storage(&watcher, &settings, &effects, past, event_sender.clone());
         watcher.send_file_changes_to(effects.lsp_file_changes());
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
@@ -260,6 +257,22 @@ impl Runtime {
         result
     }
 
+    /// Draws the pane at the terminal's size, before the slower work of the start.
+    fn draw_first_frame(
+        terminal: &mut TerminalGuard,
+        app: &mut ReviewApplication,
+    ) -> eyre::Result<()> {
+        let area = terminal.terminal.size()?;
+        let _ = app.update(UserInput::Resize {
+            width: area.width,
+            height: area.height,
+        });
+        terminal
+            .terminal
+            .draw(|frame| frame.render_widget(app.frame(), frame.area()))?;
+        Ok(())
+    }
+
     /// Merge the review states the repository's workspaces kept for themselves into the shared
     /// one, and tell the reviewer what went wrong, if anything.
     fn migrate_workspace_states(
@@ -283,12 +296,18 @@ impl Runtime {
     }
 
     /// Serve the Explore page of the session's round, for the Herdr action that opens it, and
-    /// to the network for the pane's QR code as the `settings` say. The page's commands join
+    /// to the network for the pane's QR code as the `settings` say. The page on this machine
+    /// also lists and opens the repository's saved rounds, `past`. The page's commands join
     /// the session's other inputs, and later settings reach the page through the `effects`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one part of the page the runtime serves"
+    )]
     fn serve_explore_page(
         &self,
         stages: RoundFeed,
         threads: ThreadsFeed,
+        past: PastRounds,
         settings: &ExplorePageSettings,
         tunnel: TunnelProgram,
         effects: &mut Effects,
@@ -300,7 +319,9 @@ impl Runtime {
             explore.deliver(explore_session::Input::Page { command, reply });
         });
         let conversation = PageConversation::new(threads, effects.page_thread_sender());
-        let round = PageRound::new(stages, commands).with_conversation(conversation);
+        let round = PageRound::new(stages, commands)
+            .with_conversation(conversation)
+            .with_past_rounds(past);
         let review = self.repository.root();
         let host = match PageHost::start(round, &directory, &self.workspace_id, review) {
             Ok(host) => host,
@@ -327,11 +348,13 @@ impl Runtime {
         )
     }
 
-    /// Saved Explore state changed by another reviewer reaches the Explore session.
+    /// Saved Explore state changed by another reviewer reaches the Explore session, and the
+    /// list of saved rounds the page shows (`past`).
     fn watch_explore_storage(
         watcher: &RepositoryWatcher,
         settings: &ReviewStore,
         effects: &Effects,
+        past: explore_session::PastRoundsRefresh,
         events: EventSender<EventEnvelope>,
     ) {
         if let Err(error) = settings.prepare_explore_storage() {
@@ -342,7 +365,10 @@ impl Runtime {
         }
         let explore = effects.explore_inbox();
         watcher.watch_explore(settings.explore_directory(), move |event| match event {
-            Ok(()) => explore.deliver(explore_session::Input::StorageChanged),
+            Ok(()) => {
+                explore.deliver(explore_session::Input::StorageChanged);
+                past.refresh();
+            }
             Err(error) => {
                 let _ = events.send(EventEnvelope::new(ui_events::ExploreStorageFailed(
                     format!("Watch Explore state: {error}"),

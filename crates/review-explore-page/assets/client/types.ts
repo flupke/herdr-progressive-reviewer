@@ -668,7 +668,61 @@ conversation: ConversationView | null,
  * The terms of the change with their definitions, which the page marks wherever they
  * appear, and lists at the end of the design; empty when no round is running.
  */
-glossary: { [key in string]: string }, };
+glossary: { [key in string]: string }, 
+/**
+ * The past round the page shows in place of the round it follows, read only.
+ */
+past: PastView | null, 
+/**
+ * The saved rounds of the repository, without the round the page follows, which the ⋯ menu
+ * lists by change; `None` on a page that offers none, as the page on the network.
+ */
+past_rounds: Array<PastChange> | null, };
+/**
+ * One change of the repository with its saved rounds, as the ⋯ menu lists them.
+ */
+export type PastChange = { 
+/**
+ * The first line of the change's description as its newest round saved it; for a Git
+ * working tree, which has no description, "Git working tree".
+ */
+title: string, 
+/**
+ * The change's abbreviated revision: a jj change, or the `HEAD` of a Git working tree.
+ */
+revision: ShortRevision, 
+/**
+ * Its rounds, newest first.
+ */
+rounds: Array<PastRoundEntry>, };
+/**
+ * A saved round of a change, as the ⋯ menu lists it.
+ */
+export type PastRoundEntry = { 
+/**
+ * The round's identity, which the page's address names to open it.
+ */
+id: string, 
+/**
+ * When the round was last saved, in milliseconds since the epoch.
+ */
+saved_at_ms: number, };
+/**
+ * The past round the page shows, read only, and the round the page follows meanwhile.
+ */
+export type PastView = { 
+/**
+ * The past round's identity, which the page's address names.
+ */
+round: string, 
+/**
+ * When the round was last saved, in milliseconds since the epoch.
+ */
+saved_at_ms: number, 
+/**
+ * Whether the round the page follows waits for the reviewer meanwhile.
+ */
+current_waits: boolean, };
 /**
  * The open lines that answering the question the round waits for marks.
  */
@@ -919,10 +973,10 @@ marked: MarkPhrase | null, };
 /**
  * The number of a view: the revision of the round's published stage, then how many first
  * picks this page kept for the round, then the revision of the review threads, which hold the
- * round's conversation: the last two change the view without changing the first. Each part
- * only goes up.
+ * round's conversation, then the revision of the list of past rounds: the last three change the
+ * view without changing the first. Each part only goes up.
  */
-export type Seq = { revision: number, picks: number, threads: number, };
+export type Seq = { revision: number, picks: number, threads: number, rounds: number, };
 /**
  * A share of changed lines that review marks cover: "38% reviewed · 52 of 135 changed lines".
  */

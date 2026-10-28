@@ -22,7 +22,8 @@ import { Meter } from './meter.js';
 import { Notifier } from './notify.js';
 import { QuestionScreen } from './question.js';
 import { itemOpens, quizOpens, QuizScreen, railShowing } from './quiz.js';
-import { DESIGN, earlierQuestion, openRound, quizItem, route, STAGE } from './route.js';
+import { pastBanner } from './past.js';
+import { DESIGN, earlierQuestion, here, openRound, pastRound, quizItem, route, STAGE } from './route.js';
 import { SentScreen } from './sent.js';
 import { startCover } from './start.js';
 import { statusCard } from './status.js';
@@ -61,6 +62,9 @@ export class Page {
     /** The answered quiz, once the stage shows the conclusion after it. */
     this.quizScreen = h('div', { class: 'screen', hidden: true });
     main.append(this.designScreen, this.stage, this.quizScreen);
+    /** The line above the screens that says the page shows a past round, with the way back. */
+    this.past = new Region(main, 'past');
+    main.prepend(this.past.anchor);
     /** The screen of each earlier question, by its number, after the stage: the stage's diagrams
      * keep their numbers. @type {Map<number, { screen: HTMLElement, region: Region }>} */
     this.earlierScreens = new Map();
@@ -94,7 +98,7 @@ export class Page {
       settled: (address, top) => {
         if (address !== null) {
           this.swipedTo = top;
-          location.hash = address;
+          location.hash = here(address);
         }
         // What changed while the swipe moved the screens shows now.
         if (this.view) this.render(this.view);
@@ -117,6 +121,7 @@ export class Page {
     this.view = view;
     this.glossary.set(view.glossary);
     const cards = this.notice ? [this.notice, ...view.cards] : view.cards;
+    this.past.show(keyOf([view.past, view.review]), () => (view.past ? pastBanner(view.past, view.review) : null));
     this.cards.show(keyOf(cards), () => cards.map(statusCard));
     const start = view.start;
     const tally = view.tally;
@@ -174,7 +179,7 @@ export class Page {
     // stage, and so does its address, which would otherwise open it again once it is back.
     // So does the answered quiz while the quiz still asks, or once the round has none.
     if ((asked.screen === 'question' && !earlier) || (asked.screen === 'quiz' && !answered)) {
-      history.replaceState(history.state, '', STAGE);
+      history.replaceState(history.state, '', here(STAGE));
     }
     const showsQuiz = asked.screen === 'quiz' && answered;
     this.designScreen.hidden = !showsDesign;
@@ -254,7 +259,7 @@ export class Page {
     if (asked.screen === 'quiz') {
       this.answeredItem = Math.min(asked.item, quiz.items.length) - 1;
       // An item the quiz does not have gives way to its last one.
-      if (asked.item > quiz.items.length) history.replaceState(history.state, '', quizItem(this.answeredItem + 1));
+      if (asked.item > quiz.items.length) history.replaceState(history.state, '', here(quizItem(this.answeredItem + 1)));
     }
     this.answeredItem = Math.min(this.answeredItem, quiz.items.length - 1);
     this.answeredQuiz
@@ -263,7 +268,7 @@ export class Page {
         shown: this.answeredItem,
         asking: false,
         open: (item) => {
-          location.hash = quizItem(item + 1);
+          location.hash = here(quizItem(item + 1));
         },
         done: () => {},
       });
@@ -322,7 +327,7 @@ export class Page {
     // A revised question keeps the screen: its parts follow the new version, and the comment box
     // keeps the focus while the reviewer types.
     const key = keyOf([question.round, question.id, question.number]);
-    this.question.component(key, () => new QuestionScreen(question)).update(question, turnOf(view));
+    this.question.component(key, () => new QuestionScreen(question)).update(question, turnOf(view), view.past !== null);
   }
 
   /** The conclusion, or its quiz first: the item the reviewer just answered or moved to, or the
@@ -417,7 +422,8 @@ function currentStep(view) {
 /** Shows what the address's fragment names on the stage, or else scrolls the page to `top`.
  * @param {number} top */
 function scrollToFragment(top) {
-  const named = location.hash.length > 1 && location.hash !== STAGE;
+  // A past round's address names the round, not a part of the stage.
+  const named = location.hash.length > 1 && location.hash !== STAGE && pastRound() === null;
   const target = named ? document.getElementById(location.hash.slice(1)) : null;
   if (target && !target.closest('[hidden]')) target.scrollIntoView();
   else window.scrollTo(0, top);

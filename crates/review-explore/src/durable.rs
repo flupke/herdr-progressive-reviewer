@@ -194,6 +194,46 @@ pub struct ReviewCompletion {
     pub baseline: String,
 }
 
+/// What names a saved round in a list of rounds: its identity, its review and the change it
+/// reviewed, read from the round's record without the rest of it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(from = "StoredHeading")]
+pub struct RoundHeading {
+    pub instance: String,
+    pub review_unit: review_types::ReviewUnit,
+    /// The change as the round captured it; `None` for a round that kept no base.
+    pub base: Option<SnapshotIdentity>,
+}
+
+/// The parts of a saved [`ExploreRound`] that a [`RoundHeading`] reads.
+#[derive(Deserialize)]
+struct StoredHeading {
+    exploration: HeadingExploration,
+}
+
+#[derive(Deserialize)]
+struct HeadingExploration {
+    instance: String,
+    comparison: HeadingComparison,
+}
+
+#[derive(Deserialize)]
+struct HeadingComparison {
+    checkpoint: review_source::ReviewCheckpoint,
+    base: Option<SnapshotIdentity>,
+}
+
+impl From<StoredHeading> for RoundHeading {
+    fn from(stored: StoredHeading) -> Self {
+        let exploration = stored.exploration;
+        Self {
+            instance: exploration.instance,
+            review_unit: exploration.comparison.checkpoint.review_unit,
+            base: exploration.comparison.base,
+        }
+    }
+}
+
 /// Domain and deduplication state are committed together, separate from editor autosaves.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ExploreRound {

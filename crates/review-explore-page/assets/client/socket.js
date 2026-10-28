@@ -36,9 +36,12 @@ const TOKEN_ENDED = 4001;
 export class Link {
   /**
    * @param {{ state: (params: StateParams) => void, link: (state: LinkState) => void }} listener
+   * @param {string | null} past the past round the socket shows, by its identity, if any
    */
-  constructor(listener) {
+  constructor(listener, past) {
     this.listener = listener;
+    /** The past round the socket shows in place of the round the page follows. */
+    this.past = past;
     /** @type {WebSocket | null} */
     this.socket = null;
     /** @type {LinkState} */
@@ -76,7 +79,8 @@ export class Link {
     clearTimeout(this.retryTimer);
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) return;
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${scheme}//${location.host}/ws`);
+    const query = this.past === null ? '' : `?past=${encodeURIComponent(this.past)}`;
+    const socket = new WebSocket(`${scheme}//${location.host}/ws${query}`);
     this.socket = socket;
     this.lastHeard = Date.now();
     socket.addEventListener('open', () => {
@@ -185,6 +189,29 @@ export class Link {
       new Promise((resolve) => setTimeout(() => resolve(false), CHECK)),
     ]);
     if (!alive) this.reopen();
+  }
+
+  /**
+   * Shows the past round `past`, or with `null` the round the page follows, on a new socket:
+   * a socket shows one round for as long as it is open.
+   * @param {string | null} past
+   */
+  follow(past) {
+    if (past === this.past || this.state === 'ended') return;
+    this.past = past;
+    const socket = this.socket;
+    this.socket = null;
+    socket?.close(1000, 'The page shows another round');
+    this.failPending();
+    this.setState('connecting');
+    this.attempts = 0;
+    this.connect();
+  }
+
+  /** The socket shows the round the page follows, though the page asked for a past round that
+   * it could not open: the page's address no longer names that round, and the socket stays. */
+  pastRefused() {
+    this.past = null;
   }
 
   /** Drops a socket that seems dead, and opens a new one at once. */

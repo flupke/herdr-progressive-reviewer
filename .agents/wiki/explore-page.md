@@ -1,6 +1,6 @@
 # Explore page: architecture
 
-Why the Explore page is built as it is: the socket and the checks on each action, the actions for each state of a round, the agent's Markdown and diagrams, what the session publishes, the page's address, and the chat.
+Why the Explore page is built as it is: the socket and the checks on each action, the actions for each state of a round, the agent's Markdown and diagrams, what the session publishes, past rounds, the page's address, and the chat.
 
 The Explore page is a browser page that shows an Explore round. Its routes,
 socket and client are in
@@ -53,6 +53,7 @@ opens again with it.
 | A request the agent received | None | Start a new round… (Reset, behind Confirm: start a new round); Reply to the agent, which opens the chat |
 | Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
+| Any, on this machine | None: the pane lists no past round | Past rounds… in the ⋯ menu, on the start cover too, which opens a past round read only (`#round@<id>`): no action, not even Reset, and the server refuses every request on its socket; Back to the current round |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
 | Any | History navigation, the provisional map, marks lists, evidence windows | The design screen (`#design`), each earlier question, read only (`#question-N`), and the answered quiz, read only (`#quiz-N`), for history; what an answer marks in its gain line, and the marks of each file in the meter's window; the current stage's citations; no provisional map |
 
@@ -107,6 +108,15 @@ Jev mark first as for a kickoff from the pane. Once the conclusion has a request
 process sends or that the agent received, the session refuses another, from the page or from
 the pane, so a repeated or stale Implement cannot start a second implementation; a
 request an earlier process left paused or unknown stays the pane's to resolve.
+
+Past rounds (a saved round other than the one the page follows) reach only the page on this
+machine: `PageNetwork` strips them from the `PageRound` it serves, so the network listener and
+the tunnel neither list nor open one, whatever the address names (ADR 0003, ADR 0004). A past
+round's cited code is read at its checkpoint: jj keeps the hidden commit readable until `jj util
+gc`, Git the snapshot's tree until `git gc` prunes it; after that the page falls back to the
+round's saved diff, which holds only the changed lines and their context. A past round shows on
+a socket of its own (`/ws?past=<id>`), so the client opens a new socket when the address names
+another round.
 
 The reviewer records the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The

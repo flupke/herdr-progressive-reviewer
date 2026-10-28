@@ -14,6 +14,7 @@ mod marks;
 mod page;
 mod page_actions;
 mod page_save;
+mod past;
 mod quiz;
 mod records;
 mod restore;
@@ -26,6 +27,7 @@ mod turn_log;
 mod unreviewed;
 mod unreviewed_diffs;
 
+pub use past::{PastRoundsRefresh, SavedRoundsReader};
 pub use run_ahead::{RunAheadInput, TALK_QUIET};
 
 use std::sync::Arc;

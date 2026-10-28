@@ -33,13 +33,14 @@ pub(crate) struct StateParams {
 
 /// The number of a view: the revision of the round's published stage, then how many first
 /// picks this page kept for the round, then the revision of the review threads, which hold the
-/// round's conversation: the last two change the view without changing the first. Each part
-/// only goes up.
+/// round's conversation, then the revision of the list of past rounds: the last three change the
+/// view without changing the first. Each part only goes up.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, TS)]
 pub(crate) struct Seq {
     pub(crate) revision: u64,
     pub(crate) picks: u64,
     pub(crate) threads: u64,
+    pub(crate) rounds: u64,
 }
 
 /// A request of the page: the reviewer's action, or a check that the tool is there.

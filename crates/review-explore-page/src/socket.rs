@@ -7,12 +7,16 @@
 //! The upgrade passes the page's host and origin checks like any request, and needs the token's
 //! cookie. A socket whose token no longer opens a round is closed with [`TOKEN_ENDED`], at the
 //! latest when the page sends a request, which is not carried out.
+//!
+//! A socket opened with `?past=<round>` on a page that offers past rounds shows that saved
+//! round in place of the round the page follows, read only: it refuses every request but a
+//! ping. It shows the round the page follows when no saved round has that identity.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use tokio::sync::mpsc;
@@ -21,8 +25,11 @@ use crate::access::TokenCookie;
 use crate::actions::Actions;
 use crate::conversation::ThreadsFeed;
 use crate::page::{ExplorePage, PageEvent};
+use crate::past::{PastRound, PastRounds};
 use crate::round::{PageRound, RoundFeed};
-use crate::rpc::{Notification, Outcome, Reply, Request, RpcError, Seq, StateParams};
+use crate::rpc::{
+    Call, Notification, Outcome, Reply, Request, RoundCall, RpcError, Seq, StateParams,
+};
 use crate::status::StatusCard;
 use crate::view::PageView;
 use crate::{Rounds, notice::Notice};
@@ -52,9 +59,17 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// The close code of a socket whose round's owner is gone: the page reconnects.
 const GOING_AWAY: u16 = 1001;
 
+/// What the address of a page's socket asks for.
+#[derive(serde::Deserialize)]
+pub(crate) struct SocketQuery {
+    /// The saved round the socket shows in place of the round the page follows.
+    past: Option<String>,
+}
+
 /// The upgrade of a page whose cookie carries a round's token.
 pub(crate) async fn upgrade<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
+    Query(query): Query<SocketQuery>,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
@@ -69,6 +84,8 @@ pub(crate) async fn upgrade<R: Rounds>(
             page,
             token,
             round,
+            asked_past: query.past,
+            past: None,
             sent: None,
             pending: 0,
         }
@@ -82,6 +99,10 @@ struct Connection<R> {
     /// The token the page opened with.
     token: String,
     round: PageRound,
+    /// The saved round the page asked to show, until the socket opened it.
+    asked_past: Option<String>,
+    /// The saved round the socket shows, read only, in place of `round`.
+    past: Option<PastRound>,
     /// The number of the latest view sent.
     sent: Option<Seq>,
     /// The requests the page sent that wait for their reply.
@@ -133,9 +154,11 @@ impl<R: Rounds> Connection<R> {
             .conversation
             .as_ref()
             .map(|conversation| conversation.threads.clone());
+        let mut past_rounds = self.round.past.clone();
         let (done, mut replies) = mpsc::unbounded_channel::<Reply>();
         let mut heartbeat = tokio::time::interval(HEARTBEAT);
         heartbeat.tick().await;
+        self.open_past().await;
         if self.send_view(socket).await.is_err() {
             return End::Closed;
         }
@@ -169,6 +192,10 @@ impl<R: Rounds> Connection<R> {
                 }
                 Ok(()) = picks.changed() => self.send_view(socket).await,
                 true = threads_changed(&mut threads) => self.send_view(socket).await,
+                true = past_rounds_changed(&mut past_rounds) => {
+                    self.reload_past().await;
+                    self.send_view(socket).await
+                }
                 Some(reply) = replies.recv() => {
                     self.pending -= 1;
                     if let Reply::Result { result: Outcome { reopen: Some(token), .. }, .. } = &reply {
@@ -207,8 +234,36 @@ impl<R: Rounds> Connection<R> {
         }
     }
 
+    /// Opens the saved round the page asked for, when the page offers past rounds and a saved
+    /// round other than the one the page follows has that identity; the socket shows the round
+    /// the page follows otherwise.
+    async fn open_past(&mut self) {
+        let (Some(id), Some(past)) = (self.asked_past.take(), self.round.past.clone()) else {
+            return;
+        };
+        if self.round.stages.round().as_deref() == Some(id.as_str()) {
+            return;
+        }
+        self.past = past.open(id).await;
+    }
+
+    /// Reads the past round the socket shows again once the list says it was saved since: a
+    /// round of another workspace may still move.
+    async fn reload_past(&mut self) {
+        let (Some(shown), Some(past)) = (&self.past, &self.round.past) else {
+            return;
+        };
+        if past.saved_at(shown.id()) == Some(shown.saved_at_ms) {
+            return;
+        }
+        if let Some(round) = past.open(shown.id().to_owned()).await {
+            self.past = Some(round);
+        }
+    }
+
     /// Carries out a request on its own task, so that the socket keeps sending while the round's
-    /// owner works; the reply comes back through `done`.
+    /// owner works; the reply comes back through `done`. A socket that shows a past round
+    /// answers only pings.
     fn receive(&mut self, text: &str, done: &mpsc::UnboundedSender<Reply>) {
         let request = match serde_json::from_str::<Request>(text) {
             Ok(request) => request,
@@ -218,6 +273,17 @@ impl<R: Rounds> Connection<R> {
             }
         };
         self.pending += 1;
+        if self.past.is_some() && !matches!(request.call, Call::Round(RoundCall::Ping)) {
+            let _ = done.send(Reply::Error {
+                id: request.id,
+                error: RpcError {
+                    code: RpcError::STALE,
+                    message: "A past round is read only".to_owned(),
+                    data: Some(StatusCard::read_only()),
+                },
+            });
+            return;
+        }
         let page = self.page.clone();
         let round = self.round.clone();
         let done = done.clone();
@@ -275,11 +341,21 @@ impl<R: Rounds> Connection<R> {
             revision: snapshot.revision,
             picks: self.page.picks.count(snapshot.round.as_deref()),
             threads: threads.as_ref().map_or(0, |threads| threads.revision),
+            rounds: self.round.past.as_ref().map_or(0, PastRounds::revision),
         };
         if self.sent == Some(seq) {
             return Ok(());
         }
-        let view = PageView::new(&snapshot, &self.page.picks, threads.as_ref());
+        let listed = self
+            .round
+            .past
+            .as_ref()
+            .map(|past| past.listed(snapshot.round.as_deref()));
+        let view = match &self.past {
+            Some(past) => PageView::of_past(past, &snapshot, threads.as_ref()),
+            None => PageView::new(&snapshot, &self.page.picks, threads.as_ref()),
+        }
+        .listing(listed);
         let state = Notification::State(Box::new(StateParams {
             epoch: self.page.epoch().to_owned(),
             seq,
@@ -301,6 +377,19 @@ async fn threads_changed(threads: &mut Option<ThreadsFeed>) -> bool {
         return true;
     }
     *threads = None;
+    false
+}
+
+/// Waits for the next list of saved rounds, when the page offers them; never returns otherwise.
+/// False once their publisher is gone, after which it never returns either.
+async fn past_rounds_changed(past: &mut Option<PastRounds>) -> bool {
+    let Some(rounds) = past else {
+        return std::future::pending().await;
+    };
+    if rounds.changed().await {
+        return true;
+    }
+    *past = None;
     false
 }
 

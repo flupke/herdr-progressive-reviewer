@@ -51,8 +51,10 @@ export class QuestionScreen {
   /**
    * @param {QuestionView} question
    * @param {Turn} turn the turn that led to the question
+   * @param {boolean} past whether the question is the one a past round left waiting: its
+   *   choices show read only, with the agent's recommendation
    */
-  update(question, turn) {
+  update(question, turn, past) {
     this.element.dataset.version = String(question.version);
     this.turn.show(keyOf(turn), () => turnStrip(turn));
     // The first pick of a blind question changes the panel only: the reading keeps its folds.
@@ -71,8 +73,12 @@ export class QuestionScreen {
         question.marks,
         question.gain,
         door,
+        past,
       ]),
-      () => (question.answerable ? h('div', { class: 'answer-panel panel' }, panel(question), drawingBoard(question)) : null),
+      () => {
+        if (question.answerable) return h('div', { class: 'answer-panel panel' }, panel(question), drawingBoard(question));
+        return past ? unansweredPanel(question) : null;
+      },
     );
     this.citations.show(keyOf(question.citations), () => citationsSection(question.citations, question.number));
   }
@@ -94,6 +100,18 @@ function reading(question) {
       ],
     ),
   ];
+}
+
+/** The choices of the question a past round left waiting, read only, with the agent's
+ * recommendation: nothing to pick.
+ * @param {QuestionView} question */
+function unansweredPanel(question) {
+  return h(
+    'div',
+    { class: 'answer-panel panel' },
+    h('p', { class: 'eyebrow' }, 'The round left this question unanswered'),
+    choiceCards(question.choices, { name: `unanswered-${question.number}-choice`, answered: true }),
+  );
 }
 
 /** "The agent revised this question after your message", and what changed and why.
