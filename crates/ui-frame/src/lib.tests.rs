@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier};
 use ratatui::widgets::Widget;
 use ui_theme::Theme;
 
-use super::Frame;
+use super::{Frame, with_footer};
 
 fn draw(frame: Frame, title: &str) -> Buffer {
     let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 3));
@@ -26,6 +26,17 @@ fn frames_have_rounded_corners_and_a_padded_title() {
 
     assert_eq!(row(&buffer, 0), "╭ Help ────╮");
     assert_eq!(row(&buffer, 2), "╰──────────╯");
+}
+
+#[test]
+fn a_footer_is_padded_on_the_bottom_border_in_its_own_style() {
+    let palette = Theme::default().palette;
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 3));
+    let footer = ratatui::text::Line::styled("? why", Color::Yellow);
+    with_footer(Frame::Popup.block(palette, "Help"), footer).render(buffer.area, &mut buffer);
+
+    assert_eq!(row(&buffer, 2), "╰ ? why ───╯");
+    assert_eq!(buffer[(2, 2)].fg, Color::Yellow);
 }
 
 #[test]

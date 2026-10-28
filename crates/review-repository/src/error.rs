@@ -51,6 +51,10 @@ pub enum Error {
         code: Option<i32>,
     },
 
+    /// Several visible commits have the change ID asked for, so it names no single revision.
+    #[error("several commits have this change ID (a divergent change)")]
+    DivergentChange,
+
     /// A child process exceeded its captured-output limit.
     #[error("{operation} produced more than 256 MiB of output in {path:?}")]
     CommandOutputTooLarge {

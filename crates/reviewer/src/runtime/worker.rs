@@ -238,7 +238,7 @@ impl Worker {
             let _ = messages.send(RevisionProgressLoaded {
                 load_id,
                 change_id,
-                progress: Some(progress),
+                progress: Ok(progress),
             });
         }
         if started.queue {

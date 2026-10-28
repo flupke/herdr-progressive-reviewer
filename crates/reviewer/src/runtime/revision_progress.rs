@@ -105,20 +105,26 @@ impl HistoryProgress {
     }
 
     /// How much of the revision of `change_id` its review marks cover, as the status line counts
-    /// it for the current revision; none when the revision cannot be read. The share is kept
-    /// with the stamp the marks had before it was computed, so that a mark made meanwhile makes
-    /// the next history compute it again.
+    /// it for the current revision; the reason, for the selector to show, when it cannot be
+    /// computed. The share is kept with the stamp the marks had before it was computed, so that
+    /// a mark made meanwhile makes the next history compute it again.
     pub(super) fn compute(
         &mut self,
         repository: &Repository,
         tracker: &ReviewTracker,
         store: &ReviewStore,
         change_id: &ChangeId,
-    ) -> Option<ReviewProgress> {
+    ) -> Result<ReviewProgress, String> {
         // A stamp that cannot be read lets the share be computed, not kept.
         let stamp = store.marks_stamp(change_id.review_unit());
-        let snapshot = repository.snapshot_of(change_id).ok()??;
-        let states = tracker.statuses(&snapshot).ok()?;
+        let snapshot = match repository.snapshot_of(change_id) {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => return Err("the repository has no revisions to read".to_owned()),
+            Err(error) => return Err(format!("could not read the revision: {error}")),
+        };
+        let states = tracker.statuses(&snapshot).map_err(|error| {
+            format!("could not compare the revision with its review marks: {error}")
+        })?;
         let progress = snapshot
             .files
             .iter()
@@ -135,7 +141,7 @@ impl HistoryProgress {
                 },
             );
         }
-        Some(progress)
+        Ok(progress)
     }
 }
 
