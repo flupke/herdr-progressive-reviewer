@@ -158,7 +158,7 @@ impl Runtime {
         let stopped = Arc::new(AtomicBool::new(false));
         Self::register_stop_signals(&stopped)?;
 
-        let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
+        let settings = ReviewStore::open(&self.state_dir, self.repository.shared_store()?)?;
         let file_pane_width = settings.file_pane_width()?;
         let root = self.repository.root().to_owned();
         let mut terminal = TerminalGuard::new()?;
@@ -177,6 +177,9 @@ impl Runtime {
         terminal
             .terminal
             .draw(|frame| frame.render_widget(app.frame(), frame.area()))?;
+        // Before anything reads the review state, while the pane shows: the first migration
+        // backs up the per-workspace states, which takes a moment.
+        Self::migrate_workspace_states(&self.repository, &settings, &mut app);
 
         let (event_sender, events) = unbounded();
         let (input_sender, inputs) = unbounded();
@@ -254,6 +257,28 @@ impl Runtime {
         drop(page);
         drop(effects);
         result
+    }
+
+    /// Merge the review states the repository's workspaces kept for themselves into the shared
+    /// one, and tell the reviewer what went wrong, if anything.
+    fn migrate_workspace_states(
+        repository: &Repository,
+        store: &ReviewStore,
+        app: &mut ReviewApplication,
+    ) {
+        let text = match review_state_migration::migrate(repository, store) {
+            Ok(migration) if migration.unreadable.is_empty() => return,
+            Ok(migration) => format!(
+                "{} review records of other workspaces could not be read; they stay in {}",
+                migration.unreadable.len(),
+                store.state_root().join("merged-workspaces").display()
+            ),
+            Err(error) => error.to_string(),
+        };
+        let _ = app.publish(ui_events::ToastRequested {
+            text,
+            kind: toasts::ToastKind::Error,
+        });
     }
 
     /// Serve the Explore page of the session's round, for the Herdr action that opens it, and

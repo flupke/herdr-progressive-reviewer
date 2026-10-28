@@ -538,9 +538,18 @@ impl Session {
     }
 
     /// Start the reviewer and its stand-in agent again, in new panes, on the same repository and
-    /// state; the agent runs the plugin's hooks as `agent_hooks` says, or as before.
-    pub(crate) fn reopen(&mut self, agent_hooks: Option<bool>) -> Result<Screen> {
+    /// state; the agent runs the plugin's hooks as `agent_hooks` says, or as before. With
+    /// `workspace`, both run in that workspace of the repository from now on (see
+    /// [`Scratch::enter_workspace`]).
+    pub(crate) fn reopen(
+        &mut self,
+        agent_hooks: Option<bool>,
+        workspace: Option<&str>,
+    ) -> Result<Screen> {
         self.stop_reviewer()?;
+        if let Some(workspace) = workspace {
+            self.scratch.enter_workspace(workspace)?;
+        }
         self.agent_hooks = agent_hooks.unwrap_or(self.agent_hooks);
         self.panes = Self::open_panes(
             &mut self.workspace,

@@ -45,6 +45,7 @@ review-threads = { path = "../review-threads" }
 review-thread-service = { path = "../review-thread-service" }
 review-mcp = { path = "../review-mcp" }
 review-mcp-config = { path = "../review-mcp-config" }
+review-state-migration = { path = "../review-state-migration" }
 review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }

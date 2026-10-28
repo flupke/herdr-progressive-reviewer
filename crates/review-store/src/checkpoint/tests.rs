@@ -47,3 +47,31 @@ fn clearing_all_marks_is_scoped_to_file_records_of_one_review() {
         LoadResult::Reviewed(_)
     ));
 }
+
+#[test]
+fn an_expired_mark_is_removed_but_a_mark_written_since_stays() {
+    let state = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let store = ReviewStore::open(state.path(), repository.path()).unwrap();
+    let unit = "current".into();
+    let expired = store
+        .mark(
+            &unit,
+            b"a.rs",
+            &"a".repeat(40),
+            &review_types::MarkAuthor::Reviewer,
+        )
+        .unwrap();
+
+    store
+        .unreview_expired(&unit, b"a.rs", "2000-01-01T00:00:00Z")
+        .unwrap();
+    assert!(matches!(
+        store.load(&unit, b"a.rs").unwrap(),
+        LoadResult::Reviewed(_)
+    ));
+    store
+        .unreview_expired(&unit, b"a.rs", &expired.reviewed_at)
+        .unwrap();
+    assert_eq!(store.load(&unit, b"a.rs").unwrap(), LoadResult::Unreviewed);
+}

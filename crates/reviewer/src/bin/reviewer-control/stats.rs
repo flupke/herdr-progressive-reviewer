@@ -1,11 +1,12 @@
 //! `reviewer-control stats`: the numbers of the saved Explore rounds of the
-//! repository the command runs in. It only reads.
+//! repository the command runs in. It merges the review states of the repository's
+//! workspaces first, as the review pane does, and reads the rest.
 use std::env;
 use std::path::PathBuf;
 
 use review_explore_stats::{Period, Report};
 use review_repository::repository::Repository;
-use review_store::ReviewStore;
+use review_store::{ReviewStore, SavedRounds};
 
 const USAGE: &str = "usage: reviewer-control stats [--since DATE|TIME] [--until DATE|TIME]";
 
@@ -36,8 +37,15 @@ impl Stats {
 
     pub(super) fn run(self) -> eyre::Result<()> {
         let repository = Repository::discover(env::current_dir()?)?;
-        let saved = ReviewStore::open_for_reading(Self::state_directory()?, repository.root())?
-            .saved_explore_rounds()?;
+        let state = Self::state_directory()?;
+        // Without a state directory there is nothing to count, and nothing to create.
+        let saved = if state.exists() {
+            let store = ReviewStore::open(state, repository.shared_store()?)?;
+            review_state_migration::migrate(&repository, &store)?;
+            store.saved_explore_rounds()?
+        } else {
+            SavedRounds::default()
+        };
         println!("Explore rounds of {}\n", repository.root().display());
         print!("{}", Report::new(&saved, self.period));
         Ok(())

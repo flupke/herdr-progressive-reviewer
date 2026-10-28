@@ -7,8 +7,10 @@ bin/reviewer-control stats
 bin/reviewer-control stats --since 2026-09-15 --until 2026-09-30
 ```
 
-- The command reads the rounds saved for the checkout it runs in; each jj workspace keeps
-  its own rounds. It only reads them.
+- The command reads the rounds of the repository it runs in, which every jj workspace or Git
+  worktree of the repository shares ([review state](review-state.md)). It first merges the
+  states that workspaces kept for themselves before, as the pane does, so the rounds of deleted
+  task workspaces count too. Without the state directory, it creates nothing.
 - It reads Herdr's state directory for the plugin,
   `$XDG_STATE_HOME/herdr/plugins/herdr.progressive-reviewer` (by default under
   `~/.local/state`), or `HERDR_PLUGIN_STATE_DIR` when set.

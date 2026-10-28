@@ -23,7 +23,7 @@ use std::{
 const VERSION: u32 = 2;
 // A round grows across many valid 1 MiB submissions. This is not a source archive.
 const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
-const MAX_VIEW: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_VIEW: u64 = 16 * 1024 * 1024;
 // The forks of a round: a few small records per question.
 const MAX_FORKS: u64 = 16 * 1024 * 1024;
 /// What the name of a round's run-ahead record adds to the round's identity.
@@ -281,7 +281,7 @@ impl ReviewStore {
 
     /// The identity and modification time of every round file in one review's
     /// directory, readable or not.
-    fn round_files_in(directory: &Path) -> Result<Vec<(String, SystemTime)>> {
+    pub(super) fn round_files_in(directory: &Path) -> Result<Vec<(String, SystemTime)>> {
         let mut rounds = Vec::new();
         for entry in Self::explore_entries(directory)? {
             let entry = entry?;
@@ -316,7 +316,7 @@ impl ReviewStore {
             .join(StateKey::hash(unit.as_str().as_bytes()).0))
     }
 
-    fn explore_path(&self, unit: &ReviewUnit, instance: &str) -> Result<PathBuf> {
+    pub(super) fn explore_path(&self, unit: &ReviewUnit, instance: &str) -> Result<PathBuf> {
         Self::explore_id(instance)?;
         Ok(self.explore_review(unit)?.join(format!("{instance}.json")))
     }
@@ -332,8 +332,12 @@ impl ReviewStore {
     }
 
     fn explore_lock(&self, unit: &ReviewUnit) -> Result<std::fs::File> {
-        let directory = self.explore_review(unit)?;
-        self.create_dir(&directory)?;
+        self.lock_explore_review(&self.explore_review(unit)?)
+    }
+
+    /// Lock the Explore records of the review whose folder is `directory`.
+    pub(super) fn lock_explore_review(&self, directory: &Path) -> Result<std::fs::File> {
+        self.create_dir(directory)?;
         let path = directory.join("lock");
         let file = OpenOptions::new()
             .read(true)
@@ -454,7 +458,12 @@ impl ReviewStore {
         Ok(view)
     }
 
-    fn write_explore(&self, path: &Path, value: &impl Serialize, maximum: u64) -> Result<()> {
+    pub(super) fn write_explore(
+        &self,
+        path: &Path,
+        value: &impl Serialize,
+        maximum: u64,
+    ) -> Result<()> {
         let bytes = serde_json::to_vec(&Stored {
             version: VERSION,
             value,
@@ -472,7 +481,10 @@ impl ReviewStore {
         self.atomic_write(path, &bytes, "save Explore")
     }
 
-    fn read_explore<T: DeserializeOwned>(path: &Path, maximum: u64) -> Result<Option<T>> {
+    pub(super) fn read_explore<T: DeserializeOwned>(
+        path: &Path,
+        maximum: u64,
+    ) -> Result<Option<T>> {
         let file = match OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)

@@ -8,7 +8,17 @@ pub const MCP_SERVER: &str = "herdr_reviewer";
 
 /// The stable identity of one logical review.
 #[derive(
-    Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, schemars::JsonSchema,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    schemars::JsonSchema,
 )]
 #[serde(transparent)]
 pub struct ReviewUnit(String);

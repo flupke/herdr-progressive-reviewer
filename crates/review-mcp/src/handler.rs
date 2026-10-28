@@ -131,12 +131,12 @@ impl Handler {
         self.call(
             meta,
             input.review,
-            Operation::Reply(Post::answer(
+            Operation::Reply(Box::new(Post::answer(
                 input.thread_id,
                 message_id,
                 input.text,
                 input.in_reply_to,
-            )),
+            ))),
         )
         .await
     }

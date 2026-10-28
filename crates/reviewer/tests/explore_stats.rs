@@ -1,10 +1,12 @@
 //! `reviewer-control stats` prints the numbers of the saved Explore rounds of
-//! the repository it runs in, and changes nothing.
+//! the repository it runs in, the rounds its workspaces kept for themselves included.
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::{Command, Output};
 
 use review_store::ReviewStore;
 use review_test_support::GitFixture;
+use sha2::Digest;
 
 /// A synthetic answered round without a Challenger, started 2026-09-10.
 const ANSWERED: &str = include_str!("../../review-explore-stats/testdata/answered.json");
@@ -24,7 +26,7 @@ fn save_with_forks(state: &Path, repository: &Path, json: &str, forks: Option<&s
     let mut stored: serde_json::Value = serde_json::from_str(json).unwrap();
     let round: review_explore::ExploreRound =
         serde_json::from_value(stored["value"].take()).unwrap();
-    let store = ReviewStore::open(state, repository).unwrap();
+    let store = ReviewStore::open(state, repository.join(".git")).unwrap();
     let records = store
         .lock_explore(&round.exploration.comparison.checkpoint.review_unit)
         .unwrap();
@@ -201,6 +203,48 @@ fn a_repository_without_state_gets_zero_rounds_and_no_state() {
 
     assert_eq!(rows(&output, "Rounds"), vec![vec!["0", "0", "0"]]);
     assert!(!missing.exists(), "reading statistics must create nothing");
+}
+
+#[test]
+fn the_rounds_a_workspace_kept_for_itself_are_merged_and_counted() {
+    let repository = GitFixture::new();
+    let state = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(repository.root()).unwrap();
+    let workspace = hex(&sha2::Sha256::digest(root.to_str().unwrap().as_bytes()));
+    let review = hex(&sha2::Sha256::digest(b"aabb"));
+    let old = state
+        .path()
+        .join(&workspace)
+        .join("explore-v1")
+        .join(review);
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(
+        old.join("aaaaaaaa-0000-4000-8000-000000000001.json"),
+        ANSWERED,
+    )
+    .unwrap();
+
+    let output = stats(
+        repository.root(),
+        &[("HERDR_PLUGIN_STATE_DIR", state.path())],
+        &[],
+    );
+
+    assert_eq!(rows(&output, "Rounds"), vec![vec!["1", "0", "1"]]);
+    assert!(
+        state
+            .path()
+            .join("merged-workspaces")
+            .join(&workspace)
+            .is_dir()
+    );
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::new(), |mut hex, byte| {
+        write!(hex, "{byte:02x}").unwrap();
+        hex
+    })
 }
 
 #[test]

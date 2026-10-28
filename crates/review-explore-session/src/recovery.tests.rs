@@ -663,3 +663,30 @@ fn an_explicit_retry_without_a_conversation_binds_the_foreground_process() {
             .matches(&identified)
     );
 }
+
+#[test]
+fn a_round_another_workspace_started_reopens_read_only() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    harness.turn(&first);
+    let path = harness.round_path();
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    stored["value"]["exploration"]["comparison"]["repository_root"] =
+        "/elsewhere/task-workspace".into();
+    std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    let restored = harness.reopen();
+
+    assert!(matches!(restored.result, Ok(Some(_))));
+    assert!(restored.historical);
+    assert!(harness.history().latest_editable);
+    harness.adopt(&restored);
+    let blocked = harness.request(None);
+    harness
+        .session
+        .handle(Input::Command(Command::Turn(Box::new(blocked))));
+    let posted = harness.next::<ui_events::ExplorePosted>();
+    assert!(posted.result.unwrap_err().contains("This round is history"));
+}
