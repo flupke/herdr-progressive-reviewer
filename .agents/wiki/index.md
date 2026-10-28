@@ -24,7 +24,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
   each workspace kept before, its backup and how to restore it, the locks of concurrent reviewers.
 - [Review threads](threads.md): which agent gets a comment, which review pane an action acts on, Herdr's wakeup delivery, access values.
 - [MCP bridge](mcp-bridge.md): registration with Codex and Claude Code and its gotchas, port conflicts.
-- [Language servers](language-servers.md): direnv, project roots, limits in Explore.
+- [Language servers](language-servers.md): direnv, project roots, file changes and Expert's index, limits in Explore.
 - [Reviewer runtime](runtime.md): recording UI timings.
 - [Text selection](text-selection.md): where the copied text comes from in each pane, and the guess that joins wrapped prose.
 

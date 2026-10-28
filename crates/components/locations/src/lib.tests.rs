@@ -8,7 +8,7 @@ use ui_actions::{Action, RepositoryAction};
 use ui_events::{
     FilesViewportChanged, LocationListVisibilityChanged, PointerInput, PointerInputKind,
     PointerPosition, RepositoryMetadataChanged, SourceLocationAccepted,
-    SourceLocationPreviewRequested,
+    SourceLocationPreviewRequested, ToastRequested,
 };
 use ui_shortcuts::Key;
 
@@ -86,9 +86,87 @@ fn keyboard_navigation_previews_each_location_and_accepts_the_selection() {
     }
 }
 
+#[test]
+fn a_list_with_unindexed_files_says_it_may_be_incomplete() {
+    let (mut event_bus, target) = mounted_locations();
+    let results = event_bus
+        .publish(LspEvent::Locations {
+            toast_id: ToastId::generate(),
+            operation: Operation::References,
+            snapshot_id: "snapshot".to_owned(),
+            locations: (0..4).map(location).collect(),
+            unindexed_files: 2,
+        })
+        .expect("locations must dispatch");
+    assert!(
+        output_texts(results).contains(
+            &"toast:The list may be incomplete. The language server has not indexed 2 files \
+              that changed on disk; gR restarts it to index them."
+                .to_owned()
+        )
+    );
+    assert!(rendered_title(&event_bus, target).contains("References (may be incomplete)"));
+
+    let results = event_bus
+        .publish(LspEvent::Locations {
+            toast_id: ToastId::generate(),
+            operation: Operation::References,
+            snapshot_id: "snapshot".to_owned(),
+            locations: Vec::new(),
+            unindexed_files: 1,
+        })
+        .expect("locations must dispatch");
+    assert_eq!(
+        output_texts(results),
+        [
+            "toast:No locations found. The language server has not indexed 1 file that changed \
+          on disk; gR restarts it to index it."
+        ]
+    );
+}
+
+#[test]
+fn a_complete_list_keeps_its_plain_title() {
+    let (event_bus, target) = location_list(Operation::References);
+    let title = rendered_title(&event_bus, target);
+    assert!(title.contains("References"), "{title}");
+    assert!(!title.contains("incomplete"), "{title}");
+}
+
+/// The top row of the list, which holds its title.
+fn rendered_title(
+    event_bus: &ComponentEventBus<Action>,
+    target: component_core::ComponentTarget,
+) -> String {
+    let area = ratatui::layout::Rect::new(0, 0, 60, 6);
+    let mut buffer = ratatui::buffer::Buffer::empty(area);
+    event_bus
+        .get::<LocationsComponent>(target)
+        .expect("the list is mounted")
+        .render(area, &mut buffer, true);
+    (0..area.width)
+        .map(|column| buffer[(column, 0)].symbol())
+        .collect()
+}
+
 fn location_list(
     operation: Operation,
 ) -> (ComponentEventBus<Action>, component_core::ComponentTarget) {
+    let (mut event_bus, target) = mounted_locations();
+    event_bus
+        .publish(LspEvent::Locations {
+            toast_id: ToastId::generate(),
+            operation,
+            snapshot_id: "snapshot".to_owned(),
+            locations: (0..4).map(location).collect(),
+            unindexed_files: 0,
+        })
+        .expect("locations must dispatch");
+    (event_bus, target)
+}
+
+/// A list component on the review's snapshot, with nothing to show yet.
+fn mounted_locations() -> (ComponentEventBus<Action>, component_core::ComponentTarget) {
     let mut event_bus = ComponentEventBus::new();
     let target = event_bus.mount(|events| {
         LocationsComponent::new(
@@ -108,14 +186,6 @@ fn location_list(
     event_bus
         .publish(FilesViewportChanged { rows: 3 })
         .expect("viewport must dispatch");
-    event_bus
-        .publish(LspEvent::Locations {
-            toast_id: ToastId::generate(),
-            operation,
-            snapshot_id: "snapshot".to_owned(),
-            locations: (0..4).map(location).collect(),
-        })
-        .expect("locations must dispatch");
     (event_bus, target)
 }
 
@@ -174,6 +244,11 @@ impl LocationOutput {
         self.observed_events += 1;
         output(format!("visible:{}", event.visible))
     }
+
+    fn toast(&mut self, event: &ToastRequested) -> Vec<Action> {
+        self.observed_events += 1;
+        output(format!("toast:{}", event.text))
+    }
 }
 
 impl Component<Action> for LocationOutput {
@@ -181,6 +256,7 @@ impl Component<Action> for LocationOutput {
         subscriptions.subscribe(Self::preview);
         subscriptions.subscribe(Self::accepted);
         subscriptions.subscribe(Self::visibility);
+        subscriptions.subscribe(Self::toast);
     }
 }
 

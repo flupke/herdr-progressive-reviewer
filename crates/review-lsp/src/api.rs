@@ -118,6 +118,26 @@ impl SourceLocation {
     }
 }
 
+/// A file that changed on disk.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FileChange {
+    /// Absolute disk path.
+    pub path: PathBuf,
+    /// How the file changed.
+    pub kind: FileChangeKind,
+}
+
+/// How a file changed on disk.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileChangeKind {
+    /// The file appeared.
+    Created,
+    /// The file's content changed.
+    Changed,
+    /// The file is gone.
+    Deleted,
+}
+
 /// Work sent to the LSP thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Command {
@@ -125,6 +145,8 @@ pub(crate) enum Command {
     OpenDocument(PathBuf),
     /// Run one LSP request.
     Request { operation: Operation, query: Query },
+    /// Tell the running language servers about files that changed on disk.
+    FilesChanged(Vec<FileChange>),
     /// Restart active language servers and reopen known documents.
     Restart,
     /// Stop the server and worker.
@@ -164,6 +186,9 @@ pub enum Event {
         snapshot_id: String,
         /// Normalized file locations.
         locations: Vec<SourceLocation>,
+        /// How many files changed on disk since the server indexed them, so that references
+        /// in them may be missing: zero for a complete list.
+        unindexed_files: usize,
     },
     /// Startup or a request failed.
     Failed {

@@ -63,8 +63,10 @@ stand-in's event socket or Herdr's event stream. A test may block on an event wi
 timeout of its own: nextest ends any test still running after two minutes
 (`.config/nextest.toml`; an hour for the run-ahead contract check, which waits on real
 turns) and reports it, so a regression that loses the event fails instead of hanging. A
-local guard is worth it only to say what was awaited. The one poll: the contract check waits until Herdr reports
-the real agent on its session, which Herdr publishes no event for. Every Rust test runs
+local guard is worth it only to say what was awaited. The polls: the contract check waits until Herdr reports
+the real agent on its session, which Herdr publishes no event for; the opt-in Expert tests
+ask for references again until Expert finds them, since it reports no event when it has
+indexed a file. Every Rust test runs
 in `make test`; the Explore page's browser tests are the one suite apart.
 
 ## Auditing a crate

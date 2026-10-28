@@ -4308,6 +4308,7 @@ name = "review-lsp"
 version = "0.2.0"
 dependencies = [
  "crossbeam-channel",
+ "globset",
  "lsp-server",
  "lsp-types",
  "serde",

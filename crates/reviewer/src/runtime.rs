@@ -186,7 +186,7 @@ impl Runtime {
         let page_round = RoundPublisher::default();
         let page_stages = page_round.subscribe();
         let page_threads = Arc::new(page_threads::PageThreads::default());
-        let watcher = RepositoryWatcher::new(self.repository.watch_plan());
+        let mut watcher = RepositoryWatcher::new(self.repository.watch_plan());
         let mut effects = Effects::start(
             Setup {
                 repository: self.repository.clone(),
@@ -226,6 +226,7 @@ impl Runtime {
         event_producers.forward_herdr_events(self.client.clone(), event_sender.clone());
         let mut terminal_events = TerminalEventProducer::start(input_sender, in_vision_session());
         Self::watch_explore_storage(&watcher, &settings, &effects, event_sender.clone());
+        watcher.send_file_changes_to(effects.lsp_file_changes());
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
             Arc::clone(&stopped),
@@ -430,12 +431,14 @@ impl Runtime {
                         kind: toasts::ToastKind::Error,
                     }));
                 }
-                if watcher.refresh_due(now)
-                    && events
+                if watcher.refresh_due(now) {
+                    watcher.send_file_changes();
+                    if events
                         .send(EventEnvelope::new(RepositoryRefreshDue))
                         .is_err()
-                {
-                    return;
+                    {
+                        return;
+                    }
                 }
                 if events
                     .send(EventEnvelope::new(ApplicationTick(now)))

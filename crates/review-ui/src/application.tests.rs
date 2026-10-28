@@ -728,6 +728,7 @@ fn location_click_uses_the_visible_row_after_pointer_scrolling() {
                 end_byte_column: 1,
             })
             .collect(),
+        unindexed_files: 0,
     });
 
     application.update(UserInput::MouseScroll {

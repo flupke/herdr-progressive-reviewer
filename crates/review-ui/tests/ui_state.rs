@@ -199,6 +199,7 @@ fn gy_queries_the_cursor_type_and_jumps_to_a_single_definition() {
             end_line: 0,
             end_byte_column: 12,
         }],
+        unindexed_files: 0,
     });
     let actions = app.update(UserInput::Key(Key::Char('K')));
     let [Action::Lsp(LspAction::Request { query, .. })] = actions.as_slice() else {

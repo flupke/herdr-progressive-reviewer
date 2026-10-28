@@ -40,6 +40,17 @@ impl LanguageServer {
         })
     }
 
+    /// Whether the server's index misses `path` once it changes on disk outside an open
+    /// document. Expert reindexes a file only when an open document changes, as in an editor;
+    /// it reads the others again when it restarts.
+    pub(super) fn misses_disk_change(self, path: &Path) -> bool {
+        self == Self::Expert
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| matches!(extension, "ex" | "exs"))
+    }
+
     fn root_markers(self) -> &'static [&'static str] {
         match self {
             Self::RustAnalyzer => &["Cargo.toml"],

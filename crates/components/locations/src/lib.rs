@@ -51,9 +51,14 @@ impl LocationsComponent {
         let Some(list) = &self.list else {
             return;
         };
+        let title = if list.unindexed_files == 0 {
+            list.operation.title().to_owned()
+        } else {
+            format!("{} (may be incomplete)", list.operation.title())
+        };
         SelectionPane::new(area, list.scroll).render(
             buffer,
-            Frame::Pane { focused }.block(self.palette, list.operation.title()),
+            Frame::Pane { focused }.block(self.palette, title),
             &list.locations,
             |index, location, width| {
                 let text = format!(
@@ -102,6 +107,7 @@ impl LocationsComponent {
             operation,
             snapshot_id,
             locations,
+            unindexed_files,
             ..
         } = event
         else {
@@ -110,9 +116,14 @@ impl LocationsComponent {
         if snapshot_id != self.active_snapshot() {
             return;
         }
+        let unindexed_files = *unindexed_files;
         match locations.as_slice() {
             [] => self.events.publish(ToastRequested {
-                text: "No locations found".to_owned(),
+                text: if unindexed_files == 0 {
+                    "No locations found".to_owned()
+                } else {
+                    format!("No locations found. {}", unindexed_text(unindexed_files))
+                },
                 kind: toasts::ToastKind::Info,
             }),
             [location]
@@ -126,9 +137,19 @@ impl LocationsComponent {
                 self.list = Some(LocationSelection {
                     operation: *operation,
                     locations: locations.clone(),
+                    unindexed_files,
                     selected: 0,
                     scroll: 0,
                 });
+                if unindexed_files > 0 {
+                    self.events.publish(ToastRequested {
+                        text: format!(
+                            "The list may be incomplete. {}",
+                            unindexed_text(unindexed_files)
+                        ),
+                        kind: toasts::ToastKind::Info,
+                    });
+                }
                 self.events
                     .publish(LocationListVisibilityChanged { visible: true });
                 self.publish_preview();
@@ -246,6 +267,16 @@ impl Component<Action> for LocationsComponent {
         subscriptions.subscribe_input(InputScope::Focused, AnyInput, Self::keyboard_input);
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
     }
+}
+
+/// Why a list may miss locations, and how to complete it.
+fn unindexed_text(files: usize) -> String {
+    let (files, them) = if files == 1 {
+        ("1 file that changed on disk".to_owned(), "it")
+    } else {
+        (format!("{files} files that changed on disk"), "them")
+    };
+    format!("The language server has not indexed {files}; gR restarts it to index {them}.")
 }
 
 #[cfg(test)]
