@@ -131,13 +131,27 @@ impl AutoReview {
                 // A file marked before keeps who reviewed which line: its
                 // open hunks are accepted instead.
                 Ok(true) if whole_files.contains(&index) && !self.marked_before(index) => {
-                    let marked = store.mark(
-                        &checkpoint.review_unit,
-                        file.review_path().as_bytes(),
-                        &checkpoint.checkpoint,
-                        &MarkAuthor::Jev,
-                    );
-                    summary.record_file(file, marked.is_ok());
+                    // Checked again under the lock: a reviewer of another workspace may have
+                    // marked the file since.
+                    let marked = store
+                        .lock_marks(&checkpoint.review_unit)
+                        .map_err(eyre::Report::from)
+                        .and_then(|_lock| {
+                            if !self.unchanged_mark(store, index)? {
+                                return Ok(false);
+                            }
+                            store.mark(
+                                &checkpoint.review_unit,
+                                file.review_path().as_bytes(),
+                                &checkpoint.checkpoint,
+                                &MarkAuthor::Jev,
+                            )?;
+                            Ok(true)
+                        });
+                    match marked {
+                        Ok(false) => {}
+                        marked => summary.record_file(file, marked.is_ok()),
+                    }
                 }
                 Ok(true) => summary.record_hunks(file, self.review_hunks(tracker, index, file)),
                 Err(_) => summary.failed_marks += 1,

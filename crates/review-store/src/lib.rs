@@ -22,13 +22,16 @@ pub use explore::{ExploreRecords, SavedRound, SavedRounds};
 pub use review_explore::ExploreHistory;
 mod checkpoint;
 mod drafts;
+mod layout;
 mod source_references;
 #[cfg(test)]
 mod stored_fixtures;
 mod thread_sources;
 mod threads;
+mod workspace_state;
 
-pub use checkpoint::{LoadResult, PartialReview, ReviewRecord};
+pub use checkpoint::{LoadResult, MarksLock, PartialReview, ReviewRecord};
+pub use workspace_state::WorkspaceState;
 
 /// A result from review storage.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -105,7 +108,7 @@ struct Settings {
 /// The file beside the settings that holds what the reviewer asks of every Explore round.
 const EXPLORE_REVIEWER_NOTES: &str = "explore-reviewer-notes.md";
 
-/// Review state for one canonical repository.
+/// Review state for one repository, shared by its workspaces.
 #[derive(Clone, Debug)]
 pub struct ReviewStore {
     state_root: PathBuf,
@@ -117,36 +120,25 @@ pub struct ReviewStore {
 struct StateKey(String);
 
 impl ReviewStore {
-    /// Open the state directory for one repository.
-    pub fn open(state_root: impl AsRef<Path>, repository_root: impl AsRef<Path>) -> Result<Self> {
-        let store = Self::open_for_reading(state_root, repository_root)?;
+    /// Open the review state of one repository, which every workspace of the repository
+    /// shares: `store` is the store the workspaces share, the directory `.jj/repo` resolves to
+    /// in a jj repository, or a Git repository's common directory.
+    pub fn open(state_root: impl AsRef<Path>, store: impl AsRef<Path>) -> Result<Self> {
+        let shared = layout::SharedStore::canonical(store.as_ref())?;
+        let store = Self::at(state_root, &shared);
+        store.check_repository_record(&shared)?;
         store.create_dir(&store.repository_dir)?;
+        store.write_repository_record(&shared)?;
         Ok(store)
     }
 
-    /// Open the state directory for one repository without creating it, to
-    /// read what was saved there.
-    pub fn open_for_reading(
-        state_root: impl AsRef<Path>,
-        repository_root: impl AsRef<Path>,
-    ) -> Result<Self> {
-        let repository_root =
-            fs::canonicalize(repository_root.as_ref()).map_err(|source| Error::StateIo {
-                operation: "canonicalize repository root",
-                path: repository_root.as_ref().to_owned(),
-                source,
-            })?;
-        let canonical_root = repository_root.to_str().ok_or(Error::InvalidStateKey {
-            field: "repository root",
-        })?;
-        let repository_key = StateKey::hash(canonical_root.as_bytes()).0;
+    fn at(state_root: impl AsRef<Path>, shared: &layout::SharedStore) -> Self {
         let state_root = state_root.as_ref().to_owned();
-        let repository_dir = state_root.join(repository_key);
-        Ok(Self {
+        Self {
+            repository_dir: shared.directory(&state_root),
             state_root,
-            repository_dir,
             thread_sources: std::sync::Arc::default(),
-        })
+        }
     }
 
     /// Get the saved file-pane width in terminal columns.

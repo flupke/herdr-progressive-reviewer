@@ -56,6 +56,7 @@ impl Worker {
             "The comparison changed; retry rU after refresh"
         );
         self.cancel_auto_review();
+        let _lock = self.store.lock_marks(&checkpoint.review_unit)?;
         self.store.unreview_all(&checkpoint.review_unit)?;
         Ok(())
     }

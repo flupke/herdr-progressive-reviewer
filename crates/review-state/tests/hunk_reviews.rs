@@ -34,7 +34,7 @@ struct Review {
     repository: Repository,
     store: ReviewStore,
     tracker: ReviewTracker,
-    _state: tempfile::TempDir,
+    state: tempfile::TempDir,
 }
 
 impl Review {
@@ -56,7 +56,7 @@ impl Review {
             files,
             repository,
             tracker,
-            _state: state,
+            state,
         }
     }
 
@@ -642,4 +642,53 @@ fn a_binary_file_marked_whole_has_no_lines(repository_type: RepoType) {
     let lines = review.tracker.lines(&snapshot, logo).unwrap();
 
     assert_eq!(lines, review_state::FileLines::default());
+}
+
+/// Reviewers of several workspaces share the marks: each accepts its hunk from what the others
+/// saved, so none is lost.
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn reviewers_that_accept_hunks_at_once_keep_every_hunk(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    let spans = review
+        .hunks()
+        .open
+        .into_iter()
+        .map(|hunk| hunk.span)
+        .collect::<Vec<_>>();
+    assert_eq!(spans.len(), 3);
+    let trackers = spans
+        .iter()
+        .map(|_| {
+            ReviewTracker::new(
+                review.repository.clone(),
+                ReviewStore::open(review.state.path(), review.files.root()).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let snapshot = review.snapshot();
+    let barrier = std::sync::Barrier::new(spans.len());
+
+    // A lost write needs one reviewer to read between another's read and write: race often.
+    for _ in 0..10 {
+        review
+            .store
+            .unreview_all(snapshot.identity.review_unit())
+            .unwrap();
+        std::thread::scope(|scope| {
+            for (tracker, span) in trackers.iter().zip(&spans) {
+                let (snapshot, barrier) = (&snapshot, &barrier);
+                scope.spawn(move || {
+                    barrier.wait();
+                    let mark = HunkMark::Review(span.clone());
+                    let marked = tracker
+                        .mark_hunk(snapshot, &snapshot.files[0], &mark, &MarkAuthor::Reviewer)
+                        .unwrap();
+                    assert_eq!(marked, MarkResult::Marked);
+                });
+            }
+        });
+
+        assert_eq!(review.status(), ReviewStatus::Reviewed);
+    }
 }

@@ -55,6 +55,9 @@ impl Seed {
 /// A scratch repository and the session's files, in `directory`, which outlives the session.
 pub(crate) struct Scratch {
     repository: Box<dyn ReviewRepositoryFixture>,
+    /// The root of the workspace of the repository the reviewer and its agent run in: the
+    /// repository's own, or one `enter_workspace` added.
+    workspace: PathBuf,
     directory: PathBuf,
     /// The runtime directory of the reviewer and the stand-in agent (`XDG_RUNTIME_DIR`), where
     /// the reviewer listens for the agent's hooks, and the stand-ins' event socket: a temporary
@@ -80,6 +83,7 @@ impl Scratch {
             repository.write(path, content.as_bytes());
         }
         let scratch = Self {
+            workspace: repository.root().to_owned(),
             repository,
             directory,
             runtime: tempfile::Builder::new().prefix("vision-").tempdir()?,
@@ -99,8 +103,30 @@ impl Scratch {
         Ok(scratch)
     }
 
+    /// The root of the workspace the reviewer and its agent run in.
     pub(crate) fn root(&self) -> &Path {
-        self.repository.root()
+        &self.workspace
+    }
+
+    /// Run the reviewer and its agent, from their next start, in the workspace of the repository
+    /// named `name`: a jj workspace at the change under review, or a Git worktree, which the
+    /// first call with that name adds beside the repository. A name that is the repository's
+    /// own root's goes back to it.
+    pub(crate) fn enter_workspace(&mut self, name: &str) -> Result<()> {
+        ensure!(
+            !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+            "a workspace name holds letters, digits and dashes"
+        );
+        let main = self.repository.root();
+        let root = main.with_file_name(name);
+        if root != main && !root.exists() {
+            self.repository.add_workspace(name);
+        }
+        self.workspace = root;
+        Ok(())
     }
 
     pub(crate) fn directory(&self) -> &Path {

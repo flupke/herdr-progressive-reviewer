@@ -4433,6 +4433,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-state-migration"
+version = "0.2.0"
+dependencies = [
+ "review-repository",
+ "review-store",
+ "review-test-support",
+ "review-types",
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "time",
+]
+
+[[package]]
 name = "review-store"
 version = "0.2.0"
 dependencies = [
@@ -4622,6 +4638,7 @@ dependencies = [
  "review-significance",
  "review-source",
  "review-state",
+ "review-state-migration",
  "review-store",
  "review-test-support",
  "review-thread-service",

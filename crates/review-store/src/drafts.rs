@@ -89,7 +89,7 @@ impl ReviewStore {
         Ok(())
     }
 
-    fn read_drafts(&self, review_unit: &ReviewUnit) -> Result<SavedDrafts> {
+    pub(super) fn read_drafts(&self, review_unit: &ReviewUnit) -> Result<SavedDrafts> {
         let path = self.drafts_path(review_unit)?;
         let Some(bytes) = Self::read_bytes(&path, "read drafts", None)? else {
             return Ok(SavedDrafts::default());

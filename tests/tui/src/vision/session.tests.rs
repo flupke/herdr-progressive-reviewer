@@ -189,7 +189,7 @@ fn a_reopened_reviewer_starts_once_the_old_one_has_stopped() {
     let session = &mut fixture.session;
     session.wait_for("math.rs", false, GUARD).unwrap();
     let before = session.describe()["reviewer_pane"].clone();
-    session.reopen(None).unwrap();
+    session.reopen(None, None).unwrap();
     assert_ne!(session.describe()["reviewer_pane"], before);
     session.wait_for("math.rs", false, GUARD).unwrap();
     // The new reviewer serves the MCP port the old one held: Explore reaches its agent.
@@ -204,6 +204,24 @@ fn a_reopened_reviewer_starts_once_the_old_one_has_stopped() {
         .reply(1, "submit_question", question["arguments"].clone())
         .unwrap();
     assert_eq!(reply["isError"], false, "{reply}");
+}
+
+/// The user's report (#157): a change reviewed in the main jj workspace showed 0% reviewed in
+/// a task's workspace of the same repository, whose reviewer kept a review state of its own.
+#[test]
+fn marks_made_in_one_jj_workspace_show_in_another_workspace_of_the_repository() {
+    let (mut fixture, _) = Fixture::start();
+    let session = &mut fixture.session;
+    session.wait_for("○ notes.md", false, GUARD).unwrap();
+    session.act(&Input::Keys(&keys(&["space"]))).unwrap();
+    session.wait_for("✓ notes.md", false, GUARD).unwrap();
+    let main = session.describe()["repository"].clone();
+
+    session.reopen(None, Some("second")).unwrap();
+
+    assert_ne!(session.describe()["repository"], main);
+    let screen = session.wait_for("○ sample.rs", false, GUARD).unwrap();
+    assert!(screen.shows("✓ notes.md"), "{}", screen.text);
 }
 
 #[test]

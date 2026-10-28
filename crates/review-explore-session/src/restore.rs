@@ -84,10 +84,8 @@ impl ExploreSession {
         let Some(instance) = instance else {
             return Ok((empty_restore(), None));
         };
-        let historical = history.is_historical(&instance);
         let mut restored = empty_restore();
         let mut toast = None;
-        restored.historical = historical;
         let round = self
             .rounds
             .round(unit, &instance)
@@ -103,6 +101,7 @@ impl ExploreSession {
                     reason: "Saved Explore round is missing".into(),
                 })
             })?;
+        restored.historical = self.is_historical(&history, &round);
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
         restored.progress = restored_progress(&round);
@@ -121,6 +120,18 @@ impl ExploreSession {
             .unwrap_or_default();
         restored.result = Ok(Some(Arc::new(round)));
         Ok((restored, toast))
+    }
+
+    /// Whether `round` only shows here: a round of the past, or one that a reviewer of another
+    /// workspace of the repository started. Such a round goes on only in its own workspace,
+    /// with the agent of that reviewer's tab, which the round's turns name by its root.
+    fn is_historical(
+        &self,
+        history: &review_explore::ExploreHistory,
+        round: &ExploreRound,
+    ) -> bool {
+        history.is_historical(&round.exploration.instance)
+            || round.exploration.comparison.repository_root != self.repository.root()
     }
 
     fn discard_unreadable(
@@ -276,7 +287,7 @@ impl ExploreSession {
                 let _ = self
                     .events
                     .send(ui_events::ExploreHistoryChanged(history.clone()));
-                self.state.historical = history.is_historical(instance);
+                self.state.historical = self.is_historical(&history, &round);
                 if round.revision <= previous.revision {
                     return;
                 }

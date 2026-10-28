@@ -1,7 +1,7 @@
 //! Stable snapshots of one jj change or Git working tree.
 
 use std::ffi::{OsStr, OsString};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
@@ -23,6 +23,7 @@ mod comparison_plan;
 mod git;
 mod jj;
 mod watch;
+mod workspaces;
 
 pub use comparison_plan::{BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults};
 pub use watch::{MetadataScope, MetadataWatch, WatchPlan};
@@ -40,6 +41,8 @@ struct RepositoryProcess<'a> {
     operation: &'static str,
     cancellation: &'a Cancellation,
     environment: &'a [(OsString, OsString)],
+    /// What the command reads on its standard input; nothing when empty.
+    input: &'a [u8],
 }
 
 /// Cancels a repository's commands, and wakes the commands that wait on a child.
@@ -800,7 +803,13 @@ impl<'a> RepositoryProcess<'a> {
             operation,
             cancellation,
             environment: &[],
+            input: &[],
         }
+    }
+
+    fn with_input(mut self, input: &'a [u8]) -> Self {
+        self.input = input;
+        self
     }
 
     fn with_environment(mut self, environment: &'a [(OsString, OsString)]) -> Self {
@@ -818,7 +827,11 @@ impl<'a> RepositoryProcess<'a> {
             .args(arguments)
             .envs(self.environment.iter().cloned())
             .current_dir(self.cwd)
-            .stdin(Stdio::null())
+            .stdin(if self.input.is_empty() {
+                Stdio::null()
+            } else {
+                Stdio::piped()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -828,6 +841,14 @@ impl<'a> RepositoryProcess<'a> {
                 current_dir: Some(self.cwd.to_owned()),
                 source,
             })?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let input = self.input.to_vec();
+            // A command that exits before it reads everything closes the pipe: its status
+            // says what went wrong.
+            thread::spawn(move || {
+                let _ = stdin.write_all(&input);
+            });
+        }
         let progress = Arc::<CommandProgress>::default();
         let stdout = self.capture(
             child.stdout.take().expect("stdout is piped"),

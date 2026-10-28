@@ -1,0 +1,23 @@
+[package]
+name = "review-state-migration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+review-repository = { path = "../review-repository" }
+review-store = { path = "../review-store" }
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["parsing", "macros"] }
+
+[dev-dependencies]
+review-test-support = { path = "../review-test-support" }
+review-types = { path = "../review-types" }
+tempfile.workspace = true
+
+[lints]
+workspace = true

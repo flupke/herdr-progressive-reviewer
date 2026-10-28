@@ -7,8 +7,10 @@ The guarantees of saved Explore rounds across a restart: what is never saved, wh
 - A missing path, range or base revision is a local limit of the evidence, not a reason
   to drop the discussion.
 - Runtime access, connections and caches are never saved.
-- Explore assumes one agent and one reviewer per repository: there are no window
-  identities, no alternate sets of drafts, and no migration of earlier formats.
+- Explore assumes one agent and one reviewer per round: there are no window identities and
+  no alternate sets of drafts. The workspaces of a repository share its rounds, but a round
+  goes on only in the workspace that started it: another workspace's reviewer reopens it
+  read-only, since its turns name the starting workspace's root.
 - The repository watcher also observes the filesystem events of this state, with no
   polling: a domain update refreshes the round, and an editor autosave triggers no reload
   of the history.

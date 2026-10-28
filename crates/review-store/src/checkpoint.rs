@@ -123,10 +123,17 @@ enum PathEncoding {
     Base64,
 }
 
+/// The review marks of one review, exclusively locked for a read-modify-write until this value
+/// is dropped; see [`ReviewStore::lock_marks`].
+#[derive(Debug)]
+pub struct MarksLock {
+    _file: fs::File,
+}
+
 /// A partial mark that lost the versions it needs.
 struct BrokenRecord;
 
-struct ReviewUnitKey;
+pub(super) struct ReviewUnitKey;
 
 struct CommitKey;
 
@@ -185,6 +192,22 @@ impl ReviewStore {
         Ok(record)
     }
 
+    /// Lock the review marks of `review_unit` against every reviewer process, which share them
+    /// across the workspaces of the repository. Each read-modify-write of the marks reads them
+    /// under this lock, so no reviewer writes a mark computed from a stale one over another's.
+    /// A process must not take it twice: the second waits forever.
+    pub fn lock_marks(&self, review_unit: &ReviewUnit) -> Result<MarksLock> {
+        ReviewUnitKey::validate(review_unit)?;
+        let path = self
+            .repository_dir
+            .join("changes")
+            .join(review_unit.as_str())
+            .join("lock");
+        Ok(MarksLock {
+            _file: self.exclusive_lock(&path, "lock review marks")?,
+        })
+    }
+
     /// Load and validate one review mark.
     pub fn load(&self, review_unit: &ReviewUnit, path: &[u8]) -> Result<LoadResult> {
         ReviewUnitKey::validate(review_unit)?;
@@ -231,6 +254,24 @@ impl ReviewStore {
                 path: target,
                 source,
             }),
+        }
+    }
+
+    /// Remove the review mark of one path that was written at `reviewed_at`, and leave a mark
+    /// written since, by a reviewer of another workspace, in place. Without the marks lock, which
+    /// its caller may hold, a mark written between the check and the removal is lost: the window
+    /// is that of two file operations, for a mark whose baseline commit no longer exists.
+    pub fn unreview_expired(
+        &self,
+        review_unit: &ReviewUnit,
+        path: &[u8],
+        reviewed_at: &str,
+    ) -> Result<()> {
+        match self.load(review_unit, path)? {
+            LoadResult::Reviewed(record) if record.reviewed_at == reviewed_at => {
+                self.unreview(review_unit, path)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -299,7 +340,12 @@ impl ReviewStore {
     /// A store under `state_root` for the same repository, holding a copy of the review marks of
     /// `review_unit` and nothing else: marks written to it leave this store's alone.
     pub fn copy_marks_to(&self, review_unit: &ReviewUnit, state_root: &Path) -> Result<Self> {
-        let repository = self.repository_dir.file_name().unwrap_or_default();
+        let repository = self
+            .repository_dir
+            .strip_prefix(&self.state_root)
+            .map_err(|_| Error::InvalidStateKey {
+                field: "state directory",
+            })?;
         let copy = Self {
             state_root: state_root.to_owned(),
             repository_dir: state_root.join(repository),
@@ -351,7 +397,7 @@ impl ReviewStore {
     /// Records that the marks of `review_unit` changed: a new random stamp, renamed into place
     /// so that a reader never sees half of it. It is not synced to disk: what it keeps valid
     /// lives in memory, and goes with a crash too.
-    fn stamp_marks(&self, review_unit: &ReviewUnit) -> Result<()> {
+    pub(super) fn stamp_marks(&self, review_unit: &ReviewUnit) -> Result<()> {
         const OPERATION: &str = "stamp review marks";
         let target = self.stamp_path(review_unit);
         let stamp = StateKey::random(OPERATION, &target)?;
@@ -378,7 +424,7 @@ impl ReviewStore {
             .join("marks-stamp")
     }
 
-    fn record_directory(&self, review_unit: &ReviewUnit) -> PathBuf {
+    pub(super) fn record_directory(&self, review_unit: &ReviewUnit) -> PathBuf {
         self.repository_dir
             .join("changes")
             .join(review_unit.as_str())
@@ -495,7 +541,7 @@ impl PathEncoding {
 }
 
 impl ReviewUnitKey {
-    fn validate(value: &ReviewUnit) -> Result<()> {
+    pub(super) fn validate(value: &ReviewUnit) -> Result<()> {
         let value = value.as_str();
         if !value.is_empty()
             && value

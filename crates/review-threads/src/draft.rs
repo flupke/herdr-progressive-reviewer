@@ -136,6 +136,16 @@ impl SavedDrafts {
         self.drafts.push(draft);
     }
 
+    /// Add the drafts of `other`, saved for the same review apart, whose threads have no draft
+    /// here: a thread keeps the draft it has.
+    pub fn merge(&mut self, other: Self) {
+        for draft in other {
+            if !self.drafts.iter().any(|kept| kept.thread == draft.thread) {
+                self.drafts.push(draft);
+            }
+        }
+    }
+
     pub fn discard(&mut self, thread: &ThreadId) {
         self.drafts.retain(|draft| &draft.thread != thread);
     }

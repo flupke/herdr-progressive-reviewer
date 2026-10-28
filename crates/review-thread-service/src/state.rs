@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -7,7 +7,10 @@ use std::time::Duration;
 use herdr_client::protocol::{Agent, AgentPort, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
-use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand, WakeupFailure};
+use review_threads::{
+    Message, Post, Recipient, Resolution, ReviewThreads, SavedDrafts, ThreadCommand, ThreadId,
+    WakeupFailure,
+};
 use review_types::ReviewUnit;
 use serde::Serialize;
 use vision_turns::TurnLog;
@@ -26,6 +29,10 @@ pub(super) struct State {
     target: AgentTarget,
     available: bool,
     books: HashMap<ReviewUnit, ReviewThreads>,
+    /// The threads of each review that the reviewer retried, or reopened, in this tab, with the
+    /// latest comment each Retry covered: those come to this tab's agent whichever tab posted
+    /// them.
+    retried: HashMap<ReviewUnit, BTreeMap<ThreadId, u64>>,
     access: HashMap<String, Access>,
     notifications: HashMap<ReviewUnit, Notification>,
     wakeups: HashMap<String, Wakeup>,
@@ -64,6 +71,7 @@ impl State {
             target,
             available,
             books: HashMap::new(),
+            retried: HashMap::new(),
             access: HashMap::new(),
             notifications: HashMap::new(),
             wakeups: HashMap::new(),
@@ -151,10 +159,11 @@ impl State {
     /// The wakeup for the pending comments of `unit` cannot reach the agent: say why, and
     /// which comments wait.
     fn undelivered(&self, unit: Option<&ReviewUnit>, error: String) {
-        match unit
-            .and_then(|unit| self.books.get(unit))
-            .and_then(ReviewThreads::pending_comment_sequence)
-        {
+        match unit.and_then(|unit| {
+            self.books
+                .get(unit)?
+                .pending_comment_sequence_for(&self.recipient(unit))
+        }) {
             Some(through) => self.report_wakeup(unit, Some(WakeupFailure { through, error })),
             None => (self.publish)(Event::Error(error)),
         }
@@ -182,11 +191,10 @@ impl State {
             || !self.notifications.is_empty()
             || self.wakeups.iter().any(|(token, wakeup)| {
                 wakeup.needs_poll()
-                    && self.access.get(token).is_some_and(|access| {
-                        self.books
-                            .get(&access.review_unit)
-                            .is_some_and(ReviewThreads::has_new_messages)
-                    })
+                    && self
+                        .access
+                        .get(token)
+                        .is_some_and(|access| self.waits_for_agent(&access.review_unit))
             })
     }
 
@@ -250,7 +258,10 @@ impl State {
                 let result = self
                     .load(&review_unit)
                     .and_then(|book| book.retry(&thread_id))
-                    .and_then(|()| self.schedule(&review_unit, true));
+                    .and_then(|()| {
+                        self.release(&review_unit, thread_id);
+                        self.schedule(&review_unit, true)
+                    });
                 self.report(result);
             }
         }
@@ -288,14 +299,16 @@ impl State {
     ) -> Result<(), String> {
         self.update(unit, |book| book.set_resolution(id, resolution))?;
         if resolution == Resolution::Open {
+            self.release(unit, id.clone());
             self.schedule(unit, true)?;
-        } else if !self.books[unit].has_new_messages() {
+        } else if !self.waits_for_agent(unit) {
             self.cancel_wakeups(unit);
         }
         Ok(())
     }
 
     fn post_comment(&mut self, review_unit: &ReviewUnit, post: Post) {
+        let post = post.from_tab(self.target.tab_id().0.clone());
         let message_id = post.message().id.clone();
         let thread_id = post.thread_id().clone();
         let result = self.update(review_unit, |book| {
@@ -393,11 +406,10 @@ impl State {
     }
 
     fn schedule(&mut self, unit: &ReviewUnit, retry: bool) -> Result<(), String> {
-        let book = self
-            .books
-            .get(unit)
-            .ok_or("The review history is not loaded")?;
-        if !book.has_new_messages() {
+        if !self.books.contains_key(unit) {
+            return Err("The review history is not loaded".into());
+        }
+        if !self.waits_for_agent(unit) {
             return Ok(());
         }
         if !self.available {
@@ -422,22 +434,54 @@ impl State {
         Ok(access)
     }
 
-    fn resume(&mut self, unit: &ReviewUnit) {
-        if self
+    /// This tab's review pane, as the recipient of the pending comments of `unit`.
+    fn recipient(&self, unit: &ReviewUnit) -> Recipient<'_> {
+        const NONE: &BTreeMap<ThreadId, u64> = &BTreeMap::new();
+        Recipient {
+            tab: &self.target.tab_id().0,
+            retried: self.retried.get(unit).unwrap_or(NONE),
+        }
+    }
+
+    /// Whether a pending comment of `unit` is for this tab's agent: one this tab posted, or one
+    /// of a thread the reviewer retried here. Another tab's comment, which may come from the
+    /// review pane of another workspace of the repository, waits for that tab's reviewer.
+    fn waits_for_agent(&self, unit: &ReviewUnit) -> bool {
+        self.books
+            .get(unit)
+            .is_some_and(|book| book.has_new_messages_for(&self.recipient(unit)))
+    }
+
+    /// Bring the comments of `thread` posted so far to this tab's agent, whichever tab posted
+    /// them; a comment posted later waits for its own tab.
+    fn release(&mut self, unit: &ReviewUnit, thread: ThreadId) {
+        let Some(through) = self
             .books
             .get(unit)
-            .is_some_and(ReviewThreads::has_new_messages)
-        {
+            .and_then(|book| book.thread(&thread)?.last_comment())
+            .map(Message::sequence)
+        else {
+            return;
+        };
+        self.retried
+            .entry(unit.clone())
+            .or_default()
+            .insert(thread, through);
+    }
+
+    fn resume(&mut self, unit: &ReviewUnit) {
+        if self.waits_for_agent(unit) {
             let result = self.schedule(unit, false);
             self.report(result);
         }
     }
 
     fn request_wakeup(&mut self, access: &Access, retry: bool) {
+        let unit = &access.review_unit;
         let Some(sequence) = self
             .books
-            .get(&access.review_unit)
-            .and_then(ReviewThreads::pending_comment_sequence)
+            .get(unit)
+            .and_then(|book| book.pending_comment_sequence_for(&self.recipient(unit)))
         else {
             return;
         };
@@ -478,10 +522,12 @@ impl State {
                     .ok_or("The review thread no longer exists")?;
                 Ok(Response::Threads(vec![thread]))
             }
-            Operation::GetNewMessages => Ok(Response::NewMessages(book.new_messages())),
+            Operation::GetNewMessages => Ok(Response::NewMessages(
+                book.new_messages_for(&self.recipient(&access.review_unit)),
+            )),
             Operation::Reply(post) => {
-                let id = self.update(&access.review_unit, |book| book.answer(post.clone()))?;
-                if !self.books[&access.review_unit].has_new_messages()
+                let id = self.update(&access.review_unit, |book| book.answer((**post).clone()))?;
+                if !self.waits_for_agent(&access.review_unit)
                     && let Some(wakeup) = self.wakeups.get_mut(&access.token)
                 {
                     wakeup.answered();
@@ -573,11 +619,7 @@ impl State {
             .get(unit)
             .expect("pending notification")
             .retry;
-        if !self
-            .books
-            .get(unit)
-            .is_some_and(ReviewThreads::has_new_messages)
-        {
+        if !self.waits_for_agent(unit) {
             self.cancel_wakeups(unit);
             return Ok(());
         }
@@ -596,11 +638,7 @@ impl State {
         let Some(access) = self.access.get(token) else {
             return Ok(());
         };
-        if !self
-            .books
-            .get(&access.review_unit)
-            .is_some_and(ReviewThreads::has_new_messages)
-        {
+        if !self.waits_for_agent(&access.review_unit) {
             return Ok(());
         }
         let current = self

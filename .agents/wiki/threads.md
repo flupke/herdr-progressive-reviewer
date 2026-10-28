@@ -11,9 +11,20 @@ session, the lead and each task have a tab of their own in one workspace. An age
 review access value, and its pin to an Explore round, when its pane moves to another tab. Herdr's `HERDR_TAB_ID`
 does not follow a moved pane, so a review pane moved to another tab keeps its first tab's
 agents until it restarts. Focus changes, posts, retries
-and reopening use that selection; a review stores no recipient of its own. Pending comments
-follow the selection; completed answers belong to the review, so the active agent gets only
-the unanswered work, with each pending thread's full conversation as context.
+and reopening use that selection; a review stores no recipient of its own. Completed answers
+belong to the review, so the active agent gets only the unanswered work, with each pending
+thread's full conversation as context.
+
+The workspaces of a repository share its threads ([review state](review-state.md)), so
+reviewers in several tabs load the same pending comments. Each review comment records the tab
+it was posted from: loading a review, or a change of agent, wakes the agent only for the
+comments its own tab posted, and `get_new_messages` returns only those, with the comments a
+Retry, or reopening a thread, in this tab covered: a comment posted after that waits for its
+own tab again. A comment posted from another tab shows as pending
+and goes to this tab's agent only on Retry, as do comments saved before comments named their
+tab. Herdr
+0.9.3 names a tab `<workspace>:t<number>` and keeps both in its session snapshot, so a tab
+keeps its ID across a Herdr restart (read in its source, not tried).
 
 Each tab has its own review pane too: the open, close and toggle actions act only on the
 review pane of the tab Herdr names in the action's context (Herdr 0.9.5 sends the focused

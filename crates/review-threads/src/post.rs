@@ -52,6 +52,13 @@ impl Post {
         post
     }
 
+    /// The same post, as a comment the review pane of Herdr tab `tab` posts.
+    #[must_use]
+    pub fn from_tab(mut self, tab: String) -> Self {
+        self.message.posted_from_tab = Some(tab);
+        self
+    }
+
     pub fn message(&self) -> &Message {
         &self.message
     }

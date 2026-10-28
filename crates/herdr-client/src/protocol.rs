@@ -343,6 +343,11 @@ impl AgentTarget {
         }
     }
 
+    /// The tab of the review pane: only an agent there is the target.
+    pub fn tab_id(&self) -> &TabId {
+        &self.tab_id
+    }
+
     /// Seed the target from the current session focus. A focused pane outside the tab never
     /// matches an agent of the tab, so it needs no filter here.
     fn initialize(&mut self, port: &(impl AgentPort + ?Sized)) -> Result<()> {

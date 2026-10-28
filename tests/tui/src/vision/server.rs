@@ -71,6 +71,11 @@ struct ReopenInput {
     /// Run the new stand-in agent with the hooks of the reviewer's Claude Code plugin, or
     /// without; as before when left out.
     agent_hooks: Option<bool>,
+    /// Run the reviewer and its agent in this workspace of the scratch repository from now on:
+    /// a jj workspace at the change under review (a Git worktree at HEAD) that the first reopen
+    /// with the name adds beside the repository; `repository` goes back to the first one. In
+    /// the same one as before when left out.
+    workspace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -845,7 +850,7 @@ impl Server {
     }
 
     #[tool(
-        description = "Start the reviewer and its stand-in agent again, in new panes of the session's tab, on the same repository and state, and return the reviewer's first screen and the new pane IDs. With agent_hooks, the new agent runs with or without the hooks of the reviewer's Claude Code plugin."
+        description = "Start the reviewer and its stand-in agent again, in new panes of the session's tab, on the same repository and state, and return the reviewer's first screen and the new pane IDs. With agent_hooks, the new agent runs with or without the hooks of the reviewer's Claude Code plugin. With workspace, both run in that workspace of the scratch repository, which the first such reopen adds, at the change under review: the review state is the one the repository's workspaces share."
     )]
     async fn reopen(
         &self,
@@ -853,7 +858,7 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         self.run("reopen", json!(input), move |_, session| {
             let session = running(session)?;
-            let screen = session.reopen(input.agent_hooks)?;
+            let screen = session.reopen(input.agent_hooks, input.workspace.as_deref())?;
             Ok(Outcome::screen("reopened", screen).with("session", session.describe()))
         })
         .await

@@ -94,7 +94,7 @@ impl GitBackend {
     }
 
     /// Resolve the Git directory of the working tree at `root`, following a `.git` link file.
-    fn git_directory(root: &Path) -> Option<PathBuf> {
+    pub(super) fn git_directory(root: &Path) -> Option<PathBuf> {
         let path = root.join(".git");
         if path.is_dir() {
             return std::fs::canonicalize(&path).ok();

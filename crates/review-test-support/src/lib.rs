@@ -113,6 +113,9 @@ pub trait ReviewRepositoryFixture: Send {
     fn edit(&self, revision: &str);
     /// Rewrite repository history without changing the reviewed file.
     fn rewrite_base_without_reviewed_file_change(&self);
+    /// Add a workspace of the repository named `name` beside its root, and return its root: a
+    /// jj workspace that edits the change under review, or a Git worktree at `HEAD`.
+    fn add_workspace(&self, name: &str) -> PathBuf;
 }
 
 /// A temporary jj repository for integration tests.
@@ -219,6 +222,18 @@ impl ReviewRepositoryFixture for GitFixture {
 
     fn rewrite_base_without_reviewed_file_change(&self) {
         self.git(["commit", "--quiet", "--amend", "-m", "rewritten base"]);
+    }
+
+    fn add_workspace(&self, name: &str) -> PathBuf {
+        let root = self.root().with_file_name(name);
+        self.git([
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            root.to_str().unwrap(),
+        ]);
+        root
     }
 }
 
@@ -362,5 +377,23 @@ impl ReviewRepositoryFixture for JjFixture {
         let new_parent = self.change_id();
         self.jj(["rebase", "-r", &reviewed_change, "-d", &new_parent]);
         self.edit(&reviewed_change);
+    }
+
+    fn add_workspace(&self, name: &str) -> PathBuf {
+        let root = self.root().with_file_name(name);
+        let change = self.change_id();
+        let path = root.to_str().unwrap();
+        self.jj(["workspace", "add", "--name", name, path]);
+        let output = Command::new("jj")
+            .args(["--color=never", "--no-pager", "edit", &change])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "jj fixture command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        root
     }
 }

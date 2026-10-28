@@ -89,9 +89,9 @@ impl WithSources for ReviewThreads {
 }
 
 /// A decoded thread document, with any drafts it still carries from earlier builds.
-struct ThreadDocument {
-    threads: ReviewThreads,
-    embedded_drafts: SavedDrafts,
+pub(super) struct ThreadDocument {
+    pub(super) threads: ReviewThreads,
+    pub(super) embedded_drafts: SavedDrafts,
 }
 
 impl ReviewStore {
@@ -163,7 +163,7 @@ impl ReviewStore {
             .map_or(document.threads, |((), threads)| threads))
     }
 
-    fn read_thread_document(&self, review_unit: &ReviewUnit) -> Result<ThreadDocument> {
+    pub(super) fn read_thread_document(&self, review_unit: &ReviewUnit) -> Result<ThreadDocument> {
         const OPERATION: &str = "decode review threads";
         let path = self.threads_path(review_unit)?;
         let Some(bytes) = Self::read_bytes(&path, "read review threads", None)? else {

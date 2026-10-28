@@ -3,6 +3,7 @@
 mod attention;
 mod command;
 mod draft;
+mod merge;
 mod message;
 mod paths;
 mod post;
@@ -75,6 +76,18 @@ impl ReviewThread {
             .iter()
             .any(|message| message.author == Author::Reviewer && message.sequence > sequence)
     }
+}
+
+/// The review pane of one Herdr tab, as the recipient of pending comments: it brings to its
+/// agent the comments its tab posted, and those the reviewer retried there. The workspaces of a
+/// repository share its threads, so another tab's comments wait for its own review pane, or for
+/// Retry here; comments of earlier builds name no tab.
+#[derive(Clone, Copy, Debug)]
+pub struct Recipient<'a> {
+    pub tab: &'a str,
+    /// For each thread the reviewer retried in this tab, the sequence of the latest comment the
+    /// Retry covered: a comment posted later waits for its own tab again.
+    pub retried: &'a BTreeMap<ThreadId, u64>,
 }
 
 /// Conversation history and completed work shared by every recipient of a logical review.
@@ -160,6 +173,50 @@ impl ReviewThreads {
 
     pub fn has_new_messages(&self) -> bool {
         self.threads.iter().any(|thread| self.pending(thread))
+    }
+
+    /// Whether `thread` holds an unanswered comment that `recipient` brings to its agent: one
+    /// its tab posted, or one a Retry in its tab covered.
+    fn pending_for(&self, thread: &ReviewThread, recipient: &Recipient<'_>) -> bool {
+        let answered = self.answered.get(&thread.id).copied().unwrap_or_default();
+        let retried = recipient
+            .retried
+            .get(&thread.id)
+            .copied()
+            .unwrap_or_default();
+        self.pending(thread)
+            && thread.messages.iter().any(|message| {
+                message.author == Author::Reviewer
+                    && message.sequence > answered
+                    && !thread.is_answered(message)
+                    && (message.sequence <= retried
+                        || message.posted_from_tab.as_deref() == Some(recipient.tab))
+            })
+    }
+
+    /// The complete conversations whose pending comments `recipient` brings to its agent.
+    pub fn new_messages_for(&self, recipient: &Recipient<'_>) -> Vec<ReviewThread> {
+        self.threads
+            .iter()
+            .filter(|thread| self.pending_for(thread, recipient))
+            .cloned()
+            .collect()
+    }
+
+    pub fn has_new_messages_for(&self, recipient: &Recipient<'_>) -> bool {
+        self.threads
+            .iter()
+            .any(|thread| self.pending_for(thread, recipient))
+    }
+
+    /// The latest pending reviewer comment that `recipient` brings to its agent.
+    pub fn pending_comment_sequence_for(&self, recipient: &Recipient<'_>) -> Option<u64> {
+        self.threads
+            .iter()
+            .filter(|thread| self.pending_for(thread, recipient))
+            .filter_map(ReviewThread::last_comment)
+            .map(|message| message.sequence)
+            .max()
     }
 
     /// Latest pending reviewer comment; agent replies do not advance this position.

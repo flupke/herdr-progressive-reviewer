@@ -19,7 +19,7 @@ pub enum Operation {
     ListThreads,
     GetThread(ThreadId),
     GetNewMessages,
-    Reply(Post),
+    Reply(Box<Post>),
     SubmitQuestion(Box<review_explore::InterviewUpdate>),
     SubmitConclusion(Box<review_explore::ConclusionSubmission>),
     ReviseQuestion(Box<review_explore::QuestionRevision>),

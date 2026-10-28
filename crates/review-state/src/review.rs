@@ -241,6 +241,7 @@ impl ReviewTracker {
         if identity.review_unit() != snapshot.identity.review_unit() {
             return Ok(MarkResult::ChangeChanged);
         }
+        let _lock = self.store.lock_marks(identity.review_unit())?;
         self.store.mark(
             identity.review_unit(),
             file.review_path().as_bytes(),
@@ -451,6 +452,9 @@ impl ReviewTracker {
         if identity.review_unit() != snapshot.identity.review_unit() {
             return Ok(MarkResult::ChangeChanged);
         }
+        // The read of the reviewed version and the write of the new one run under one lock,
+        // so a reviewer of another workspace never writes between them.
+        let _lock = self.store.lock_marks(identity.review_unit())?;
         let diff = self.diff(snapshot, file)?;
         let versions = self.versions(snapshot, file, &diff)?;
         let Some(version) = edit(&diff, &versions.review())? else {
@@ -473,6 +477,7 @@ impl ReviewTracker {
         author: &MarkAuthor,
         accept: impl Fn(&ChangedLines) -> bool,
     ) -> eyre::Result<usize> {
+        let _lock = self.store.lock_marks(snapshot.identity.review_unit())?;
         let diff = self.diff(snapshot, file)?;
         let spans = diff
             .hunks
@@ -809,7 +814,9 @@ impl ReviewTracker {
             .interdiff(&record.baseline_commit_id, snapshot, file.review_path())?
         {
             Interdiff::MissingBaseline => {
-                self.store.unreview(review_unit, path)?;
+                // A read path reaches this without the marks lock, which a caller may hold.
+                self.store
+                    .unreview_expired(review_unit, path, &record.reviewed_at)?;
                 Ok(ReviewComparison::Unreviewed(Some(
                     ReviewWarning::BaselineExpired,
                 )))
@@ -823,6 +830,7 @@ impl ReviewTracker {
 
     /// Remove the review mark for one path.
     pub fn unreview(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<()> {
+        let _lock = self.store.lock_marks(snapshot.identity.review_unit())?;
         self.store.unreview(
             snapshot.identity.review_unit(),
             file.review_path().as_bytes(),

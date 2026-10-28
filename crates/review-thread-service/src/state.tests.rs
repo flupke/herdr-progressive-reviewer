@@ -165,7 +165,7 @@ impl Service {
             in_reply_to,
         );
         self.state
-            .request(access, &Operation::Reply(post), None)
+            .request(access, &Operation::Reply(Box::new(post)), None)
             .map(|_| ())
     }
 
@@ -821,4 +821,55 @@ impl AgentPort for TypedAgents {
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
         self.agents.prompt_agent(pane_id, text)
     }
+}
+
+/// Save a comment that the review pane of `tab` posted, as a reviewer of another process does.
+fn save_comment_from(service: &Service, tab: &str, text: &str) -> ThreadId {
+    let post = Post::start(anchor(), "+original".into(), text.into()).from_tab(tab.into());
+    let thread = post.thread_id().clone();
+    service
+        .state
+        .store
+        .update_threads(&UNIT.into(), |book| book.post(post))
+        .unwrap();
+    thread
+}
+
+#[test]
+fn loading_wakes_the_agent_only_for_the_comments_this_tab_posted() {
+    let mut service = Service::start();
+    let other = save_comment_from(&service, "another-tab", "Posted in another tab");
+
+    service.thread(ThreadCommand::Load(UNIT.into()));
+
+    assert!(service.poll().is_empty());
+    let own = service.start_thread("Posted in this tab");
+    let (_, access) = only_wakeup(&service.poll());
+    let fetched = service.fetch(&access).unwrap();
+    assert_eq!(
+        fetched.iter().map(|thread| &thread.id).collect::<Vec<_>>(),
+        [&own]
+    );
+    service.retry(&other);
+    only_wakeup(&service.poll());
+    let fetched = service.fetch(&access).unwrap();
+    assert_eq!(fetched.len(), 2);
+
+    let mut restarted = Service::start();
+    save_comment_from(&restarted, &tab().0, "Posted in this tab");
+    restarted.thread(ThreadCommand::Load(UNIT.into()));
+    only_wakeup(&restarted.poll());
+}
+
+#[test]
+fn a_posted_comment_names_the_tab_of_the_review_pane() {
+    let mut service = Service::start();
+    let thread = service.start_thread("Rename this");
+
+    let book = service.state.store.load_threads(&UNIT.into()).unwrap();
+
+    assert_eq!(
+        book.thread(&thread).unwrap().messages[0].posted_from_tab,
+        Some(tab().0)
+    );
 }

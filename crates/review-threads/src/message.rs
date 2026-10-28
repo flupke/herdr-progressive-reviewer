@@ -45,6 +45,11 @@ pub struct Message {
     /// of earlier builds have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub posted_at_ms: Option<u64>,
+    /// The Herdr tab whose review pane posted this review comment; comments of earlier builds,
+    /// and agent replies, name none. Only that tab's reviewer wakes its agent for the comment
+    /// when it loads the review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub posted_from_tab: Option<String>,
     pub(super) sequence: u64,
 }
 
@@ -58,6 +63,7 @@ impl Message {
             asked_under: None,
             quote: None,
             posted_at_ms: None,
+            posted_from_tab: None,
             sequence: 0,
         }
     }
@@ -71,6 +77,7 @@ impl Message {
             asked_under: None,
             quote: None,
             posted_at_ms: None,
+            posted_from_tab: None,
             sequence: 0,
         }
     }
