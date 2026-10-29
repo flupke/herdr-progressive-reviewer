@@ -1,0 +1,139 @@
+/* The column at the window's left (client/left-column.js): the chat (chat.css) or the list of past
+   rounds (past.css), one at a time. On a desktop it stands at the window's left, under the
+   masthead: a column beside the reading column from 89rem, a drawer over the left of the page
+   below that; it never covers the panel. Below the desk's two columns it is a bottom sheet over
+   the dimmed page. Its head holds its title, a line about what it shows, and its ×. */
+
+/* The frame. Below the desk's two columns it is a sheet from the bottom of the window (below);
+   on a desktop it stands at the window's left, under the masthead (after). */
+.left-column {
+  /* The handoff's chat surface: a shade under the panel in the dark theme, the panel in the
+     light one ("Agent chat"). */
+  --left-surface: light-dark(var(--panel), #161719);
+  position: fixed;
+  z-index: var(--layer-left-column);
+  box-sizing: border-box;
+  display: grid;
+  /* The head, then what the column shows; the phone sheet's grabber comes first (below). */
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--left-surface);
+  box-shadow: var(--shadow-drawer);
+  opacity: 0;
+  /* Closing fades out (left-column.js hides the column after it). */
+  transition: opacity var(--drawer-out) ease, transform var(--drawer-out) ease;
+}
+.left-column.open {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--drawer-in) var(--ease-settle), transform var(--drawer-in) var(--ease-settle),
+    width var(--drawer-in) var(--ease-settle);
+}
+
+/* A desktop: the column stands at the window's left gutter, as the panel does on the right, with
+   the panel's surface and radius: under the masthead, then held at the top of the window as the
+   panel is while the page scrolls, as tall as the window below that, its content scrolling on
+   its own. It slides in from the left. The chat's bubble sits above it, at the left of the
+   masthead (masthead.css). */
+@media (min-width: 70rem) {
+  .left-column {
+    --left-surface: var(--panel);
+    z-index: var(--layer-left-column-beside);
+    top: calc(var(--masthead-height) + var(--page-top));
+    bottom: var(--sticky-top);
+    left: var(--gutter);
+    width: var(--left-width);
+    transform: translateX(-24px);
+  }
+  /* As the masthead scrolls away, the column rises with it to where the panel is held, near the
+     top of the window. In a browser without scroll timelines, `rise()` in left-column.js does
+     the same: change both together. */
+  @supports (animation-timeline: scroll()) {
+    .left-column {
+      animation: left-column-rise auto linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0px calc(var(--masthead-height) + var(--page-top) - var(--sticky-top));
+    }
+  }
+}
+@keyframes left-column-rise {
+  to { top: var(--sticky-top); }
+}
+/* From 89rem the page makes room for it (layout.css): beside the page, it is drawn as the panel
+   is, with no border and no shadow. Between 70 and 89rem there is no room for a third column:
+   it lies over the page's left margin and the left of the reading column, with its border and
+   its shadow and no scrim, and leaves the panel and its actions in view. */
+@media (min-width: 89rem) {
+  .left-column { border: 0; box-shadow: none; }
+}
+@media (min-width: 70rem) and (prefers-reduced-motion: reduce) {
+  .left-column, .left-column.open { transform: none; transition: none; }
+}
+.left-column[hidden] { display: none; }
+.left-scrim { display: none; }
+.left-grabber { display: none; }
+
+.left-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.left-title { margin: 0; font-size: 15px; font-weight: 650; }
+.left-meta { color: var(--muted); font-size: 13px; }
+.left-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.left-close:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); color: var(--ink); }
+
+/* Below the desk's two columns: a bottom sheet to two thirds of the window, over the dimmed
+   page, which its grabber drags to the window's full height (left-column.js). */
+@media (max-width: 69.99rem) {
+  .left-column {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: min(66vh, calc(100% - 16px));
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(24px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .left-column.full { height: calc(100% - 16px); }
+  .left-grabber {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 2px;
+    background: var(--line-strong);
+    cursor: grab;
+    touch-action: none;
+  }
+  .left-head { padding-top: 6px; }
+  .left-scrim:not([hidden]) {
+    position: fixed;
+    z-index: var(--layer-scrim);
+    inset: 0;
+    display: block;
+    /* The page behind dims to 45% ("Phone"). */
+    background: rgba(0, 0, 0, 0.55);
+  }
+}

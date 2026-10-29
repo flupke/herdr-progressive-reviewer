@@ -249,10 +249,11 @@ the review replaced), past round (a whole round other than the current one)
 **Past round**:
 A saved Explore round of the repository other than the one the Explore page follows:
 of any change, from any workspace, reset, replaced or still running elsewhere. The
-page on this machine lists them in its ⋯ menu, grouped by change and named by the
-change's title, each by its date, and opens one read only, as it was last saved, at
-an address of its own: its design, each question with the answer kept, the quiz, the
-conclusion and its round conversation, with the code it cited as the round saw it.
+page on this machine lists them, grouped by change and named by the change's title,
+each by when it was saved, in a column at the window's left that its ⋯ menu opens, and
+opens one read only, as it was last saved, at an address of its own: its design, each
+question with the answer kept, the quiz, the conclusion and its round conversation, with
+the code it cited as the round saw it.
 Nothing on it acts. The pane's start screen opens the page on that list, without a
 round. The page on the network and through the tunnel offers none.
 _Avoid_: archive, old round, earlier round (a round of the current review that a

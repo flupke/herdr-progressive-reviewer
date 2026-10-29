@@ -53,7 +53,7 @@ opens again with it.
 | A request the agent received | None | Start a new round… (Reset, behind Confirm: start a new round); Reply to the agent, which opens the chat |
 | Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
-| Any, on this machine | While no round runs (the start screen, a failed or cancelled start), Past rounds on the Explore page (`H`), which opens the page on its list (`#past-rounds`) without a round; the pane lists none itself | Past rounds… in the ⋯ menu, on the start cover too, which opens a past round read only (`#round@<id>`): no action, not even Reset, and the server refuses every request on its socket; Back to the current round |
+| Any, on this machine | While no round runs (the start screen, a failed or cancelled start), Past rounds on the Explore page (`H`), which opens the page on its list (`#past-rounds`) without a round; the pane lists none itself | Past rounds in the ⋯ menu, on the start cover too, which opens their list, from which a past round opens read only (`#round@<id>`): no action, not even Reset, and the server refuses every request on its socket; Back to the current round |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
 | Any | History navigation, the provisional map, marks lists, evidence windows | The design screen (`#design`), each earlier question, read only (`#question-N`), and the answered quiz, read only (`#quiz-N`), for history; what an answer marks in its gain line, and the marks of each file in the meter's window; the current stage's citations; no provisional map |
 
@@ -119,6 +119,13 @@ gc`, Git the snapshot's tree until `git gc` prunes it; after that the page falls
 round's saved diff, which holds only the changed lines and their context. A past round shows on
 a socket of its own (`/ws?past=<id>`), so the client opens a new socket when the address names
 another round.
+
+The list of past rounds stands where the chat does, in the column at the window's left
+(`left-column.js`, `left-column.css`), and the two take turns there: the window has room for one
+column at its left, and the reviewer reads one round after another with the list beside it. The
+chat still shows a past round's conversation, read only, and opening it takes the column back.
+The list stays open only from 89rem, where the page makes room for the column; below, the column
+lies over the page, so the list closes as the page goes to another screen or round.
 
 The reviewer records the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The

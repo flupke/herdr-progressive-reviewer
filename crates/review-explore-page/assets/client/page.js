@@ -22,7 +22,7 @@ import { Meter } from './meter.js';
 import { Notifier } from './notify.js';
 import { QuestionScreen } from './question.js';
 import { itemOpens, quizOpens, QuizScreen, railShowing } from './quiz.js';
-import { pastBanner } from './past.js';
+import { pastBanner, PastList } from './past.js';
 import { DESIGN, earlierQuestion, here, openRound, pastRound, quizItem, route, STAGE } from './route.js';
 import { SentScreen } from './sent.js';
 import { startCover } from './start.js';
@@ -52,6 +52,8 @@ export class Page {
     this.chat = new Chat(/** @type {HTMLElement} */ (header.querySelector('#masthead-chat')), call, () => {
       if (this.view) this.render(this.view);
     });
+    // The list of past rounds, which the masthead's menu opens in the chat's place.
+    this.pastList = new PastList(redraw);
     this.quotes = new QuotePicker(main);
     // The glossary's terms, marked in the screens and in the chat.
     this.glossary = new Glossary([main, this.chat.element]);
@@ -80,6 +82,8 @@ export class Page {
     this.answeredItem = 0;
     /** The screen the page shows, and the part of the design it shows. @type {string | null} */
     this.shown = null;
+    /** The past round the page shows, or `null` for the round it follows. @type {string | null} */
+    this.shownPast = null;
     /** The screen the page shows other than the stage, which the rail shows as the step in view.
      * @type {import('./masthead.js').Viewing} */
     this.viewed = null;
@@ -138,6 +142,7 @@ export class Page {
     this.renderSent(view);
     this.renderScreens(view, quizShown !== null);
     this.chat.update(view, chatPlace(view, this.viewed));
+    this.pastList.update(view);
     this.quotes.update(view.conversation?.writable ?? false);
     // While the quiz shows an item, the rail names it.
     const quiz = view.conclusion?.quiz;
@@ -195,10 +200,14 @@ export class Page {
         : showsQuiz
           ? 'quiz'
           : 'stage';
-    if (shown === this.shown) return;
-    // The reviewer who opens another screen from the stage comes back to where they were.
-    if (this.shown === 'stage') this.stageScroll = window.scrollY;
+    const past = view.past?.round ?? null;
+    if (shown === this.shown && past === this.shownPast) return;
+    // The reviewer who opens another screen from the stage comes back to where they were; going
+    // to, from or between past rounds opens the round at its top.
+    if (past !== this.shownPast) this.stageScroll = 0;
+    else if (this.shown === 'stage') this.stageScroll = window.scrollY;
     this.shown = shown;
+    this.shownPast = past;
     this.viewed = showsDesign
       ? { kind: 'design' }
       : earlier && asked.screen === 'question'

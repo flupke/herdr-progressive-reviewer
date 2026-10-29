@@ -75,8 +75,8 @@ pub(crate) struct PageView {
     glossary: std::collections::BTreeMap<String, String>,
     /// The past round the page shows in place of the round it follows, read only.
     past: Option<PastView>,
-    /// The saved rounds of the repository, without the round the page follows, which the ⋯ menu
-    /// lists by change; `None` on a page that offers none, as the page on the network.
+    /// The saved rounds of the repository, without the round the page follows, which the list of
+    /// past rounds shows by change; `None` on a page that offers none, as the page on the network.
     past_rounds: Option<Vec<PastChange>>,
 }
 
@@ -257,7 +257,7 @@ impl PageView {
         }
     }
 
-    /// The view, whose ⋯ menu lists `past_rounds`, the saved rounds of the repository.
+    /// The view, whose list of past rounds shows `past_rounds`, the saved rounds of the repository.
     pub(crate) fn listing(self, past_rounds: Option<Vec<PastChange>>) -> Self {
         Self {
             past_rounds,

@@ -8,7 +8,8 @@ use std::fmt;
 pub enum PageScreen {
     /// The round the page follows, or its start cover while no round runs.
     Current,
-    /// The ⋯ menu's list of past rounds, over the round the page follows.
+    /// The list of past rounds, in the column at the window's left, with the round the page
+    /// follows.
     PastRounds,
 }
 

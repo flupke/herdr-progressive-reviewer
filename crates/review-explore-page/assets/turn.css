@@ -2,7 +2,8 @@
    finding 1): one hairlined block above the stage it led to, with no frame and no fill. Two
    columns, what the reviewer answered beside what the agent recorded, then the follow-ups and
    Cancel this answer under both. In a narrow reading column (a narrow window, or beside the open
-   chat) the columns stack; on a phone each part clamps to two lines, and the follow-ups hide. */
+   column at the window's left) the columns stack; on a phone each part clamps to two lines, and
+   the follow-ups hide. */
 .turn {
   container: turn / inline-size;
   display: grid;
@@ -43,7 +44,8 @@
   .turn { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }
 /* A wider window whose reading column is too narrow for two columns of a few words each
-   (beside the open chat): each part takes the whole width, as on a narrow window. */
+   (beside the open column at the window's left): each part takes the whole width, as on a narrow
+   window. */
 @media (width > 56rem) {
   @container turn (width < 36rem) {
     .turn > section { grid-column: 1 / -1; }

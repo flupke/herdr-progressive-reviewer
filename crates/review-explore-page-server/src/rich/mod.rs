@@ -6,6 +6,7 @@
 mod change;
 mod conclusion;
 mod design;
+mod past;
 mod questions;
 
 use review_explore::{Conclusion, Design, Question};
@@ -13,7 +14,7 @@ use review_explore_page::{QuestionMarks, ReviewName, TurnResponse};
 use review_repository::repository::ShortRevision;
 
 use crate::changed_source::FixedChange;
-use crate::round_data::RoundData;
+use crate::round_data::{RoundData, SavedRound};
 use crate::tally::JevMark;
 
 pub(crate) struct Rich;
@@ -32,6 +33,10 @@ impl RoundData for Rich {
 
     fn design(&self) -> Design {
         design::design()
+    }
+
+    fn saved_rounds(&self) -> &'static [SavedRound] {
+        past::SAVED_ROUNDS
     }
 
     fn glossary(&self) -> std::collections::BTreeMap<String, String> {

@@ -1,7 +1,8 @@
 //! Past rounds: every saved round of the repository other than the one the page follows, which
-//! the page lists in its ⋯ menu and opens read only. Only the page on this machine has them
-//! (ADR 0003 and ADR 0004 open one round on the network and through the tunnel): its owner
-//! attaches [`PastRounds`] to that page's round alone ([`crate::PageRound::with_past_rounds`]).
+//! the page lists in the column at the window's left and opens read only. Only the page on this
+//! machine has them (ADR 0003 and ADR 0004 open one round on the network and through the
+//! tunnel): its owner attaches [`PastRounds`] to that page's round alone
+//! ([`crate::PageRound::with_past_rounds`]).
 //!
 //! The owner publishes the list ([`PastRoundsPublisher`]) whenever the saved rounds change, and
 //! opens a round the reviewer asks for ([`PastRounds::new`]): it reads the round as it was saved,
@@ -19,7 +20,7 @@ use ts_rs::TS;
 use crate::conversation::ThreadsSnapshot;
 use crate::round::{PublishedRound, ReviewName, RoundSnapshot, RoundStage};
 
-/// One change of the repository with its saved rounds, as the ⋯ menu lists them.
+/// One change of the repository with its saved rounds, as the list of past rounds shows them.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct PastChange {
     /// The first line of the change's description as its newest round saved it; for a Git
@@ -31,7 +32,7 @@ pub struct PastChange {
     pub rounds: Vec<PastRoundEntry>,
 }
 
-/// A saved round of a change, as the ⋯ menu lists it.
+/// A saved round of a change, as the list of past rounds shows it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct PastRoundEntry {
     /// The round's identity, which the page's address names to open it.

@@ -11,8 +11,8 @@
 
 .term-tip {
   position: fixed;
-  /* Above the chat, whose sheet covers the page on a phone. */
-  z-index: calc(var(--layer-chat) + 1);
+  /* Above the column at the window's left, whose sheet covers the page on a phone. */
+  z-index: calc(var(--layer-left-column) + 1);
   max-width: min(22rem, calc(100vw - 16px));
   padding: 8px 10px;
   border: 1px solid var(--line-strong);
