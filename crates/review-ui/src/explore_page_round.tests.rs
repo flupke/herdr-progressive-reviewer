@@ -53,7 +53,11 @@ fn the_page_round_view_opens_the_page_again_and_ignores_interview_keys() {
     fixture.respond(&request, 1);
 
     let opened = fixture.click_actions(" Open the Explore page ");
-    assert!(opened.contains(&Action::ExplorePage(ExplorePageAction::Open)));
+    assert!(
+        opened.contains(&Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current
+        )))
+    );
 
     for key in [
         Key::Char('2'),
@@ -86,7 +90,11 @@ fn the_keys_of_the_page_round_buttons_show_in_the_footer_and_act() {
     assert!(footer.contains("o ") && footer.contains("i "), "{footer:?}");
 
     let opened = fixture.app.update(UserInput::Key(Key::Char('o')));
-    assert!(opened.contains(&Action::ExplorePage(ExplorePageAction::Open)));
+    assert!(
+        opened.contains(&Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current
+        )))
+    );
     fixture.app.update(UserInput::Key(Key::Char('i')));
     assert!(fixture.text().contains("Question 1"));
     assert!(
@@ -137,7 +145,11 @@ fn continue_in_the_pane_while_the_round_starts_opens_nothing() {
         result: Ok(fixture.comparison.clone()),
     });
 
-    assert!(!captured.contains(&Action::ExplorePage(ExplorePageAction::Open)));
+    assert!(
+        !captured.contains(&Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current
+        )))
+    );
     let request = ExploreUi::request(captured);
     fixture.respond(&request, 1);
     assert!(fixture.text().contains("Question 1"));

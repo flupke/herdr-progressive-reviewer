@@ -207,7 +207,7 @@ impl ExploreComponent {
 }
 
 /// The key that runs `shortcut`, as the footer shows it with `hint`.
-fn key_hint(shortcut: ExploreTurnShortcut, hint: &str) -> Option<KeyHint> {
+pub(super) fn key_hint(shortcut: ExploreTurnShortcut, hint: &str) -> Option<KeyHint> {
     let key = ExploreShortcut::Turn(shortcut).keys().next()?;
     Some(KeyHint::new(key.label(), hint))
 }

@@ -36,8 +36,8 @@ pub enum Action {
 /// Work on the Explore page the pane serves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplorePageAction {
-    /// Open the page in the default browser.
-    Open,
+    /// Open the page in the default browser, on a screen of it.
+    Open(review_explore_page_opening::PageScreen),
     /// Share the running round over a tunnel, until the round ends.
     OpenTunnel,
     /// Stop the tunnel that shares the running round.

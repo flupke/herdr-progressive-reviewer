@@ -12,8 +12,8 @@
 //! another listener or [takes it off](PageNetwork::unshare) the network. The reviewer can also
 //! [share the running round over a tunnel](PageNetwork::open_tunnel), behind the same token on
 //! the network, until the round ends. A [`PageOpener`] opens
-//! the page of a workspace in the default browser, for the action and for the pane's Start and
-//! Start with Challenger.
+//! the page of a workspace in the default browser, for the action and for the pane's Start,
+//! Start with Challenger and Past rounds.
 
 mod browser;
 mod network;

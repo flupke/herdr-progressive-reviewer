@@ -17,6 +17,7 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
 use review_explore_page::RoundPublisher;
 use review_explore_page_host::PageOpener;
+use review_explore_page_opening::PageScreen;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_repository::repository::Repository;
 use review_significance::JevClassifier;
@@ -354,15 +355,15 @@ impl Effects {
         Ok(())
     }
 
-    /// Open the Explore page in the browser, on a thread of its own since the browser program
-    /// may take its time; the pane hears only of a failure.
-    fn open_page(&self) {
+    /// Open the Explore page in the browser on `screen`, on a thread of its own since the browser
+    /// program may take its time; the pane hears only of a failure.
+    fn open_page(&self, screen: PageScreen) {
         let Some(opener) = self.page_opener.clone() else {
             return;
         };
         let messages = self.messages.clone();
         thread::spawn(move || {
-            if let Err(failure) = opener.open() {
+            if let Err(failure) = opener.open(screen) {
                 let _ = messages.send(ui_events::ExplorePageNotOpened(failure));
             }
         });
@@ -550,7 +551,7 @@ impl ActionExecutors for Performer<'_, '_> {
 
     fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()> {
         match action {
-            ExplorePageAction::Open => self.effects.open_page(),
+            ExplorePageAction::Open(screen) => self.effects.open_page(screen),
             ExplorePageAction::OpenTunnel => self.effects.share_round(true),
             ExplorePageAction::CloseTunnel => self.effects.share_round(false),
         }

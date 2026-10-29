@@ -253,7 +253,8 @@ page on this machine lists them in its ⋯ menu, grouped by change and named by 
 change's title, each by its date, and opens one read only, as it was last saved, at
 an address of its own: its design, each question with the answer kept, the quiz, the
 conclusion and its round conversation, with the code it cited as the round saw it.
-Nothing on it acts. The page on the network and through the tunnel offers none.
+Nothing on it acts. The pane's start screen opens the page on that list, without a
+round. The page on the network and through the tunnel offers none.
 _Avoid_: archive, old round, earlier round (a round of the current review that a
 newer one replaced, which the pane still shows)
 

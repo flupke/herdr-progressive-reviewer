@@ -1,6 +1,8 @@
 //! Opening the page of a workspace's open reviewer in the default browser of this machine, for
-//! the Herdr action and for the pane's Start and Start with Challenger. `BROWSER` names the
-//! program and its arguments; by default `xdg-open` on Linux, `open` on macOS.
+//! the Herdr action, for the pane's Start and Start with Challenger, and for its Past rounds.
+//! `BROWSER` names the program and its arguments; by default `xdg-open` on Linux, `open` on
+//! macOS. The page opens at the address of this machine's loopback listener, the only one that
+//! offers past rounds (ADR 0003, ADR 0004).
 
 use std::env;
 use std::ffi::OsString;
@@ -8,7 +10,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page_opening::PageNotOpened;
+use review_explore_page_opening::{PageNotOpened, PageScreen};
 
 use crate::PageDirectory;
 
@@ -29,10 +31,10 @@ impl PageOpener {
         }
     }
 
-    /// Opens the page in the browser. Waits for the browser program to exit: run it off any
-    /// thread that must stay responsive.
-    pub fn open(&self) -> Result<(), PageNotOpened> {
-        let url = self
+    /// Opens the page in the browser, on `screen`. Waits for the browser program to exit: run it
+    /// off any thread that must stay responsive.
+    pub fn open(&self, screen: PageScreen) -> Result<(), PageNotOpened> {
+        let address = self
             .pages
             .address(&self.workspace)
             .map_err(|error| PageNotOpened {
@@ -43,6 +45,7 @@ impl PageOpener {
                 url: None,
                 reason: "No open reviewer in this workspace: open the progressive reviewer, then its Explore page".into(),
             })?;
+        let url = format!("{address}{}", screen.fragment());
         self.browser.open(&url).map_err(|reason| PageNotOpened {
             url: Some(url),
             reason,

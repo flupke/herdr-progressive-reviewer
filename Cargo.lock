@@ -4626,6 +4626,7 @@ dependencies = [
  "review-explore",
  "review-explore-page",
  "review-explore-page-host",
+ "review-explore-page-opening",
  "review-explore-page-settings",
  "review-explore-round-settings",
  "review-explore-session",
@@ -5983,6 +5984,7 @@ name = "ui-actions"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-explore-page-opening",
  "review-explore-page-settings",
  "review-explore-round-settings",
  "review-hunks",

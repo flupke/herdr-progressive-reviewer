@@ -57,6 +57,11 @@ export interface Session {
   /** Opens the design screen, at the address the rail's "Design ▾" links to (`#design`). */
   openDesign(): Promise<void>;
   /**
+   * Opens the page on its list of past rounds, at the address the pane's "Past rounds on the
+   * Explore page" opens (`#past-rounds`).
+   */
+  openPastRounds(): Promise<void>;
+  /**
    * The agent posts its next question: `question` when given, a JSON `Question` of
    * `review_explore`, or else the fixed questions of the standalone server in turn.
    */
@@ -226,6 +231,9 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     },
     openDesign: async () => {
       await page.open(`/?token=${token}#design`);
+    },
+    openPastRounds: async () => {
+      await page.open(`/?token=${token}#past-rounds`);
     },
     askQuestion: (question?: object) => step('question', question),
     askPreparedQuestion: () => step('question-prepared'),

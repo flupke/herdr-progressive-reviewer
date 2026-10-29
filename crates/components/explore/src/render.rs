@@ -646,6 +646,7 @@ impl ExploreComponent {
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
         }
+        self.lay_out_past_rounds(layout);
     }
 
     fn render_map(&self, layout: &mut ConversationLayout, palette: Palette) {

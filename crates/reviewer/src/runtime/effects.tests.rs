@@ -341,7 +341,9 @@ mod explore_page {
     }
 
     fn open() -> Action {
-        Action::ExplorePage(ExplorePageAction::Open)
+        Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current,
+        ))
     }
 
     #[test]

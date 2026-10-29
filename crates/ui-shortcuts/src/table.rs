@@ -675,6 +675,13 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Explore: open the Explore page on its past rounds"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('H'),
+            explore_turn(ExploreTurnShortcut::PastRounds),
+        )],
+    },
+    ShortcutDefinition {
         description: Some("Explore round settings: change the writing style of the next round"),
         bindings: &[ShortcutBinding::one(
             Key::Char('W'),

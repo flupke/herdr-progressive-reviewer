@@ -135,6 +135,7 @@ impl Control {
                 | Self::Reset
                 | Self::ConfirmReset
                 | Self::Setting(_)
+                | Self::PastRounds
         ) {
             let tone = match self {
                 Self::Front(FrontControl::OpenPage) | Self::Send | Self::Implement => {

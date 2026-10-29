@@ -92,6 +92,7 @@ impl ExploreComponent {
                 return self.recovery_control(control);
             }
             Control::CopyLink(link) => return self.copy_link(link),
+            Control::PastRounds => return self.open_past_rounds(),
             control => self.navigate(control),
         }
         Vec::new()
@@ -331,8 +332,8 @@ impl ExploreComponent {
 
     fn turn_control(command: ExploreTurnShortcut) -> Control {
         match command {
-            ExploreTurnShortcut::Start(shortcut) => {
-                Control::Front(FrontControl::Start(StartButton::of(shortcut).start))
+            ExploreTurnShortcut::Start(_) | ExploreTurnShortcut::PastRounds => {
+                Self::start_screen_control(command)
             }
             ExploreTurnShortcut::OpenPage => Control::Front(FrontControl::OpenPage),
             ExploreTurnShortcut::ContinueInPane => Control::Front(FrontControl::ContinueInPane),
@@ -342,6 +343,16 @@ impl ExploreComponent {
             ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),
             ExploreTurnShortcut::NextTurn => Control::History(History::Next),
             ExploreTurnShortcut::ToggleMap => Control::Map,
+        }
+    }
+
+    /// The control of a shortcut of the start screen's buttons.
+    fn start_screen_control(command: ExploreTurnShortcut) -> Control {
+        match command {
+            ExploreTurnShortcut::Start(shortcut) => {
+                Control::Front(FrontControl::Start(StartButton::of(shortcut).start))
+            }
+            _ => Control::PastRounds,
         }
     }
 

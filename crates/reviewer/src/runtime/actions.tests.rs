@@ -81,7 +81,9 @@ fn each_action_group_reaches_its_own_executor_with_its_payload() {
     let mut recorder = Recorder::default();
     let actions = vec![
         Action::Explore(review_explore::Command::Cancel),
-        Action::ExplorePage(ExplorePageAction::Open),
+        Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current,
+        )),
         Action::Thread(ThreadCommand::Load("change".into())),
         Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: checkpoint(),
