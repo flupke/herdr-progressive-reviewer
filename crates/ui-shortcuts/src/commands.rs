@@ -165,6 +165,8 @@ pub enum ExploreTurnShortcut {
     OpenPage,
     /// Show the interview of a round on the page in the pane.
     ContinueInPane,
+    /// Open the Explore page on its list of past rounds, from the start screen.
+    PastRounds,
     /// Change an Explore setting: one of the next round or of the Explore page.
     Setting(ExploreSettingShortcut),
     Cancel,

@@ -54,7 +54,8 @@ export function pastBanner(past, review) {
 }
 
 /**
- * The menu's list of past rounds, grouped by change.
+ * The menu's list of past rounds, grouped by change, or a line that says there is none yet, for
+ * the pane's way to the list.
  * @param {PastChange[]} changes
  * @param {string | null} shown the past round the page shows, if any
  */
@@ -63,6 +64,9 @@ export function pastList(changes, shown) {
     'nav',
     { class: 'past-list', 'aria-label': 'Past rounds' },
     h('p', { class: 'eyebrow' }, 'Past rounds'),
+    changes.length === 0
+      ? h('p', { class: 'past-none', tabindex: '-1' }, 'No past round yet.')
+      : null,
     changes.map((change) =>
       h(
         'section',

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use herdr_client::protocol::PluginContext;
 use review_explore_page_host::{Browser, PageDirectory, PageOpener};
+use review_explore_page_opening::PageScreen;
 
 /// The action, for the workspace it runs in.
 pub(super) struct OpenExplorePage(PageOpener);
@@ -31,6 +32,6 @@ impl OpenExplorePage {
     }
 
     pub(super) fn run(&self) -> eyre::Result<()> {
-        Ok(self.0.open()?)
+        Ok(self.0.open(PageScreen::Current)?)
     }
 }

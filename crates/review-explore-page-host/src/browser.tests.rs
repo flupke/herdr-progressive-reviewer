@@ -51,10 +51,26 @@ fn the_opener_opens_the_page_of_the_workspaces_reviewer_in_the_browser() {
     let address_file = state.path().join("address_file");
 
     opener(state.path(), browser(state.path(), &address_file, 0))
-        .open()
+        .open(PageScreen::Current)
         .unwrap();
 
     assert_eq!(std::fs::read_to_string(&address_file).unwrap(), host.url());
+}
+
+#[test]
+fn the_opener_opens_the_page_on_its_past_rounds_at_the_loopback_address() {
+    let state = tempfile::tempdir().unwrap();
+    let host = host(state.path());
+    let address_file = state.path().join("address_file");
+
+    opener(state.path(), browser(state.path(), &address_file, 0))
+        .open(PageScreen::PastRounds)
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&address_file).unwrap(),
+        format!("{}#past-rounds", host.url())
+    );
 }
 
 #[test]
@@ -63,7 +79,7 @@ fn without_an_open_reviewer_the_opener_opens_nothing_and_says_why() {
     let address_file = state.path().join("address_file");
 
     let failure = opener(state.path(), browser(state.path(), &address_file, 0))
-        .open()
+        .open(PageScreen::Current)
         .unwrap_err();
 
     assert_eq!(failure.url, None);
@@ -77,7 +93,7 @@ fn a_browser_that_fails_leaves_the_address_to_open_by_hand() {
     let address_file = state.path().join("address_file");
 
     let failure = opener(state.path(), browser(state.path(), &address_file, 3))
-        .open()
+        .open(PageScreen::Current)
         .unwrap_err();
 
     assert_eq!(failure.url.as_deref(), Some(host.url()));
@@ -94,7 +110,7 @@ fn a_missing_browser_program_leaves_the_address_to_open_by_hand() {
         state.path(),
         Browser::command(&missing.display().to_string()),
     )
-    .open()
+    .open(PageScreen::Current)
     .unwrap_err();
 
     assert_eq!(failure.url.as_deref(), Some(host.url()));

@@ -1,13 +1,16 @@
 //! The start screen: whose change the next round reviews, and, with nothing left to review,
-//! its four buttons stay, inactive, and a line says why, until a line is unreviewed again.
+//! its four buttons stay, inactive, and a line says why, until a line is unreviewed again; the
+//! past rounds open on the Explore page either way, without a round.
 
 use std::sync::Arc;
 
 use component_core::ComponentEventBus;
 use ratatui::layout::Rect;
 use review_explore::{ChangeAuthor, Comparison, StartBlock, TurnRequest};
+use review_explore_page_opening::PageScreen;
 use review_source::ReviewCheckpoint;
-use ui_actions::Action;
+use ui_actions::{Action, ExplorePageAction};
+use ui_controls::KeyHint;
 use ui_events::{
     ExploreCaptured, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStartBlock,
 };
@@ -46,13 +49,18 @@ impl Pane {
         self.bus.get_mut::<ExploreComponent>(self.target).unwrap()
     }
 
-    fn press(&mut self, key: char) {
+    /// Presses `key`, and returns the actions the pane asks for.
+    fn press(&mut self, key: char) -> Vec<Action> {
         self.bus
             .dispatch_input(
                 &component_core::EventEnvelope::new(ui_shortcuts::Key::Char(key)),
                 self.target,
             )
-            .unwrap();
+            .unwrap()
+            .into_results()
+            .into_iter()
+            .flat_map(component_core::DispatchResult::into_actions)
+            .collect()
     }
 
     /// Captures the change of the round being started, and returns the kickoff the pane sends.
@@ -111,7 +119,7 @@ impl Pane {
 }
 
 /// The start screen's buttons, inactive or not; while they act, the one that says whose change
-/// it is comes first.
+/// it is comes first. Past rounds comes last, and acts either way.
 fn labels(active: bool) -> Vec<(String, bool)> {
     active
         .then(|| ("Whose change: mine".to_owned(), true))
@@ -121,7 +129,15 @@ fn labels(active: bool) -> Vec<(String, bool)> {
                 .iter()
                 .map(|button| (button.label.to_owned(), active)),
         )
+        .chain([("Past rounds on the Explore page".to_owned(), true)])
         .collect()
+}
+
+/// The action that opens the Explore page on its past rounds.
+fn past_rounds() -> Vec<Action> {
+    vec![Action::ExplorePage(ExplorePageAction::Open(
+        PageScreen::PastRounds,
+    ))]
 }
 
 #[test]
@@ -173,10 +189,62 @@ fn with_nothing_left_to_review_the_four_starts_are_inactive_and_say_why() {
             button.label
         );
     }
-    assert!(
-        pane.component().footer_hints().is_empty(),
+    assert_eq!(
+        pane.component().footer_hints(),
+        [KeyHint::new("H", "past rounds")],
         "the footer shows no key that does nothing"
     );
+}
+
+#[test]
+fn past_rounds_opens_the_page_on_them_without_starting_a_round() {
+    let mut pane = Pane::starting();
+
+    assert_eq!(pane.press('H'), past_rounds());
+
+    let component = pane.component();
+    assert!(component.exploration.is_none());
+    assert!(component.progress == Progress::Ready);
+}
+
+#[test]
+fn with_nothing_left_to_review_past_rounds_still_opens_the_page_on_them() {
+    let mut pane = Pane::starting();
+    pane.block(Some(StartBlock::NothingToReview));
+
+    assert_eq!(pane.press('H'), past_rounds());
+}
+
+#[test]
+fn after_a_start_that_failed_past_rounds_still_opens_the_page_on_them() {
+    let mut pane = Pane::starting();
+    pane.component().start(StartButton::START_IN_PANE.start);
+    pane.bus
+        .publish(ExploreCaptured {
+            result: Err("Repository comparison is not ready; retry Start".into()),
+        })
+        .unwrap();
+
+    assert_eq!(
+        pane.component().footer_hints(),
+        [KeyHint::new("H", "past rounds")]
+    );
+    assert_eq!(pane.press('H'), past_rounds());
+}
+
+#[test]
+fn past_rounds_does_nothing_once_a_round_runs() {
+    let mut pane = Pane::starting();
+    pane.component().start(StartButton::START_IN_PANE.start);
+    pane.capture();
+
+    assert!(
+        !pane
+            .buttons()
+            .iter()
+            .any(|(label, _)| label.starts_with("Past rounds"))
+    );
+    assert_eq!(pane.press('H'), []);
 }
 
 #[test]
@@ -188,7 +256,13 @@ fn a_start_that_failed_offers_the_inactive_starts_in_place_of_retry_once_nothing
             result: Err("Repository comparison is not ready; retry Start".into()),
         })
         .unwrap();
-    assert_eq!(pane.buttons(), [("Retry".to_owned(), true)]);
+    assert_eq!(
+        pane.buttons(),
+        [
+            ("Retry".to_owned(), true),
+            ("Past rounds on the Explore page".to_owned(), true)
+        ]
+    );
 
     pane.block(Some(StartBlock::NothingToReview));
 

@@ -4,6 +4,7 @@ use component_core::{Component, ComponentSubscriptions, EventPublisher};
 use review_explore::{
     AnswerInput, ChangeAuthor, Command, Exploration, Question, RoundChoices, RoundFront,
 };
+use review_explore_page_opening::PageScreen;
 use review_explore_page_settings::PaneStarts;
 use std::{
     cell::{Cell, RefCell},
@@ -32,6 +33,7 @@ mod page_actions;
 mod page_round;
 mod page_settings;
 mod page_start;
+mod past_rounds;
 mod persistence;
 mod render;
 mod reset;
@@ -50,6 +52,8 @@ enum Control {
     ConfirmReset,
     /// Change a setting of the next round or of the Explore page.
     Setting(ui_shortcuts::ExploreSettingShortcut),
+    /// Open the Explore page on its list of past rounds, from the start screen.
+    PastRounds,
     NewImplementation,
     Send,
     History(navigation::History),
@@ -306,7 +310,9 @@ impl ExploreComponent {
                 self.open_round(exploration);
                 let mut actions = self.request(None);
                 if open_page {
-                    actions.push(Action::ExplorePage(ExplorePageAction::Open));
+                    actions.push(Action::ExplorePage(ExplorePageAction::Open(
+                        PageScreen::Current,
+                    )));
                 }
                 actions
             }

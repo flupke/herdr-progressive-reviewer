@@ -33,7 +33,9 @@ const STARTS: [(Trigger, bool, bool); 8] = [
 ];
 
 fn opens_page(actions: &[Action]) -> bool {
-    actions.contains(&Action::ExplorePage(ExplorePageAction::Open))
+    actions.contains(&Action::ExplorePage(ExplorePageAction::Open(
+        review_explore_page_opening::PageScreen::Current,
+    )))
 }
 
 impl ExploreUi {

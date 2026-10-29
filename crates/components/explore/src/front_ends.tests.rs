@@ -322,7 +322,9 @@ fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
         .collect::<Vec<_>>();
 
     assert!(
-        !actions.contains(&Action::ExplorePage(ui_actions::ExplorePageAction::Open)),
+        !actions.contains(&Action::ExplorePage(ui_actions::ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current
+        ))),
         "the page that started the round is open already"
     );
     let component = pane.component();

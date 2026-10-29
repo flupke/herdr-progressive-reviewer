@@ -1,7 +1,8 @@
 // Past rounds: the ⋯ menu lists the repository's saved rounds by change, and opens one read
 // only, at an address of its own that a reload keeps and Back leaves; the page says which round
 // it shows, that the current round waits meanwhile, and leads back to it. A round the reviewer
-// resets is listed at once, on the start cover too.
+// resets is listed at once, on the start cover too. The pane opens the page on the list, with no
+// round running.
 import { expect } from 'e2e';
 import { test } from './session.ts';
 
@@ -73,4 +74,23 @@ test('a round the reviewer resets is listed on the start cover and opens where i
   // The question it left waiting shows its choices, with nothing to pick or send.
   await expect(screen.getByRole('group', 'Choices')).toBeDisabled();
   await expect(screen.getByRole('button', 'Send answer')).toHaveCount(0);
+});
+
+test('the address the pane opens shows the past rounds over the start cover, with no round running', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await explore.reset();
+  await explore.openPastRounds();
+
+  const list = screen.getByRole('navigation', 'Past rounds');
+  await expect(list).toContainText('Name the queue');
+  await expect(screen.getByRole('button', 'Start')).toBeVisible();
+  // The address names the stage once the list shows: a reload opens no list.
+  await expect(browser).toHaveURL(/#round$/);
+
+  await list.getByRole('link').first().tap();
+  await expect(screen.getByRole('region', 'Past round')).toBeVisible();
+  expect(await explore.starts()).toEqual([]);
 });

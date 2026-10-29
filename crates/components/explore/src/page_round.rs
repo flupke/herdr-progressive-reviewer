@@ -4,6 +4,7 @@
 //! instead. The page's address and QR code follow, as on every screen of the pane.
 
 use review_explore::RoundFront;
+use review_explore_page_opening::PageScreen;
 use ui_actions::{Action, ExplorePageAction};
 use ui_controls::KeyHint;
 use ui_shortcuts::{ExploreCommand, ExploreShortcut, ExploreTurnShortcut};
@@ -27,7 +28,9 @@ impl ExploreComponent {
     pub(super) fn front_control(&mut self, control: FrontControl) -> Vec<Action> {
         match control {
             FrontControl::Start(start) => self.start(start),
-            FrontControl::OpenPage if self.shows_page_round() => self.open_page(),
+            FrontControl::OpenPage if self.shows_page_round() => {
+                self.open_page(PageScreen::Current)
+            }
             FrontControl::ContinueInPane if self.shows_page_round() => {
                 self.continue_in_pane();
                 Vec::new()
@@ -51,24 +54,27 @@ impl ExploreComponent {
     }
 
     /// The keys the footer shows for the pane: none while a setting of the Explore page is
-    /// typed, those of the four starts on the start screen, those of the buttons of a round on
-    /// the page.
+    /// typed, those of the buttons of a round on the page, those of the four starts on the start
+    /// screen, and Past rounds' while no round runs.
     pub fn footer_hints(&self) -> Vec<KeyHint> {
         if self.page_settings.editing() {
             Vec::new()
         } else if self.shows_page_round() {
             PageRoundButton::hints()
-        } else if self.offers_starts() {
-            StartButton::hints(self.start_block)
         } else {
-            Vec::new()
+            let starts = if self.offers_starts() {
+                StartButton::hints(self.start_block)
+            } else {
+                Vec::new()
+            };
+            starts.into_iter().chain(self.past_rounds_hint()).collect()
         }
     }
 
-    /// Open the page in the browser again; a failure says so again.
-    fn open_page(&mut self) -> Vec<Action> {
+    /// Open the page in the browser on `screen`; a failure says so again.
+    pub(super) fn open_page(&mut self, screen: PageScreen) -> Vec<Action> {
         self.unopened_page = None;
-        vec![Action::ExplorePage(ExplorePageAction::Open)]
+        vec![Action::ExplorePage(ExplorePageAction::Open(screen))]
     }
 
     /// Show the round's interview in the pane, at the question it would show there.

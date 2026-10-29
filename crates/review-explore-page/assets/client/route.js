@@ -9,6 +9,10 @@
 // - `#quiz-N` shows item N of the conclusion's quiz as the reviewer answered it, read only, once
 //   the quiz is over: the target of its done step on the rail and of the score beside the
 //   conclusion (while the quiz asks, the item it shows is the page's own state, page.js);
+// - `#past-rounds` opens the ⋯ menu on the list of past rounds, over the round's current stage:
+//   the address at which the pane's "Past rounds on the Explore page" opens the page on this
+//   machine (`PageScreen::PastRounds` in crates/review-explore-page-opening); once the list
+//   shows, the address names the stage;
 // - any other fragment, or none, shows the round's current stage; `#round` names it, for a link
 //   back from the design.
 //
@@ -27,6 +31,8 @@
 export const DESIGN = '#design';
 /** The round's current stage. */
 export const STAGE = '#round';
+/** The list of past rounds, in the ⋯ menu. */
+export const PAST_ROUNDS = '#past-rounds';
 
 const PART = /^#design-part-([1-9][0-9]*)$/;
 /** The identity of a past round at the end of an address. */

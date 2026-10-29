@@ -82,7 +82,11 @@ fn turning_the_opening_off_saves_it_and_start_then_starts_the_round_in_the_pane(
     let captured = fixture.app.publish(ExploreCaptured {
         result: Ok(fixture.comparison.clone()),
     });
-    assert!(!captured.contains(&Action::ExplorePage(ExplorePageAction::Open)));
+    assert!(
+        !captured.contains(&Action::ExplorePage(ExplorePageAction::Open(
+            review_explore_page_opening::PageScreen::Current
+        )))
+    );
     let request = ExploreUi::request(captured);
     fixture.respond(&request, 1);
     assert!(fixture.text().contains("Question 1"));
