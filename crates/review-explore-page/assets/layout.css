@@ -30,25 +30,32 @@
   /* A list of short lines, such as a quiz item's options: the width of the old single column. */
   --phrase: 44rem;
   /* The space above the page's first part, under the masthead; and where a column that stays
-     in view (the panel, the chat) is held from the top of the window while the page scrolls. */
+     in view (the panel, the column at the window's left) is held from the top of the window
+     while the page scrolls. */
   --page-top: 24px;
   --sticky-top: 16px;
   /* The margin of a page centred in a wider window, and where the page's column begins after
      it: percentages of the window's width, for an element as wide as the window. */
   --page-margin: max(0px, (100% - var(--page)) / 2);
   --column-start: calc(var(--page-margin) + var(--gutter));
-  /* The narrowest reading column beside the open chat (below). */
+  /* The narrowest reading column beside the open column at the window's left (below). */
   --reading-min: 448px;
   /* The chat on a desktop (chat.css), at the window's left gutter: as wide as the panel, the
-     narrowest it gets; and the room it takes, from the window's left edge to the reading
-     column. */
+     narrowest it gets. */
   --chat-min: var(--panel-width);
   --chat-width: var(--chat-min);
-  --chat-room: calc(var(--gutter) + var(--chat-width) + var(--column-gap));
+  /* The column at the window's left (left-column.css): as wide as the chat, or as the panel for
+     the list of past rounds (past.css); and the room the open one takes, from the window's left
+     edge to the reading column. */
+  --left-width: var(--chat-width);
+  --left-room: calc(var(--gutter) + var(--left-width) + var(--column-gap));
   /* The panel of the screen in view, which the chat beside the page leaves its width. */
   --shown-panel: var(--panel-width);
 }
 :root:has(.screen:not([hidden]) > .desk.wide) { --shown-panel: var(--panel-width-wide); }
+/* The list of past rounds keeps the panel's width, whatever width the chat has: the page makes
+   room for that width while the list is open. */
+:root:has(> body > .past-list.open) { --left-width: var(--panel-width); }
 /* Beside the page, the chat takes the width the reviewer set, or else the width its widest
    message needs (`--chat-want`, which client/chat-width.js sets), from the panel's width up
    to a figure of the reading column with the room a message keeps around it, and never so
@@ -75,24 +82,25 @@ main {
   padding: var(--page-top) var(--gutter) 48px;
 }
 
-/* Room for the open chat (chat.css). From 89rem, the chat stands at the window's left gutter as
-   a column of its own, and the page's content starts after it and the column gap: the reading
-   column gives up the width the chat needs, while the panel keeps its width and its place. On
-   a window wide enough (2352 pixels), the chat fits in the margin of the centred page and
-   nothing moves. 89rem is the narrowest window with room for the three columns: the chat's
-   room (32 + 416 + 40), the narrowest reading column (448 pixels, about 56 characters of
-   text), the gap and the panel (40 + 416), and the right gutter (32), 1424 pixels. Below it,
-   the chat lies over the left of the page and nothing moves. The conclusion's wider panel
-   takes its reading column down to 384 pixels at 89rem. */
+/* Room for the open column at the window's left (left-column.css), the chat or the list of past
+   rounds. From 89rem, it stands at the window's left gutter as a column of its own, and the
+   page's content starts after it and the column gap: the reading column gives up the width the
+   column needs, while the panel keeps its width and its place. On a window wide enough (2352
+   pixels), the column fits in the margin of the centred page and nothing moves. 89rem is the
+   narrowest window with room for the three columns: the left column's room at its narrowest
+   (32 + 416 + 40), the narrowest reading column (448 pixels, about 56 characters of text), the
+   gap and the panel (40 + 416), and the right gutter (32), 1424 pixels. Below it, the column
+   lies over the left of the page and nothing moves. The conclusion's wider panel takes its
+   reading column down to 384 pixels at 89rem. */
 @media (min-width: 89rem) {
-  body:has(> .chat:not([hidden])) main { transition: padding-left var(--drawer-out) ease; }
-  body:has(> .chat.open) main {
-    padding-left: max(var(--gutter), calc(var(--chat-room) - var(--page-margin)));
+  body:has(> .left-column:not([hidden])) main { transition: padding-left var(--drawer-out) ease; }
+  body:has(> .left-column.open) main {
+    padding-left: max(var(--gutter), calc(var(--left-room) - var(--page-margin)));
     transition: padding-left var(--drawer-in) var(--ease-settle);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  body:has(> .chat:not([hidden])) main, body:has(> .chat.open) main { transition: none; }
+  body:has(> .left-column:not([hidden])) main, body:has(> .left-column.open) main { transition: none; }
 }
 
 /* Text keeps its measure; tables, code, diagrams and boxes take the width they need. */

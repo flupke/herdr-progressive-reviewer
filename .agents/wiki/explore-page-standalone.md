@@ -21,8 +21,9 @@ again; the open page reconnects by itself once the server is back. The token sta
 
 The server's options are listed at the top of
 [`main.rs`](../../crates/review-explore-page-server/src/main.rs). `--data rich` serves a
-round as long as a real one, for the gallery below; `make explore-page
-EXPLORE_PAGE_ARGS='--data rich'` serves it.
+round as long as a real one, for the gallery below, with as many past rounds as a repository
+reviewed for weeks keeps (`rich/past.rs`); `make explore-page EXPLORE_PAGE_ARGS='--data rich'`
+serves it.
 
 ## Act on the page with a script
 

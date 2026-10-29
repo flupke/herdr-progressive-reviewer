@@ -173,8 +173,8 @@ impl Clock {
     }
 }
 
-/// A day, in milliseconds.
-const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+/// A minute, in milliseconds.
+const MINUTE_MS: u64 = 60 * 1_000;
 
 /// The time of a fixed clock, in milliseconds since the epoch: the gallery's pages stand 42
 /// seconds after it (`tests/explore-page/gallery/gallery.ts`).
@@ -1244,7 +1244,7 @@ impl Sessions {
 
     /// Opens a session behind `token` whose agent asked `asked` questions: it shows the latest,
     /// or the agent works on its first one. Its agent posts `data`, or the server's data set.
-    /// Two rounds of other changes are saved before it, as past rounds.
+    /// The rounds of other changes that its data set saved before it are its past rounds.
     pub(crate) fn open(&self, token: Token, asked: usize, data: Option<&'static dyn RoundData>) {
         let data = data.unwrap_or(self.data);
         let id = format!("session-{}", self.lock().len() + 1);
@@ -1494,54 +1494,13 @@ impl Rounds for Sessions {
     }
 }
 
-/// The two rounds saved before the session `session` opened, of two changes other than its
-/// own, newest first: one that ended at its conclusion, the quiz answered, and one left at its
-/// second question.
+/// The rounds of other changes saved before the session `session` opened, newest first, as
+/// `data` lists them, the quiz of a concluded one answered.
 fn past_rounds(session: &str, clock: Clock, data: &'static dyn RoundData) -> Vec<PastRound> {
-    let saved = [
-        (
-            "Keep the reviewer's draft across reloads",
-            ("kq", "vmtsxy"),
-            1,
-            vec![
-                Step::Kickoff,
-                Step::Question {
-                    path: RunAheadPath::Unwatched,
-                },
-                Step::Answer {
-                    after_first_pick: false,
-                },
-                Step::Question {
-                    path: RunAheadPath::Unwatched,
-                },
-                Step::Answer {
-                    after_first_pick: false,
-                },
-                Step::Conclude { quiz: true },
-            ],
-        ),
-        (
-            "Name the queue's flush policy",
-            ("pw", "nlzrot"),
-            3,
-            vec![
-                Step::Kickoff,
-                Step::Question {
-                    path: RunAheadPath::Unwatched,
-                },
-                Step::Answer {
-                    after_first_pick: false,
-                },
-                Step::Question {
-                    path: RunAheadPath::Unwatched,
-                },
-            ],
-        ),
-    ];
-    saved
-        .into_iter()
+    data.saved_rounds()
+        .iter()
         .enumerate()
-        .map(|(index, (title, (prefix, rest), days_ago, steps))| {
+        .map(|(index, saved)| {
             let mut past = Session::new(
                 format!("{session}-past-{}", index + 1),
                 Token::random(),
@@ -1549,7 +1508,7 @@ fn past_rounds(session: &str, clock: Clock, data: &'static dyn RoundData) -> Vec
                 data,
                 0,
             );
-            for step in steps {
+            for &step in saved.steps {
                 if let Some(stage) = past.stage_after(step, None) {
                     past.publish(stage);
                 }
@@ -1562,14 +1521,14 @@ fn past_rounds(session: &str, clock: Clock, data: &'static dyn RoundData) -> Vec
                 past.publish(stage);
             }
             let review = ReviewName {
-                title: title.to_owned(),
+                title: saved.title.to_owned(),
                 revision: ShortRevision {
-                    prefix: prefix.to_owned(),
-                    rest: rest.to_owned(),
+                    prefix: saved.revision.0.to_owned(),
+                    rest: saved.revision.1.to_owned(),
                 },
                 ..data.review()
             };
-            past.past_at(review, clock.now_ms() - days_ago * DAY_MS)
+            past.past_at(review, clock.now_ms() - saved.minutes_ago * MINUTE_MS)
         })
         .collect()
 }

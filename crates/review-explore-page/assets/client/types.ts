@@ -674,12 +674,12 @@ glossary: { [key in string]: string },
  */
 past: PastView | null, 
 /**
- * The saved rounds of the repository, without the round the page follows, which the ⋯ menu
- * lists by change; `None` on a page that offers none, as the page on the network.
+ * The saved rounds of the repository, without the round the page follows, which the list of
+ * past rounds shows by change; `None` on a page that offers none, as the page on the network.
  */
 past_rounds: Array<PastChange> | null, };
 /**
- * One change of the repository with its saved rounds, as the ⋯ menu lists them.
+ * One change of the repository with its saved rounds, as the list of past rounds shows them.
  */
 export type PastChange = { 
 /**
@@ -696,7 +696,7 @@ revision: ShortRevision,
  */
 rounds: Array<PastRoundEntry>, };
 /**
- * A saved round of a change, as the ⋯ menu lists it.
+ * A saved round of a change, as the list of past rounds shows it.
  */
 export type PastRoundEntry = { 
 /**

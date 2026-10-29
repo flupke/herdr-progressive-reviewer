@@ -10,6 +10,7 @@ use review_explore_page::{
 
 use crate::changed_source::FixedChange;
 use crate::rich::Rich;
+use crate::sessions::{RunAheadPath, Step};
 use crate::short::Short;
 use crate::tally::JevMark;
 
@@ -59,6 +60,12 @@ pub(crate) trait RoundData: Send + Sync {
 
     /// The lines of the change that Jev marks when a round starts.
     fn jev_marks(&self) -> &'static [JevMark];
+
+    /// The rounds of other changes saved before a session opens, newest first, which its page
+    /// lists as past rounds.
+    fn saved_rounds(&self) -> &'static [SavedRound] {
+        SAVED_ROUNDS
+    }
 
     /// The round's question `number`, from 1: `question` when given, which marks nothing, or
     /// else the fixed questions in turn. A question after the first follows the agent's fixed
@@ -127,6 +134,60 @@ pub(crate) trait RoundData: Send + Sync {
         self.conclusion(false).to_be_implemented
     }
 }
+
+/// A round of another change, saved before a session opens.
+pub(crate) struct SavedRound {
+    /// The title of its change.
+    pub(crate) title: &'static str,
+    /// The change's revision: the prefix jj highlights, then the rest.
+    pub(crate) revision: (&'static str, &'static str),
+    /// How long before the session opened it was saved, in minutes.
+    pub(crate) minutes_ago: u64,
+    /// The steps the round took before it was saved.
+    pub(crate) steps: &'static [Step],
+}
+
+/// A minute, in minutes.
+pub(crate) const MINUTE: u64 = 1;
+/// A day, in minutes.
+pub(crate) const DAY: u64 = 24 * 60 * MINUTE;
+
+const QUESTION: Step = Step::Question {
+    path: RunAheadPath::Unwatched,
+};
+const ANSWER: Step = Step::Answer {
+    after_first_pick: false,
+};
+
+/// A round left at its first question.
+pub(crate) const AT_FIRST_QUESTION: &[Step] = &[Step::Kickoff, QUESTION];
+/// A round left at its second question.
+pub(crate) const AT_SECOND_QUESTION: &[Step] = &[Step::Kickoff, QUESTION, ANSWER, QUESTION];
+/// A round concluded after two questions, with a quiz.
+pub(crate) const CONCLUDED: &[Step] = &[
+    Step::Kickoff,
+    QUESTION,
+    ANSWER,
+    QUESTION,
+    ANSWER,
+    Step::Conclude { quiz: true },
+];
+
+/// The saved rounds of the short data set: two changes, one round each.
+const SAVED_ROUNDS: &[SavedRound] = &[
+    SavedRound {
+        title: "Keep the reviewer's draft across reloads",
+        revision: ("kq", "vmtsxy"),
+        minutes_ago: DAY,
+        steps: CONCLUDED,
+    },
+    SavedRound {
+        title: "Name the queue's flush policy",
+        revision: ("pw", "nlzrot"),
+        minutes_ago: 3 * DAY,
+        steps: AT_SECOND_QUESTION,
+    },
+];
 
 /// The data set named `name`: `short` or `rich`.
 pub(crate) fn by_name(name: &str) -> Option<&'static dyn RoundData> {

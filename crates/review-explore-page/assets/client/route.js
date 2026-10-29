@@ -9,18 +9,18 @@
 // - `#quiz-N` shows item N of the conclusion's quiz as the reviewer answered it, read only, once
 //   the quiz is over: the target of its done step on the rail and of the score beside the
 //   conclusion (while the quiz asks, the item it shows is the page's own state, page.js);
-// - `#past-rounds` opens the ⋯ menu on the list of past rounds, over the round's current stage:
-//   the address at which the pane's "Past rounds on the Explore page" opens the page on this
-//   machine (`PageScreen::PastRounds` in crates/review-explore-page-opening); once the list
-//   shows, the address names the stage;
+// - `#past-rounds` opens the list of past rounds, with the round's current stage: the address
+//   at which the pane's "Past rounds on the Explore page" opens the page on this machine
+//   (`PageScreen::PastRounds` in crates/review-explore-page-opening); once the list shows, the
+//   address names the stage;
 // - any other fragment, or none, shows the round's current stage; `#round` names it, for a link
 //   back from the design.
 //
-// A past round, which only the page on this machine opens from its ⋯ menu, adds its identity to
-// each of these: `#round@<id>` shows its stage, `#design@<id>` its design, `#question-2@<id>` its
-// second question. While a past round shows, a link of the page to one of its screens keeps the
-// identity (a link marked `data-leave-past` leaves the past round), and the page opens the
-// round's socket again for the round the address names (main.js).
+// A past round, which only the page on this machine opens from its list of past rounds, adds its
+// identity to each of these: `#round@<id>` shows its stage, `#design@<id>` its design,
+// `#question-2@<id>` its second question. While a past round shows, a link of the page to one of
+// its screens keeps the identity (a link marked `data-leave-past` leaves the past round), and the
+// page opens the round's socket again for the round the address names (main.js).
 //
 // The design opens the round: the first time a tab shows a round that waits for the answer to
 // its first question, the page shows the design screen, whatever the address said before.
@@ -31,7 +31,7 @@
 export const DESIGN = '#design';
 /** The round's current stage. */
 export const STAGE = '#round';
-/** The list of past rounds, in the ⋯ menu. */
+/** The list of past rounds, in the column at the window's left. */
 export const PAST_ROUNDS = '#past-rounds';
 
 const PART = /^#design-part-([1-9][0-9]*)$/;

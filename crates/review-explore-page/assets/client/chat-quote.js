@@ -11,7 +11,7 @@ import { h } from './dom.js';
 const LONGEST = 1000;
 
 /** Where a selection offers nothing. */
-const NOT_READING = '.panel, form, textarea, input, button, .masthead, .chat';
+const NOT_READING = '.panel, form, textarea, input, button, .masthead, .left-column';
 
 export class QuotePicker {
   /** @param {HTMLElement} main the page's reading area */

@@ -1,7 +1,7 @@
 /* Past rounds (client/past.js): the line above the screens while the page shows a past round,
-   read only, with the way back to the round the page follows; and the ⋯ menu's list of past
-   rounds, grouped by change, each round named by its date, small, or the line that says there is
-   none yet. */
+   read only, with the way back to the round the page follows; and the list of past rounds, in
+   the column at the window's left (left-column.css), grouped by change, or the line that says
+   there is none yet. */
 .past-banner {
   display: flex;
   flex-wrap: wrap;
@@ -21,13 +21,77 @@
 .past-waits { margin-right: 10px; color: var(--warn); font-weight: 600; }
 .past-back { white-space: nowrap; }
 
-.past-list { display: grid; gap: 10px; max-height: min(60vh, 480px); overflow-y: auto; }
-.past-list > .eyebrow { margin: 0; padding: 0 10px; }
-.past-change ul { margin: 0; padding: 0; list-style: none; }
-.past-change-title { margin: 0; padding: 0 10px 2px; font-weight: 600; overflow-wrap: anywhere; }
-.past-change-title .revision { margin-left: 6px; font-size: 12px; font-weight: normal; white-space: nowrap; }
-.past-none { margin: 0; padding: 0 10px; color: var(--muted); font-size: 13px; }
-.past-round { min-height: 32px; padding-block: 5px; color: var(--muted); font-size: 13px; text-decoration: none; }
-.past-round[aria-current="page"] { color: var(--ink); font-weight: 600; }
+/* The list keeps the panel's width, whatever width the reviewer gave the chat (layout.css). Its
+   rounds scroll under the column's head. */
+.past-list { --left-width: var(--panel-width); }
+.past-body { overflow: hidden auto; padding: 4px 8px 16px; }
+.past-body:focus { outline: none; }
+/* No past round yet, on the page the pane opens on the list. */
+.past-none { margin: 12px 8px; color: var(--muted); font-size: 14px; }
+
+/* A change: its title, two lines at most, with its revision at the right of its first line, the
+   revisions of the changes in one column; then its rounds. A line between the changes. */
+.past-change { padding: 12px 0 6px; }
+.past-change + .past-change { border-top: 1px solid var(--line); }
+.past-change-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 0 8px 4px;
+}
+.past-change-title {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* A chip as small as the title's line: the revised question's card (question.css) shares the
+   class `revision`. */
+.past-change-head .revision {
+  margin: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* A round: the day, once for the rounds of the same day, and the time, in columns of their own
+   that line up from one round to the next. The round the page shows is marked in the accent, with
+   its day, so that the mark says the whole date. */
+.past-rounds { margin: 0; padding: 0; list-style: none; }
+.past-round {
+  display: grid;
+  /* At least as wide as a day in most languages, so that the times line up; a longer day widens
+     its row rather than wrap. */
+  grid-template-columns: minmax(7.5em, max-content) 5em;
+  gap: 8px;
+  align-items: baseline;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+.past-round:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+.past-day { white-space: nowrap; }
+.past-day.same { visibility: hidden; }
+.past-time { text-align: right; }
+.past-round[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.past-round[aria-current="page"] .past-day.same { visibility: visible; }
 /* The menu's links read as its other entries. */
 a.menu-item { color: inherit; text-decoration: none; }

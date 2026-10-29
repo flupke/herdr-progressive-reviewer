@@ -48,7 +48,7 @@ forwards (the public `Host`, an `https://` `Origin`).
   reviewer until the round ends, and on the start screen before it; a Reset from such a
   copy hands it the next start screen's token too
   ([ADR 0003](../adr/0003-serve-the-explore-page-on-the-network.md)).
-- No past round: the page on the network lists none in its ⋯ menu and opens none, even
+- No past round: the page on the network lists none and opens none, even
   from a copied link. Only the page on this machine offers them.
 - A reviewer that cannot serve the page on the network (no network address, an unknown
   interface, all ten ports taken) keeps the page on this machine.

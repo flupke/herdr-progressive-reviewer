@@ -116,7 +116,7 @@ async function selectPassage(page: Page, index: number): Promise<void> {
 /** Selects the last sentence of paragraph `index` of the Context, then adds it to the chat. */
 async function quote(page: Page, index: number): Promise<void> {
   // On a phone the open chat covers the page: the reviewer closes it to select.
-  if (await page.locator('.chat-scrim').isVisible()) {
+  if ((await page.locator('.left-scrim:visible').count()) > 0) {
     await page.getByRole('button', { name: 'Close the conversation' }).click();
   }
   await selectPassage(page, index);
@@ -523,18 +523,21 @@ export const STATES: GalleryState[] = [
     },
   },
   {
-    name: 'past-rounds-menu',
-    about: "The ⋯ menu's past rounds: the repository's saved rounds, grouped by change, the change with the newest round first, each round named by its date.",
+    name: 'past-rounds',
+    about:
+      "The list of past rounds, open from the ⋯ menu in the chat's place: the repository's saved rounds, grouped by change, the change with the newest round first, a long title cut at two lines, each round by its day, once for the rounds of the same day, and its time. From 1424 pixels (here 1440) it stands beside the page, which makes room for it; at 1280 it lies over the left of the page; on a phone it is a sheet.",
+    extraWidths: [1440],
     async reach(session, page) {
       await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
       await page.getByRole('button', { name: /^Past rounds/ }).click();
+      await page.getByRole('navigation', { name: 'Past rounds' }).waitFor();
     },
   },
   {
     name: 'past-round',
     about:
-      'A past round of another change, read only, at its conclusion: the line above says which round it is and when, that the current round waits for the reviewer, and leads back to it.',
+      'A past round of another change, read only, at its conclusion: the line above says which round it is and when, that the current round waits for the reviewer, and leads back to it. The list of past rounds, which lies over the page at these widths, closed as the round opened.',
     async reach(session, page) {
       await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
@@ -551,8 +554,35 @@ export const STATES: GalleryState[] = [
       await question(session, page, 1);
       await page.getByRole('button', { name: 'Round menu' }).click();
       await page.getByRole('button', { name: /^Past rounds/ }).click();
-      await page.getByRole('navigation', { name: 'Past rounds' }).getByRole('link').last().click();
+      await page
+        .getByRole('navigation', { name: 'Past rounds' })
+        .getByRole('region', { name: "Name the queue's flush policy" })
+        .getByRole('link')
+        .first()
+        .click();
       await page.getByRole('region', { name: 'Question 2' }).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+  {
+    name: 'past-round-beside-list',
+    about:
+      'A past round opened from the list, the list open beside it: the round the page shows is marked, with its day even under a round of the same day. From 1424 pixels (here 1440) the list stayed open as the round opened; at 1280 and on a phone, where it lies over the page, it closed and the reviewer opened it again.',
+    extraWidths: [1440],
+    async reach(session, page) {
+      await question(session, page, 1);
+      await page.getByRole('button', { name: 'Round menu' }).click();
+      await page.getByRole('button', { name: /^Past rounds/ }).click();
+      const list = page.getByRole('navigation', { name: 'Past rounds' });
+      await list.getByRole('region', { name: /^Give the Explore agent/ }).getByRole('link').nth(1).click();
+      await page.getByRole('region', { name: 'Past round' }).waitFor();
+      // Over the page, the list closed as the round opened: the reviewer opens it again.
+      if (!(await page.evaluate(() => matchMedia('(min-width: 89rem)').matches))) {
+        await list.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'Round menu' }).click();
+        await page.getByRole('button', { name: /^Past rounds/ }).click();
+        await list.waitFor();
+      }
       await page.mouse.move(0, 0);
     },
   },
