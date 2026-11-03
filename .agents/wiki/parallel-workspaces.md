@@ -6,10 +6,11 @@ How to run a gate or an agent in a second jj workspace: the dev shell, disk spac
 workspace or checkout on disk, or point `CARGO_TARGET_DIR` at the main
 checkout's `target/`, before running a gate in it.
 
-A jj workspace has no `.git`, so `nix develop` there copies the whole directory,
-`target/` included, into the Nix store. Enter the dev shell through
-`scripts/dev-shell`, which hands Nix a copy of `flake.nix` and `flake.lock`
-alone, a changed flake included:
+The flake lives in `nix/`, which `scripts/dev-shell` and `.envrc` load as a
+`path:` URL: Nix copies that directory alone into the store. A bare `nix develop`
+at the root finds no flake; `nix develop .` or a flake at the root would copy the
+whole jj workspace, which has no `.git`, `target/` included, at each run (tens of
+GB each). Enter the dev shell through `scripts/dev-shell`:
 
 ```sh
 scripts/dev-shell make check-changed
