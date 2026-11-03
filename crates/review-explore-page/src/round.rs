@@ -112,6 +112,8 @@ pub struct SentAnswer {
     pub kept: KeptAnswer,
     /// The review marks the answer applied when the reviewer sent it.
     pub marked: MarkCounts,
+    /// Why some or all of the marks were not applied, when they were not.
+    pub marks_problem: Option<String>,
 }
 
 /// The question a sent answer answers, with its citations.
@@ -369,6 +371,9 @@ pub struct TurnResponse {
     pub path: Option<TurnPath>,
     /// How the turn revised the question from the round conversation, when it did.
     pub revision: Option<QuestionRevised>,
+    /// Why some or all of the review marks the answer the turn follows applied were not
+    /// applied, when they were not.
+    pub marks_problem: Option<String>,
 }
 
 /// The agent's new version of the open question, posted from the round conversation.
@@ -412,6 +417,7 @@ impl TurnResponse {
                     replaced: replaced.version,
                 })
             }),
+            marks_problem: None,
         }
     }
 

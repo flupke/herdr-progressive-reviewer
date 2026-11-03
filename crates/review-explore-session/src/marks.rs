@@ -1,13 +1,14 @@
 //! Review marks an agent turn asks for: the lines an answer settled, the
 //! reviewed lines it made matter again, and the lines the agent read and
 //! found to hold no decision. A question's marks wait for its answer; a
-//! conclusion's apply when it is accepted.
+//! conclusion's apply when it is accepted. Once the code changed since the
+//! round started, they apply only on the files whose diff did not change.
 
 use std::ops::Range;
 
 use review_explore::{
-    CodeLocation, ExploreRound, InterviewUpdate, NamedLines, NotRelevantMark, ReopenedLines,
-    SourceSide, TurnMarks, TurnRequest,
+    CodeLocation, ExploreRound, InterviewUpdate, MarkableFiles, NamedLines, NotRelevantMark,
+    ReopenedLines, SourceSide, TurnMarks, TurnRequest,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
@@ -31,7 +32,12 @@ struct MarkStep<'a> {
 }
 
 impl<'a> MarkStep<'a> {
-    fn of(snapshot: &'a Snapshot, update: &'a InterviewUpdate) -> Vec<Self> {
+    /// The steps of `update`'s marks, on the files where they apply.
+    fn of(
+        snapshot: &'a Snapshot,
+        update: &'a InterviewUpdate,
+        markable: &MarkableFiles,
+    ) -> Vec<Self> {
         let settled = FileRequest::group(snapshot, &update.reviewed, &update.reopened)
             .into_iter()
             .map(|request| Self {
@@ -46,7 +52,55 @@ impl<'a> MarkStep<'a> {
                     not_relevant: Some(mark),
                 })
         });
-        settled.chain(not_relevant).collect()
+        settled
+            .chain(not_relevant)
+            .filter(|step| markable.allows(step.request.file))
+            .collect()
+    }
+
+    /// Whether `update` names `file`.
+    fn names(update: &InterviewUpdate, file: &ChangedFile) -> bool {
+        update
+            .reviewed
+            .iter()
+            .chain(&update.reopened)
+            .chain(NotRelevantMark::locations(&update.not_relevant))
+            .any(|location| location.names(file))
+    }
+
+    /// What `update` names that its marks cannot reach, in snapshot order: the files whose
+    /// diff changed since the round started, then the paths no changed file has any more.
+    fn unmarkable(
+        snapshot: &'a Snapshot,
+        update: &'a InterviewUpdate,
+        markable: &MarkableFiles,
+        moved: bool,
+    ) -> Vec<String> {
+        let named = update
+            .reviewed
+            .iter()
+            .chain(&update.reopened)
+            .chain(NotRelevantMark::locations(&update.not_relevant))
+            .collect::<Vec<_>>();
+        let changed = snapshot
+            .files
+            .iter()
+            .filter(|file| !markable.allows(file) && !markable.unread(file))
+            .filter(|file| named.iter().any(|location| location.names(file)))
+            .map(|file| file.review_path().display());
+        // A path no changed file has: renamed or reverted since the round started.
+        let gone = named
+            .iter()
+            .filter(|_| moved)
+            .filter(|location| !snapshot.files.iter().any(|file| location.names(file)))
+            .map(|location| location.path.display());
+        let mut unmarkable = Vec::new();
+        for path in changed.chain(gone) {
+            if !unmarkable.contains(&path) {
+                unmarkable.push(path);
+            }
+        }
+        unmarkable
     }
 }
 
@@ -57,8 +111,9 @@ pub(crate) fn mark_copy(
     snapshot: &Snapshot,
     update: &InterviewUpdate,
     author: &MarkAuthor,
+    markable: &MarkableFiles,
 ) {
-    for step in MarkStep::of(snapshot, update) {
+    for step in MarkStep::of(snapshot, update, markable) {
         let _ = step.request.apply(tracker, snapshot, author);
     }
 }
@@ -205,9 +260,9 @@ impl ExploreSession {
         if !update.requests_marks() {
             return None;
         }
-        let marks = match self.marked_snapshot(round) {
-            Ok(snapshot) => {
-                let marks = self.mark(&snapshot, update, answer);
+        let marks = match self.marked_snapshot(round, &update.request) {
+            Ok((snapshot, markable)) => {
+                let marks = self.mark(&snapshot, update, answer, &markable, round);
                 self.read_marks(&snapshot);
                 marks
             }
@@ -242,17 +297,24 @@ impl ExploreSession {
         }
     }
 
-    /// The current snapshot, when it is still the round's checkpoint.
-    fn marked_snapshot(&self, round: &ExploreRound) -> Result<Snapshot, String> {
+    /// The current snapshot, and the files of it on which the marks of the turn `request` of
+    /// `round` apply.
+    fn marked_snapshot(
+        &self,
+        round: &ExploreRound,
+        request: &str,
+    ) -> Result<(Snapshot, MarkableFiles), String> {
         let PollResult::Complete(snapshot) =
             self.repository.poll().map_err(|error| error.to_string())?
         else {
             return Err("the repository is not ready; no lines were marked".into());
         };
-        if !round.is_at(&snapshot.identity) {
-            return Err("the code changed since this round started; no lines were marked".into());
+        let checkpoint = &round.exploration.comparison.checkpoint;
+        if snapshot.identity.review_unit() != &checkpoint.review_unit {
+            return Err("the change under review is not this round's; no lines were marked".into());
         }
-        Ok(snapshot)
+        let markable = self.turn_markable(round, request, &snapshot);
+        Ok((snapshot, markable))
     }
 
     /// Apply a turn's marks: first what an answer settled and reopened, then
@@ -265,13 +327,15 @@ impl ExploreSession {
         snapshot: &Snapshot,
         update: &InterviewUpdate,
         answer: Option<String>,
+        markable: &MarkableFiles,
+        round: &ExploreRound,
     ) -> TurnMarks {
         let mut marks = TurnMarks {
             answer,
             ..TurnMarks::default()
         };
         let author = marks.author(&update.request);
-        for step in MarkStep::of(snapshot, update) {
+        for step in MarkStep::of(snapshot, update, markable) {
             let change = self.apply(snapshot, &step.request, &author, &mut marks);
             match step.not_relevant {
                 // One mark at a time, so the lines it marks keep its reason and test.
@@ -285,6 +349,33 @@ impl ExploreSession {
                 }
                 None => marks.reviewed.extend(change.reviewed),
             }
+        }
+        let moved = !round.is_at(&snapshot.identity);
+        let unmarkable = MarkStep::unmarkable(snapshot, update, markable, moved);
+        let kept_no_diffs = round.exploration.comparison.diffs.is_empty();
+        let unread = snapshot
+            .files
+            .iter()
+            .filter(|file| markable.unread(file))
+            .filter(|file| MarkStep::names(update, file))
+            .map(|file| file.review_path().display())
+            .collect::<Vec<_>>();
+        if !unread.is_empty() {
+            let failure = format!(
+                "{}: the diff could not be read to compare it with the round's; not marked",
+                unread.join(", ")
+            );
+            marks.problem = Some(match marks.problem.take() {
+                Some(earlier) => format!("{earlier}; {failure}"),
+                None => failure,
+            });
+        }
+        if let Some(unmarked) = unmarkable_problem(&unmarkable, kept_no_diffs) {
+            // After any file's own failure, which the marks of the other files may follow.
+            marks.problem = Some(match marks.problem.take() {
+                Some(failure) => format!("{failure}; {unmarked}"),
+                None => unmarked,
+            });
         }
         marks
     }
@@ -426,6 +517,29 @@ impl<'a> FileRequest<'a> {
         }
         Ok(change)
     }
+}
+
+/// Why the marks on the `unmarkable` paths were not applied, or `None` when every file took its
+/// marks. A round saved before rounds kept their diffs (`round_kept_no_diffs`) can tell no file
+/// apart once the code changed.
+fn unmarkable_problem(unmarkable: &[String], round_kept_no_diffs: bool) -> Option<String> {
+    if unmarkable.is_empty() {
+        return None;
+    }
+    if round_kept_no_diffs {
+        return Some(
+            "the code changed since this round started, and the round, saved by an earlier \
+             version, kept no diffs to tell which files did; no lines were marked"
+                .into(),
+        );
+    }
+    Some(match unmarkable {
+        [path] => format!("{path} changed since this round started; its lines were not marked"),
+        paths => format!(
+            "{} changed since this round started; their lines were not marked",
+            paths.join(", ")
+        ),
+    })
 }
 
 /// Consecutive lines with the same value, in order.

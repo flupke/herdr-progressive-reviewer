@@ -37,6 +37,9 @@ pub(crate) struct EarlierQuestionView {
     /// What the answers to the question marked, one summary for each turn that marked lines:
     /// "Marked", then "15 lines reviewed", the lines marked not relevant counted as reviewed.
     marks: Vec<MarkPhrase>,
+    /// Why the review marks of an answer to the question were not all applied, one for each
+    /// turn whose marks were not.
+    marks_problems: Vec<String>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationView>,
     /// The question's identity and latest version, which a message of the chat written beside
@@ -80,6 +83,11 @@ impl EarlierQuestionView {
                 .iter()
                 .map(|marks| marks.counts().covered_phrase(MarkTense::Applied))
                 .filter(|phrase| !phrase.parts.is_empty())
+                .collect(),
+            marks_problems: record
+                .marks
+                .iter()
+                .filter_map(|marks| marks.problem.clone())
                 .collect(),
             citations: citations.iter().map(CitationView::new).collect(),
             id: question.id.clone(),

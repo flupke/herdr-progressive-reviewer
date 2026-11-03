@@ -30,6 +30,17 @@ export function answerCard(answer, { withChoice = true } = {}) {
   );
 }
 
+/** "! Review marks not applied: src/a.rs changed since this round started; …", why an answer's
+ * review marks were not all applied. @param {string} problem */
+export function marksProblemLine(problem) {
+  return h(
+    'p',
+    { class: 'answer-marks-problem' },
+    h('span', { class: 'glyph', 'aria-hidden': 'true' }, '!'),
+    ` Review marks not applied: ${problem}`,
+  );
+}
+
 /** "✓ Marked 12 lines reviewed · 3 lines not relevant". @param {MarkPhrase} marks */
 export function markedLine(marks) {
   return h(

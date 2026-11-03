@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use review_explore::{ExploreRound, InterviewUpdate};
+use review_explore::{ExploreRound, InterviewUpdate, MarkableFiles};
 use review_repository::repository::{ChangedFile, RepoPath, Snapshot, SnapshotIdentity};
 use review_state::{FileLines, ReviewTracker};
 use review_store::{LoadResult, ReviewStore};
@@ -112,20 +112,15 @@ impl ChangeMarks {
     }
 
     /// The tally of the marks read last, in `round`, while the round waits for an answer to
-    /// the question the agent's turn `question` posted. An answer marks nothing once the code
-    /// changed since the round started: the question then adds nothing.
+    /// the question the agent's turn `question` posted, whose marks apply on the `markable`
+    /// files of the snapshot read last.
     pub fn mark_tally(
         &self,
         round: Option<&ExploreRound>,
         question: Option<&InterviewUpdate>,
+        markable: &MarkableFiles,
     ) -> MarkTally {
-        let current = |round: &ExploreRound| {
-            self.snapshot
-                .as_ref()
-                .is_some_and(|snapshot| round.is_at(snapshot))
-        };
-        let question = question.filter(|_| round.is_some_and(current));
-        MarkTally::of(&self.files, round, question)
+        MarkTally::of(&self.files, round, question, markable)
     }
 }
 

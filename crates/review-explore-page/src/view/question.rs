@@ -2,9 +2,9 @@
 //! agent's recommendation (hidden until the reviewer's first pick on a blind question), the
 //! lines an answer marks, and the citations.
 
-use review_explore::{Alternative, Assessments, Door, MarkPhrase, MarkTense, Question};
+use review_explore::{Alternative, Assessments, Door, MarkCounts, MarkPhrase, MarkTense, Question};
 use review_explore_citations::{Citation, CodeColors, HighlightedRow, Token};
-use review_explore_tally::Gain;
+use review_explore_tally::{Gain, MarkTally, WholeChange};
 use review_repository::diff::DiffRow;
 use serde::Serialize;
 use ts_rs::TS;
@@ -39,8 +39,8 @@ pub(crate) struct QuestionView {
     citations: Vec<CitationView>,
     /// The lines an answer marks, `None` when it marks none.
     marks: Option<MarksView>,
-    /// The reviewed share of the change before and after the answer; `None` when the tool
-    /// cannot tell, as when the code changed since the round started.
+    /// The reviewed share of the change before and after the answer; `None` until the tool
+    /// counted the marks.
     gain: Option<GainView>,
     /// Whether the page offers to answer: not in an earlier round.
     answerable: bool,
@@ -174,7 +174,7 @@ impl QuestionView {
                 picked.as_deref(),
             )
             .answerable(!round.earlier)
-            .gain(round.tally.as_ref().and_then(|tally| tally.gain.as_ref()))
+            .counted(round.tally.as_deref())
             .revised(response.revision.as_ref()),
         )
     }
@@ -270,13 +270,51 @@ impl QuestionView {
         self
     }
 
-    /// The share the answer adds, when the answer marks lines.
-    fn gain(mut self, gain: Option<&Gain>) -> Self {
-        self.gain = gain.filter(|_| self.marks.is_some()).map(|gain| GainView {
+    /// What answering marks as `tally` counts it, once counted: the open lines it marks and
+    /// the marked lines it reopens, not the lines the agent named, which take in unchanged lines,
+    /// lines already marked and files whose diff changed since the round started. With the share
+    /// the answer adds; no marks when it adds none.
+    fn counted(mut self, tally: Option<&MarkTally>) -> Self {
+        let Some((tally, gain)) = tally.and_then(|tally| Some((tally, tally.gain.as_ref()?)))
+        else {
+            return self;
+        };
+        let Some(marks) = &mut self.marks else {
+            return self;
+        };
+        let summary = Self::answering(tally, gain);
+        if summary.parts.is_empty() {
+            self.marks = None;
+            return self;
+        }
+        marks.summary = summary;
+        self.gain = Some(GainView {
             before: gain.before.percent,
             after: gain.after.percent,
         });
         self
+    }
+
+    /// "Answering marks 12 lines reviewed · reopens 1 whole file", from the tally.
+    fn answering(tally: &MarkTally, gain: &Gain) -> MarkPhrase {
+        let lines = |count: u64| u32::try_from(count).unwrap_or(u32::MAX);
+        let whole = |change: WholeChange| {
+            tally
+                .files
+                .iter()
+                .filter(|file| file.whole.and_then(|whole| whole.answering) == Some(change))
+                .count()
+        };
+        let files = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
+        MarkCounts {
+            reviewed_lines: lines(gain.pending.reviewed),
+            reviewed_files: files(whole(WholeChange::Reviewed)),
+            not_relevant_lines: lines(gain.pending.not_relevant),
+            not_relevant_files: files(whole(WholeChange::NotRelevant)),
+            reopened_lines: lines(gain.reopened),
+            reopened_files: files(whole(WholeChange::Reopened)),
+        }
+        .covered_phrase(MarkTense::Answering)
     }
 }
 

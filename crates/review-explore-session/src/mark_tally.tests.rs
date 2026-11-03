@@ -3,7 +3,8 @@
 //! by Jev reach it through `marks_changed`.
 
 use review_explore::NotRelevantMark;
-use review_explore_tally::{MarkedLines, Marker, PendingLines, Share, WholeFile};
+use review_explore_page::RoundStage;
+use review_explore_tally::{MarkTally, MarkedLines, Marker, PendingLines, Share, WholeFile};
 use review_hunks::LineSelection;
 use review_types::MarkAuthor;
 
@@ -375,4 +376,160 @@ fn implementing_any_other_conclusion_keeps_the_round_s_marks() {
 
     assert_eq!(implemented, Ok(()));
     assert_eq!(harness.session.mark_tally().change.marked.not_relevant, 1);
+}
+
+#[test]
+fn an_answer_marks_the_files_whose_diff_did_not_change_since_the_round_started() {
+    let mut harness = Harness::three_lines();
+    harness.files.write("edited.rs", b"alpha\nbeta\n");
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.not_relevant = ["reviewed.rs", "edited.rs"]
+        .into_iter()
+        .map(|path| {
+            serde_json::from_value(serde_json::json!({
+                "path": path, "side": "new", "lines": {"first_line": 1, "last_line": 2},
+                "reason": "follows_code"
+            }))
+            .unwrap()
+        })
+        .collect();
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    // A comment above the lines the question names moves them down.
+    harness.files.write("edited.rs", b"// note\nalpha\nbeta\n");
+    harness.mark_lines(&[], &MarkAuthor::Reviewer);
+
+    let waiting = harness.session.mark_tally();
+    let pending = |tally: &MarkTally, path: &str| {
+        tally
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.tally.pending.not_relevant)
+    };
+    assert_eq!(pending(&waiting, "reviewed.rs"), Some(2));
+    assert_eq!(pending(&waiting, "edited.rs"), Some(0));
+
+    harness.answer("Keep it.");
+
+    let answered = harness.session.mark_tally();
+    let marked = |path: &str| {
+        answered
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.tally.marked.not_relevant)
+    };
+    assert_eq!(marked("reviewed.rs"), Some(2));
+    assert_eq!(marked("edited.rs"), Some(0));
+    let problem = "edited.rs changed since this round started; its lines were not marked";
+    let saved = harness.saved();
+    let marks = saved.marks.get(&first.request).expect("the answer's marks");
+    assert_eq!(marks.problem.as_deref(), Some(problem));
+    let RoundStage::AgentWorking {
+        answer: Some(sent), ..
+    } = harness.page.stage()
+    else {
+        panic!("the page shows {:?}", harness.page.stage());
+    };
+    assert_eq!(sent.marks_problem.as_deref(), Some(problem));
+}
+
+#[test]
+fn a_turn_written_while_a_file_had_changed_marks_nothing_there_once_it_is_back() {
+    let mut harness = Harness::three_lines();
+    harness.files.write("edited.rs", b"alpha\nbeta\n");
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (answered, access) = harness.answer("Keep it.");
+    // The agent reads edited.rs while a comment moves its lines, and names them so.
+    harness.files.write("edited.rs", b"// note\nalpha\nbeta\n");
+    let Operation::SubmitQuestion(mut update) = question(&answered, 2) else {
+        unreachable!("a question");
+    };
+    update.reviewed = ["reviewed.rs", "edited.rs"]
+        .into_iter()
+        .map(|path| {
+            serde_json::from_value(serde_json::json!({
+                "path": path, "side": "new", "lines": {"first_line": 2, "last_line": 3}
+            }))
+            .unwrap()
+        })
+        .collect();
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    // Then the comment goes: the diff of edited.rs is the round's again.
+    harness.files.write("edited.rs", b"alpha\nbeta\n");
+    harness.mark_lines(&[], &MarkAuthor::Reviewer);
+
+    let (second, access) = harness.answer("Keep them.");
+
+    let marked = |path: &str| {
+        harness
+            .session
+            .mark_tally()
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.tally.marked.answers)
+    };
+    assert_eq!(marked("reviewed.rs"), Some(2));
+    assert_eq!(marked("edited.rs"), Some(0));
+    // The turn after the answer says so above its question.
+    assert!(applied(harness.submit(&access, question(&second, 3))));
+    let stage = harness.page.stage();
+    assert_eq!(
+        stage
+            .response()
+            .and_then(|response| response.marks_problem.as_deref()),
+        Some("edited.rs changed since this round started; its lines were not marked")
+    );
+}
+
+#[test]
+fn a_prompt_written_while_a_file_had_changed_marks_nothing_there_once_it_is_back() {
+    let mut harness = Harness::three_lines();
+    harness.files.write("edited.rs", b"alpha\nbeta\n");
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    // The prompt after the answer numbers edited.rs with the comment.
+    harness.files.write("edited.rs", b"// note\nalpha\nbeta\n");
+    let (answered, access) = harness.answer("Keep it.");
+    // The comment goes before the agent submits.
+    harness.files.write("edited.rs", b"alpha\nbeta\n");
+    let Operation::SubmitQuestion(mut update) = question(&answered, 2) else {
+        unreachable!("a question");
+    };
+    update.reviewed = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "edited.rs", "side": "new", "lines": {"first_line": 1, "last_line": 2}
+        }))
+        .unwrap(),
+    ];
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    harness.mark_lines(&[], &MarkAuthor::Reviewer);
+
+    harness.answer("Keep them.");
+
+    let edited = harness
+        .session
+        .mark_tally()
+        .files
+        .into_iter()
+        .find(|file| file.path == "edited.rs")
+        .map(|file| file.tally.marked.answers);
+    assert_eq!(edited, Some(0));
 }

@@ -12,7 +12,7 @@
 
 /** @import { SentView, LatestAnswer } from "./types.ts" */
 
-import { answerCard, markedLine } from './answer-card.js';
+import { answerCard, markedLine, marksProblemLine } from './answer-card.js';
 import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { h, keyOf, Region } from './dom.js';
@@ -76,6 +76,7 @@ function panel(sent, cancellable) {
       : null,
     answerCard(sent.answer, { withChoice: !sent.question }),
     sent.marked ? markedLine(sent.marked) : null,
+    sent.marks_problem ? marksProblemLine(sent.marks_problem) : null,
     panelActions(sent.card),
     cancellable ? cancelAnswer(cancellable.id, 0) : null,
   );

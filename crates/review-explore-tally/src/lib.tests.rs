@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use review_explore::{
-    CodeLocation, Comparison, Exploration, NotRelevantMark, ReviewerAnswer, SourceSide, TurnMarks,
+    CodeLocation, Comparison, Exploration, MarkableFiles, NotRelevantMark, ReviewerAnswer,
+    SourceSide, TurnMarks,
 };
 use review_hunks::{ChangedLines, ReviewedLines};
 use review_repository::repository::{ChangedFile, RepoPath};
@@ -202,7 +203,7 @@ fn each_marked_line_counts_for_who_marked_it() {
         )
         .of(FILE);
 
-    let tally = MarkTally::of(&[file], Some(&round), None);
+    let tally = MarkTally::of(&[file], Some(&round), None, &MarkableFiles::All);
 
     let expected = MarkedLines {
         answers: 2,
@@ -244,7 +245,7 @@ fn without_a_round_every_explore_mark_is_another_rounds() {
         )
         .of(FILE);
 
-    let tally = MarkTally::of(&[file], None, None);
+    let tally = MarkTally::of(&[file], None, None, &MarkableFiles::All);
 
     assert_eq!(tally.change.marked.other_rounds, 2);
     assert_eq!(tally.change.share.percent, 100);
@@ -276,7 +277,12 @@ fn the_question_adds_the_open_lines_its_answer_marks() {
         Vec::new(),
     );
 
-    let tally = MarkTally::of(&[queue, logo], Some(&round), Some(&update));
+    let tally = MarkTally::of(
+        &[queue, logo],
+        Some(&round),
+        Some(&update),
+        &MarkableFiles::All,
+    );
 
     let files = &tally.files;
     assert_eq!(
@@ -317,6 +323,36 @@ fn the_question_adds_the_open_lines_its_answer_marks() {
 }
 
 #[test]
+fn answering_marks_nothing_on_a_file_whose_diff_changed_since_the_round_started() {
+    let round = round(&[], []);
+    let edited = Lines::open([], [0, 1]).of("src/edited.rs");
+    let kept = Lines::open([], [0, 1, 2]).of(FILE);
+    let update = question(
+        &[],
+        vec![
+            location("src/edited.rs", SourceSide::New, Some((1, 2))),
+            location(FILE, SourceSide::New, Some((1, 2))),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+    let markable = MarkableFiles::Unchanged {
+        unchanged: [RepoPath::from_bytes(FILE.as_bytes())].into(),
+        unread: std::collections::BTreeSet::new(),
+    };
+
+    let tally = MarkTally::of(&[edited, kept], Some(&round), Some(&update), &markable);
+
+    let pending: Vec<_> = tally
+        .files
+        .iter()
+        .map(|file| file.tally.pending.reviewed)
+        .collect();
+    assert_eq!(pending, [0, 2]);
+    assert_eq!(tally.gain.unwrap().pending.reviewed, 2);
+}
+
+#[test]
 fn the_question_takes_back_the_marked_lines_its_answer_reopens() {
     let round = round(&[], []);
     let file = Lines::open([], [0, 1])
@@ -333,7 +369,7 @@ fn the_question_takes_back_the_marked_lines_its_answer_reopens() {
         vec![location(FILE, SourceSide::New, None)],
     );
 
-    let tally = MarkTally::of(&[file], Some(&round), Some(&update));
+    let tally = MarkTally::of(&[file], Some(&round), Some(&update), &MarkableFiles::All);
 
     let file = tally.files[0].tally;
     assert_eq!((file.pending.reviewed, file.reopened, file.left), (1, 1, 1));
@@ -372,7 +408,7 @@ fn a_binary_file_is_marked_and_left_whole() {
         vec![location("icon.png", SourceSide::New, None)],
     );
 
-    let tally = MarkTally::of(&files, Some(&round), Some(&update));
+    let tally = MarkTally::of(&files, Some(&round), Some(&update), &MarkableFiles::All);
 
     let whole: Vec<_> = tally.files.iter().map(|file| file.whole).collect();
     assert_eq!(
@@ -417,7 +453,7 @@ fn a_file_whose_every_line_is_marked_has_none_left() {
         .removed_by([0], &MarkAuthor::Jev)
         .of(FILE);
 
-    let file = MarkTally::of(&[done], None, None).files[0].tally;
+    let file = MarkTally::of(&[done], None, None, &MarkableFiles::All).files[0].tally;
 
     assert_eq!(file.left, 0);
     assert_eq!(
@@ -439,9 +475,15 @@ fn a_share_shows_neither_none_nor_all_while_it_is_partial() {
         .added_by(0..999, &MarkAuthor::Reviewer)
         .of(FILE);
 
-    assert_eq!(MarkTally::of(&[one], None, None).change.share.percent, 1);
     assert_eq!(
-        MarkTally::of(&[all_but_one], None, None)
+        MarkTally::of(&[one], None, None, &MarkableFiles::All)
+            .change
+            .share
+            .percent,
+        1
+    );
+    assert_eq!(
+        MarkTally::of(&[all_but_one], None, None, &MarkableFiles::All)
             .change
             .share
             .percent,
@@ -461,7 +503,7 @@ fn a_file_whose_marks_cannot_be_read_is_left_whole() {
         marks: Marks::Unread,
     };
 
-    let tally = MarkTally::of(&[unread], None, None).change;
+    let tally = MarkTally::of(&[unread], None, None, &MarkableFiles::All).change;
 
     assert_eq!(tally.changed.lines_added + tally.changed.lines_removed, 5);
     assert_eq!((tally.left, tally.share.marked), (5, 0));

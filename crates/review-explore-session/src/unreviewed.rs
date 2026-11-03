@@ -15,11 +15,16 @@ impl ExploreSession {
     pub(crate) fn unreviewed(&mut self) -> eyre::Result<Unreviewed> {
         // An earlier prompt's diffs go: each prompt has a directory of its own.
         self.diffs = None;
-        let (unreviewed, diffs) = self
+        let snapshot = self
             .complete_snapshot()
-            .and_then(|snapshot| self.write_unreviewed(&self.tracker, &snapshot))
+            .wrap_err("Explore could not write the unreviewed diffs")?;
+        let (unreviewed, diffs) = self
+            .write_unreviewed(&self.tracker, &snapshot)
             .wrap_err("Explore could not write the unreviewed diffs")?;
         self.diffs = Some(diffs);
+        // The prompt numbers the lines like this snapshot: the turn it asks for keeps the
+        // files that differ from the round's here.
+        self.prompt_diverged = self.diverged_at(&snapshot);
         Ok(unreviewed)
     }
 
@@ -58,7 +63,8 @@ impl ExploreSession {
             index: diffs.index(),
             notice: moved.then(|| {
                 "the code changed since this round started: these lines are numbered like the \
-                 current code, and review marks are not applied until a new round starts"
+                 current code, and this turn's review marks apply only on the files whose diff \
+                 has not changed since the round started"
                     .into()
             }),
         };

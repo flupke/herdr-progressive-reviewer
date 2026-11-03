@@ -29,6 +29,7 @@ mod design;
 mod diagram;
 mod drawing_board;
 mod interview;
+mod markable;
 mod named_lines;
 mod not_relevant;
 mod overview;
@@ -54,6 +55,7 @@ pub use interview::{
     ASK_AUTHOR, Alternative, AnswerInput, ChangeAuthor, Exploration, Interpretation,
     InterviewUpdate, Question, ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
+pub use markable::MarkableFiles;
 pub use named_lines::NamedLines;
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
 pub use overview::{

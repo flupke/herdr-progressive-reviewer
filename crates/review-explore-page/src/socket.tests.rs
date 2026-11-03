@@ -599,6 +599,7 @@ fn sent_answer(question: Question) -> crate::SentAnswer {
             not_relevant_lines: 3,
             ..Default::default()
         },
+        marks_problem: None,
     }
 }
 
@@ -1111,6 +1112,29 @@ async fn a_question_names_its_door_the_lead_of_each_section_and_the_share_its_an
         json!({ "verb": "Answering marks", "parts": ["12 lines reviewed"] })
     );
     assert_eq!(question["gain"], json!({ "before": 38, "after": 47 }));
+}
+
+#[tokio::test]
+async fn a_question_counts_the_open_lines_its_answer_marks_not_the_lines_it_names() {
+    let mut stage = asking(question("q1", "two_way"));
+    if let RoundStage::Question { marks, .. } = &mut stage {
+        marks.reviewed = vec![lines("src/drafts.rs", 1, 500)];
+    }
+    let owner = Owner::new(stage);
+    owner.publisher.tally(waiting(gain(52, 64, 135)));
+    let address = serve(owner).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let view = next(&mut socket).await;
+    let question = &view["params"]["view"]["question"];
+    assert_eq!(
+        question["marks"]["summary"],
+        json!({ "verb": "Answering marks", "parts": ["12 lines reviewed"] })
+    );
+    assert_eq!(
+        question["marks"]["reviewed"],
+        json!(["src/drafts.rs new 1-500"])
+    );
 }
 
 #[tokio::test]

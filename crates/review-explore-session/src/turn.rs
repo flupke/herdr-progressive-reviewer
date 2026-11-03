@@ -203,6 +203,16 @@ impl ExploreSession {
         let agent = self.active_agent()?;
         let access = self.state.access.clone();
         let (prompt, unreviewed) = self.turn_prompt(request, &comparison, &access)?;
+        // The prompt numbers the lines like the code it was written from: where that differs
+        // from the round's, the turn's line numbers may name other lines than the round's.
+        let diverged = std::mem::take(&mut self.prompt_diverged);
+        crate::records::merge_diverged(
+            self.prompted_diverged
+                .entry(request.request.clone())
+                .or_default(),
+            diverged,
+        );
+        self.record_diverged(request);
         let sent = self.turns.is_some().then(|| {
             SentTurn::interview(
                 request,

@@ -9,9 +9,11 @@ attention ([CONTEXT.md](../../CONTEXT.md)). It is a model of TypeSafe AI.
 
 - Jev is enabled when the reviewer process has a nonempty `TYPESAFE_API_KEY`. A missing or
   whitespace-only key disables it.
-- It runs on the reviewer's "mark insignificant" command in Files and at the start of each
-  Explore round, before the kickoff, with the same classification policy. The Explore agent
-  sees only what is left, and the Explore prompts do not mention Jev.
+- It runs on the reviewer's "mark insignificant" command in Files (`rf`) and at the start of
+  each Explore round, before the kickoff, with the same classification policy. The Explore
+  agent sees only what is left, and the Explore prompts do not mention Jev.
+- Once "Set all files to unreviewed" (`rU`) cleared its marks during a round, they stay cleared
+  until `rf` or the next round.
 - The reviewer sends bounded before/after code snippets and repository-relative paths to
   TypeSafe AI.
 - A `make vision` session never reaches the paid classifier: its `jev` tool stands in

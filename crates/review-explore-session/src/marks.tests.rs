@@ -89,3 +89,25 @@ fn a_line_taken_over_from_another_author_is_reopened_and_marked_again() {
         }]
     );
 }
+
+#[test]
+fn a_round_without_diffs_says_why_it_cannot_tell_the_files_apart() {
+    let unmarkable = ["src/a.rs".to_owned(), "src/b.rs".to_owned()];
+
+    let saved_before_diffs = unmarkable_problem(&unmarkable, true).unwrap();
+    let with_diffs = unmarkable_problem(&unmarkable, false).unwrap();
+
+    assert!(
+        saved_before_diffs.contains("kept no diffs"),
+        "{saved_before_diffs}"
+    );
+    assert!(
+        !saved_before_diffs.contains("src/a.rs"),
+        "{saved_before_diffs}"
+    );
+    assert!(
+        with_diffs.starts_with("src/a.rs, src/b.rs changed"),
+        "{with_diffs}"
+    );
+    assert_eq!(unmarkable_problem(&[], true), None);
+}

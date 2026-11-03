@@ -16,3 +16,6 @@
 
 .answer-marked { margin: 0; color: var(--muted); font-size: 14px; }
 .answer-marked .check { color: var(--good); }
+/* Why an answer's review marks were not all applied: amber, check before you rely on them. */
+.answer-marks-problem { margin: 0; color: var(--warn); font-size: 14px; }
+.answer-marks-problem .glyph { font-weight: 700; }

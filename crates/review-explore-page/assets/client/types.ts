@@ -340,6 +340,11 @@ recorded: ResponseView,
  */
 marks: Array<MarkPhrase>, 
 /**
+ * Why the review marks of an answer to the question were not all applied, one for each
+ * turn whose marks were not.
+ */
+marks_problems: Array<string>, 
+/**
  * The question's citations, most decisive first.
  */
 citations: Array<CitationView>, 
@@ -508,8 +513,8 @@ change: Tally,
 files: Array<FileTally>, 
 /**
  * What answering the question the round waits for does; `None` when no question waits
- * for an answer, or when the code changed since the round started and an answer marks
- * nothing.
+ * for an answer. Once the code changed since the round started, it counts only the files
+ * whose diff did not change.
  */
 gain: Gain | null, };
 /**
@@ -781,8 +786,8 @@ citations: Array<CitationView>,
  */
 marks: MarksView | null, 
 /**
- * The reviewed share of the change before and after the answer; `None` when the tool
- * cannot tell, as when the code changed since the round started.
+ * The reviewed share of the change before and after the answer; `None` until the tool
+ * counted the marks.
  */
 gain: GainView | null, 
 /**
@@ -882,7 +887,11 @@ export type ResetParams = { round: string, };
  * watched the question, one quiet line on the turn: prepared while the reviewer was thinking,
  * or why not.
  */
-export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, path_line: string | null, };
+export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, path_line: string | null, 
+/**
+ * Why the review marks of the answer were not all applied, when they were not.
+ */
+marks_problem: string | null, };
 export type RetryMessagesParams = { round: string, };
 export type RetryParams = { request: string, 
 /**
@@ -969,7 +978,11 @@ answer: KeptAnswer,
  * What the answer marked: "Marked", then "15 lines reviewed", the lines marked not
  * relevant counted as reviewed; `None` when it marked nothing.
  */
-marked: MarkPhrase | null, };
+marked: MarkPhrase | null, 
+/**
+ * Why the answer's review marks were not all applied, when they were not.
+ */
+marks_problem: string | null, };
 /**
  * The number of a view: the revision of the round's published stage, then how many first
  * picks this page kept for the round, then the revision of the review threads, which hold the

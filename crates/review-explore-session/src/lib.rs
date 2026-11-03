@@ -130,6 +130,16 @@ pub struct ExploreSession {
     earlier_citations: page::PageCitations,
     /// The review marks of the reviewer's snapshot, as the session read them last.
     marks: review_explore_tally::ChangeMarks,
+    /// The snapshot whose review marks the session read last.
+    marks_snapshot: Option<review_repository::repository::Snapshot>,
+    /// The files on which the marks of the round apply at a snapshot, as worked out last.
+    markable: mark_tally::MarkableCache,
+    /// The files whose diff differed from the round's at the snapshot the latest unreviewed
+    /// diffs were written from, until the prompt they belong to takes them.
+    prompt_diverged: Vec<String>,
+    /// The files whose diff differed from the round's when a prompt for a request was
+    /// written, the agent's or a fork's, by request, until the round keeps them with the turn.
+    prompted_diverged: std::collections::BTreeMap<String, Vec<String>>,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     /// The instructions of the latest prompt, as files.
@@ -285,6 +295,10 @@ impl ExploreSession {
             repository,
             tracker,
             marks: review_explore_tally::ChangeMarks::new(store.clone()),
+            marks_snapshot: None,
+            markable: mark_tally::MarkableCache::default(),
+            prompt_diverged: Vec::new(),
+            prompted_diverged: std::collections::BTreeMap::new(),
             rounds: records::SavedRounds::new(store),
             agents,
             target,

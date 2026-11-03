@@ -199,12 +199,14 @@ impl SavedRounds {
         records.update_round(instance, update)
     }
 
-    /// Serially accept an Explore response without changing file review marks.
+    /// Serially accept an Explore response without changing file review marks, with the files
+    /// whose diff had `diverged` from the round's when it came.
     pub(crate) fn submit(
         &self,
         unit: &ReviewUnit,
         instance: &str,
         update: &InterviewUpdate,
+        diverged: Vec<String>,
     ) -> Result<Submitted> {
         let records = self.store.lock_explore(unit)?;
         if records.history()?.is_historical(instance) {
@@ -212,6 +214,9 @@ impl SavedRounds {
         }
         let (applied, round) = records.update_round(instance, |round| {
             let applied = round.submit(update).map_err(|error| error.to_string())?;
+            if applied && let Some(turn) = round.turns.get_mut(&update.request) {
+                merge_diverged(&mut turn.diverged, diverged);
+            }
             if applied && update.conclusion.is_some() && round.completion.is_none() {
                 round.completion = Some(ReviewCompletion {
                     request: update.request.clone(),
@@ -344,3 +349,12 @@ impl SavedRounds {
 #[cfg(test)]
 #[path = "records.tests.rs"]
 mod tests;
+
+/// Adds the files of `more` that `diverged` lacks, keeping its order.
+pub(crate) fn merge_diverged(diverged: &mut Vec<String>, more: Vec<String>) {
+    for path in more {
+        if !diverged.contains(&path) {
+            diverged.push(path);
+        }
+    }
+}
