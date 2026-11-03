@@ -87,8 +87,7 @@ enum Owner {
 /// it reaches.
 const EVERYTHING: &[&str] = &[
     "Cargo.toml",
-    "flake.nix",
-    "flake.lock",
+    "nix/",
     "Makefile",
     ".config/",
 ];

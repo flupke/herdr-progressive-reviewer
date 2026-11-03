@@ -24,11 +24,11 @@ a fixed Herdr release and points `TEST_HERDR_BIN_PATH` at it; the test servers
 run that binary. `herdr` on the `PATH` stays the installed Herdr, which
 `make install` uses. Outside the Nix shell, the tests fall back to `herdr` on
 the `PATH`. Set `TEST_HERDR_BIN_PATH` inside the shell to try another binary:
-`nix develop --command env TEST_HERDR_BIN_PATH=/path/to/herdr make check`.
+`scripts/dev-shell env TEST_HERDR_BIN_PATH=/path/to/herdr make check`.
 
 Herdr's documentation leaves much of its behaviour out, such as what it does with a
 pane's OSC 52 clipboard write. Read its source at the pinned release instead (`herdrVersion`
-in `flake.nix`): `git clone --depth 1 --branch v<version>
+in `nix/flake.nix`): `git clone --depth 1 --branch v<version>
 https://github.com/herdrdev/herdr`. `src/pane.rs` handles what a pane's program writes,
 and `src/selection.rs` the clipboard.
 
@@ -43,14 +43,14 @@ newer rule engine than the release supports.
 
 To change the pinned release:
 
-1. In `flake.nix`, set `herdrVersion` and the `hash` of each `herdrAssets`
+1. In `nix/flake.nix`, set `herdrVersion` and the `hash` of each `herdrAssets`
    entry. GitHub lists each asset's SHA-256:
    `gh release view v<version> --repo herdrdev/herdr --json assets --jq '.assets[] | "\(.name) \(.digest)"'`.
    Convert each one with `nix hash convert --hash-algo sha256 --to sri <hex>`.
 2. If the release changes the agent detection, copy the current Codex and Claude
    manifests from `distribution/agent-detection` in the Herdr repository into
    `crates/review-test-support/agent-detection`.
-3. Run `nix develop --command make check-with-e2e`.
+3. Run `scripts/dev-shell make check-with-e2e`.
 
 ## Tests that call no model
 

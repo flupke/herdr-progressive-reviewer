@@ -9,4 +9,4 @@ under `target/`.
 
 See the [exploration guide](../../../.agents/wiki/tui-vision.md)
 for the vision MCP server's tools. Run the resulting tests with
-`nix develop --command make e2e-tui`.
+`scripts/dev-shell make e2e-tui`.

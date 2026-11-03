@@ -7,7 +7,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 if [ -z "${E2E_TELEMETRY_DISABLED:-}" ]; then
-  echo 'Run this inside the Nix dev shell, which turns e2e telemetry off: nix develop --command make ..., or scripts/dev-shell make ... in a jj workspace' >&2
+  echo 'Run this inside the Nix dev shell, which turns e2e telemetry off: scripts/dev-shell make ...' >&2
   exit 2
 fi
 

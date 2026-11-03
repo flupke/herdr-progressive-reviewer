@@ -52,7 +52,7 @@ Gotchas of e2e 0.16:
 ## Run the tests
 
 ```sh
-nix develop --command make e2e-explore
+scripts/dev-shell make e2e-explore
 ```
 
 It runs every test at a desktop size, against its own server, in about 10 seconds.
@@ -89,7 +89,7 @@ root:
 claude mcp add e2e -- "$PWD/tests/explore-page/mcp.sh"
 ```
 
-Install e2e once first with `nix develop --command make e2e-explore-deps`.
+Install e2e once first with `scripts/dev-shell make e2e-explore-deps`.
 
 An agent whose session has no server registered can drive the same server from
 the shell with `tests/explore-page/mcp-cli.mjs`, whose header shows how.

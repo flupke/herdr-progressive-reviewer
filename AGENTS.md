@@ -129,7 +129,7 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    once each set of them is done. Create another change only when the user
    asks for something new.
 
-Run the make targets through `nix develop --command` so the pinned Rust
+Run the make targets through `scripts/dev-shell` so the pinned Rust
 toolchain, `cccc`, and `cargo-nextest` are available, and `make install` through
 it too so the installed build uses the same toolchain. Keep the warning gate of
 the checks (`-Dwarnings`) enabled; fix warnings in the current change instead

@@ -162,7 +162,7 @@ fn documentation_and_tooling_no_check_runs_reach_no_check() {
 fn a_manifest_or_an_unmapped_file_runs_every_check() {
     for path in [
         "Cargo.toml",
-        "flake.nix",
+        "nix/flake.nix",
         ".config/nextest.toml",
         "tools/new.sh",
     ] {

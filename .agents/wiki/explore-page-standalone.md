@@ -5,7 +5,7 @@ How to serve the page with no pane, agent or Herdr, act on it with a throwaway s
 ## Serve the page alone
 
 ```sh
-nix develop --command make explore-page
+scripts/dev-shell make explore-page
 ```
 
 This runs the standalone server
@@ -28,11 +28,8 @@ serves it.
 ## Act on the page with a script
 
 ```sh
-nix develop --command make explore-script SCRIPT=path/to/script.ts
+scripts/dev-shell make explore-script SCRIPT=path/to/script.ts
 ```
-
-In a jj workspace, enter the dev shell with `scripts/dev-shell make explore-script ...`
-instead ([parallel workspaces](parallel-workspaces.md)).
 
 This runs a throwaway Playwright script against a fresh session of the standalone
 server, in the dev shell's headless Chromium. The header of
@@ -48,7 +45,7 @@ by hand before deciding whether it earns a journey in the
 ## Screenshot gallery
 
 ```sh
-nix develop --command make explore-gallery
+scripts/dev-shell make explore-gallery
 ```
 
 This takes a full-page screenshot of every state of the page, at 1280 and 390

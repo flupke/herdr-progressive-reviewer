@@ -6,10 +6,10 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # The dev shell sets E2E_TELEMETRY_DISABLED on every platform.
 if [ -z "${E2E_TELEMETRY_DISABLED:-}" ]; then
-  exec nix develop "$here/../.." --command "$here/mcp.sh" "$@"
+  exec "$here/../../scripts/dev-shell" "$here/mcp.sh" "$@"
 fi
 if [ ! -x "$here/node_modules/.bin/e2e" ]; then
-  echo 'e2e is not installed: run `nix develop --command make e2e-explore-deps` once.' >&2
+  echo 'e2e is not installed: run `scripts/dev-shell make e2e-explore-deps` once.' >&2
   exit 1
 fi
 exec "$here/node_modules/.bin/e2e" mcp --config "$here/e2e.config.ts" --headless "$@"

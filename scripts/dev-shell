@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # Runs a command, or an interactive shell, in this repository's Nix dev shell, from the main
-# checkout or from a jj workspace. Nix evaluates a copy of flake.nix and flake.lock alone
-# (.agents/wiki/parallel-workspaces.md).
+# checkout or from a jj workspace. The `path:` URL to nix/ makes Nix copy that directory alone
+# into the store, never the checkout and its target/ (.agents/wiki/parallel-workspaces.md).
 #
 # Usage: scripts/dev-shell [command [argument...]]
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-flake="$(mktemp -d)"
-trap 'rm -rf "$flake"' EXIT
-cp "$root/flake.nix" "$root/flake.lock" "$flake/"
 if [ "$#" -eq 0 ]; then
-  nix develop "path:$flake"
+  exec nix develop "path:$root/nix"
 else
-  nix develop "path:$flake" --command "$@"
+  exec nix develop "path:$root/nix" --command "$@"
 fi
