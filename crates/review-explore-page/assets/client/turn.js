@@ -7,7 +7,7 @@
 
 /** @import { KeptAnswer, LatestAnswer, ResponseView } from "./types.ts" */
 
-import { NOTHING_ANSWERED } from './answer-card.js';
+import { NOTHING_ANSWERED, marksProblemLine } from './answer-card.js';
 import { disclosure } from './disclosure.js';
 import { codeSpans, h, markdown } from './dom.js';
 
@@ -37,6 +37,7 @@ export function turnStrip({ answer, kept = null, response, number }) {
     { class: 'turn' },
     shown ? answered(shown, number) : null,
     response ? recorded(response) : null,
+    response?.marks_problem ? marksProblemLine(response.marks_problem) : null,
     path || followUps || answer
       ? h(
           'div',

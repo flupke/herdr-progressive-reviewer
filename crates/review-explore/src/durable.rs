@@ -185,6 +185,11 @@ pub struct InterviewDelivery {
     pub state: DispatchState,
     #[serde(default)]
     pub started_at_ms: Option<u64>,
+    /// The changed files whose diff differed from the round's when the round accepted the
+    /// agent's turn for this request, by review path: the turn's line numbers there may name
+    /// other lines, so its marks never apply there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diverged: Vec<String>,
 }
 
 /// The first conclusion the round accepted, which authorizes implementation.
@@ -588,6 +593,7 @@ impl ExploreRound {
                 request: request.clone(),
                 state: DispatchState::Queued,
                 started_at_ms: None,
+                diverged: Vec::new(),
             },
         );
         Ok(true)

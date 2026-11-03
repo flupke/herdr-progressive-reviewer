@@ -431,13 +431,21 @@ pub(crate) fn sent_answer(
         }),
         kept: KeptAnswer::of(answer),
         // The marks of the turn that asked the question, which the answer applied.
-        marked: round
-            .marks
-            .get(&answer.in_reply_to)
-            .filter(|marks| marks.answer.as_deref() == Some(answer.id.as_str()))
+        marked: answer_marks(round, &answer.in_reply_to, &answer.id)
             .map(TurnMarks::counts)
             .unwrap_or_default(),
+        marks_problem: answer_marks(round, &answer.in_reply_to, &answer.id)
+            .and_then(|marks| marks.problem.clone()),
     }))
+}
+
+/// The marks of the turn `request` of `round`, as the answer `answer` to its question applied
+/// them.
+fn answer_marks<'a>(round: &'a ExploreRound, request: &str, answer: &str) -> Option<&'a TurnMarks> {
+    round
+        .marks
+        .get(request)
+        .filter(|marks| marks.answer.as_deref() == Some(answer))
 }
 
 /// The turn `request` of `round`, which the agent is not working on, and why; `answer` is the
@@ -499,8 +507,19 @@ pub(crate) fn latest_turn(
     let Some(turn) = exploration.conversation.last() else {
         return nothing();
     };
+    // The marks the answer the turn follows applied: those of the question it answered, or,
+    // for a conclusion, the conclusion's own, which apply once it is accepted.
+    let answered = match turn.update.conclusion {
+        // A conclusion follows no answer when it opens the round or a request without one.
+        Some(_) => round.marks.get(&turn.update.request),
+        None => turn.answer.as_deref().and_then(|answer| {
+            let answer = exploration.answers.iter().find(|kept| kept.id == answer)?;
+            answer_marks(round, &answer.in_reply_to, &answer.id)
+        }),
+    };
     let response = TurnResponse {
         path: latest.paths.get(&turn.update.request).cloned(),
+        marks_problem: answered.and_then(|marks| marks.problem.clone()),
         ..TurnResponse::of(exploration, turn)
     };
     if let Some(conclusion) = &turn.update.conclusion {

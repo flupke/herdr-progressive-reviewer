@@ -153,7 +153,7 @@ impl ExploreSession {
 
     /// Give back the review marks a cancelled turn changed as `author`, file
     /// by file, failing when any file failed so the cancel can be tried again.
-    /// Lines it reopened stay open when the code changed since the round
+    /// Lines it reopened stay open in a file whose diff changed since the round
     /// started; the returned problem says so.
     pub(crate) fn unmark(
         &mut self,
@@ -164,11 +164,12 @@ impl ExploreSession {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
             eyre::bail!("the repository is not ready; try again");
         };
-        let unchanged = round.is_at(&snapshot.identity);
+        let markable = self.markable(round, &snapshot);
         let mut kept_open = false;
         let mut failed = None;
         for file in FileUnmark::group(&snapshot, marks) {
             let path = file.file.review_path().display();
+            let unchanged = markable.allows(file.file);
             match file.apply(&self.tracker, &snapshot, author, unchanged) {
                 Ok(open) => kept_open |= open,
                 Err(error) => {
@@ -186,7 +187,7 @@ impl ExploreSession {
             eyre::bail!("review marks were not given back: {failed}");
         }
         Ok(kept_open.then(|| {
-            "the code changed since this round started; the lines its turn reopened stay open"
+            "the code changed since this round started; lines its turn reopened stay open"
                 .to_owned()
         }))
     }

@@ -168,9 +168,21 @@ impl ExploreSession {
         {
             return Err("Explore response belongs to another instance".into());
         }
+        // What differed when the turn's prompt, or its fork's, was written, and what differs
+        // now: the agent read the code at either.
+        let mut diverged = self
+            .prompted_diverged
+            .remove(&update.request)
+            .unwrap_or_default();
+        crate::records::merge_diverged(&mut diverged, self.diverged_now());
         let super::records::Submitted { applied, round } = self
             .rounds
-            .submit(&update.checkpoint.review_unit, &update.instance, update)
+            .submit(
+                &update.checkpoint.review_unit,
+                &update.instance,
+                update,
+                diverged,
+            )
             .map_err(|error| error.to_string())?;
         let round = if applied {
             self.apply_conclusion_marks(update, &round).unwrap_or(round)

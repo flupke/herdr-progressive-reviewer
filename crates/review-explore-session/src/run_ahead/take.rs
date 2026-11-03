@@ -136,7 +136,7 @@ impl ExploreSession {
         let point = self.run_ahead.host.point(&agent).map_err(Refusal::failed)?;
         let round = self.state.round.clone().ok_or("no round")?;
         let comparison = self.state.comparison.clone().ok_or("no change captured")?;
-        let (unreviewed, mut files) = self
+        let (unreviewed, mut files, diverged) = self
             .unreviewed_after_answer(&round)
             .map_err(|error| Refusal::failed(format!("{error:#}")))?;
         // A fork's turn carries the round's data as the agent's would.
@@ -181,6 +181,18 @@ impl ExploreSession {
                 )
             })
             .collect::<Result<Vec<_>, _>>();
+        // The forks' turns number the lines like the code they were written from.
+        let requests: Vec<String> = choices
+            .iter()
+            .filter_map(|choice| armed.reserved.get(&choice.id))
+            .map(|reserved| reserved.request.clone())
+            .collect();
+        for request in requests {
+            crate::records::merge_diverged(
+                self.prompted_diverged.entry(request).or_default(),
+                diverged.clone(),
+            );
+        }
         let forks = match turns {
             Ok(turns) => turns,
             Err(error) => {
@@ -273,7 +285,7 @@ impl ExploreSession {
     fn unreviewed_after_answer(
         &self,
         round: &ExploreRound,
-    ) -> eyre::Result<(Unreviewed, ForkFiles)> {
+    ) -> eyre::Result<(Unreviewed, ForkFiles, Vec<String>)> {
         let snapshot = self.complete_snapshot()?;
         let marks = tempfile::Builder::new()
             .prefix("herdr-review-run-ahead-")
@@ -282,14 +294,13 @@ impl ExploreSession {
         let tracker = self
             .tracker
             .copy_into(snapshot.identity.review_unit(), marks.path())?;
-        if round.is_at(&snapshot.identity)
-            && let Some(update) = round.exploration.waiting_turn()
-        {
+        if let Some(update) = round.exploration.waiting_turn() {
             // Who marks does not change which lines stay unreviewed.
             let author = MarkAuthor::Explore {
                 answer: "run-ahead".into(),
             };
-            crate::marks::mark_copy(&tracker, &snapshot, update, &author);
+            let markable = self.turn_markable(round, &update.request, &snapshot);
+            crate::marks::mark_copy(&tracker, &snapshot, update, &author, &markable);
         }
         let (unreviewed, diffs) = self.write_unreviewed(&tracker, &snapshot)?;
         Ok((
@@ -299,6 +310,7 @@ impl ExploreSession {
                 diffs,
                 turns: BTreeMap::new(),
             },
+            self.diverged_at(&snapshot),
         ))
     }
 

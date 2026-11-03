@@ -51,6 +51,7 @@ pub(super) fn answer_response(number: usize) -> TurnResponse {
         ),
         path: None,
         revision: None,
+        marks_problem: None,
     }
 }
 
@@ -72,6 +73,10 @@ fn closing_response() -> TurnResponse {
         ),
         path: None,
         revision: None,
+        // The code changed since the round started: the answer left one file unmarked.
+        marks_problem: Some(
+            "src/reply_queue.rs changed since this round started; its lines were not marked".into(),
+        ),
     }
 }
 

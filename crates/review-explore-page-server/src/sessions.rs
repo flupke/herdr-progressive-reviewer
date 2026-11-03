@@ -460,6 +460,7 @@ impl Session {
             question: None,
             kept: kept.clone(),
             marked: MarkCounts::default(),
+            marks_problem: None,
         };
         // The drawing board applies no marks: the code will change.
         let no_marks = QuestionMarks::default();

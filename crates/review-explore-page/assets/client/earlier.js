@@ -9,7 +9,7 @@
 /** @import { EarlierQuestionView } from "./types.ts" */
 /** @import { Current } from "./design.js" */
 
-import { answerCard, markedLine } from './answer-card.js';
+import { answerCard, markedLine, marksProblemLine } from './answer-card.js';
 import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { goTo } from './design.js';
@@ -56,6 +56,7 @@ function panel(question, current) {
       ? answerCard(question.answer, { withChoice: false })
       : h('p', { class: 'hint' }, 'The round left this question unanswered.'),
     question.marks.map(markedLine),
+    question.marks_problems.map(marksProblemLine),
     record(question),
     question.cancel ? cancelAnswer(question.cancel.answer, question.cancel.later) : null,
     current ? goTo(current) : null,

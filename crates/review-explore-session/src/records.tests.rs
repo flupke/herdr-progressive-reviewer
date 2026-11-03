@@ -167,7 +167,7 @@ fn a_conclusion_completes_the_round_and_leaves_review_marks_alone() {
 
     let Submitted { applied, round } = investigation
         .rounds
-        .submit(&"review".into(), &instance, &conclusion)
+        .submit(&"review".into(), &instance, &conclusion, Vec::new())
         .unwrap();
 
     assert!(applied);
@@ -184,7 +184,7 @@ fn a_conclusion_completes_the_round_and_leaves_review_marks_alone() {
     assert_eq!(restored, round);
     let Submitted { applied, .. } = investigation
         .rounds
-        .submit(&"review".into(), &instance, &conclusion)
+        .submit(&"review".into(), &instance, &conclusion, Vec::new())
         .unwrap();
     assert!(!applied, "an identical retry changes nothing");
     let followup = round.exploration.clone().request(None, None).unwrap();
@@ -200,6 +200,7 @@ fn a_conclusion_completes_the_round_and_leaves_review_marks_alone() {
             &"review".into(),
             &instance,
             &Investigation::update(&followup, 3),
+            Vec::new(),
         )
         .unwrap();
     assert!(applied, "the conversation remains open after concluding");

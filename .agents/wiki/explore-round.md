@@ -19,8 +19,14 @@ Related pages: what the agent's prompts and tools guarantee is in [Explore agent
   when a source file changes.
 - The saved decisions describe that investigation. They do not establish that later edits
   were reviewed: the reviewer resets and starts a new round when the code has changed.
-- Review marks from the round apply only while the code is still the checkpoint the round
-  started from; what changed is recorded for the reviewer to see.
+- Review marks from the round apply on a file only while its diff is still the one the round
+  captured (Git's abbreviated object names aside): the agent's line numbers then name the same
+  lines. Once a file changed, an answer marks the other files and says which files it left
+  unmarked, in the pane and on the page; a new round marks the changed file.
+- A turn whose prompt (the agent's or a fork's) was written, or which the round accepted,
+  while a file's diff differed from the round's never marks that file, even once the code is
+  back: the agent may have read the moved lines. The round keeps those files with the turn
+  (`diverged`). A file whose diff cannot be read is not marked, and the answer says so.
 - Supporting files are read as needed, so a large unchanged asset imposes no
   repository-wide limit.
 - Request and answer identities protect against cancelled, duplicate and unrelated
@@ -42,8 +48,11 @@ Related pages: what the agent's prompts and tools guarantee is in [Explore agent
   until the reviewer answers it, so the lines an answer settled are marked when the
   reviewer answers the next question, or at once when the agent concludes instead.
 - Citations and topic associations mark nothing. Explore resolves no review thread.
-- Cancel answer gives back the review marks of the agent's turn after the answer. When the
-  code changed since the round started, lines the cancelled turn reopened stay open.
+- Cancel answer gives back the review marks of the agent's turn after the answer. In a file
+  whose diff changed since the round started, lines the cancelled turn reopened stay open.
+- "Answering marks" on the page counts the open changed lines the answer marks, from the meter's
+  tally, not the lines the agent names: its ranges take in unchanged lines, lines marked
+  already and files that changed. The pane's "Will mark" line still counts the ranges.
 - Cancelling an earlier answer cancels every answer after it, latest first, as many Cancel
   answers in a row would: the next prompt names each of them, and the agent disregards them
   and its turns after them.

@@ -29,6 +29,7 @@ pub(super) fn answer_response() -> TurnResponse {
         reply: Some("Agreed: the draft stays with the round, so `reopen()` keeps it.".into()),
         path: None,
         revision: None,
+        marks_problem: None,
     }
 }
 
@@ -68,6 +69,7 @@ pub(super) fn conclusion_response() -> TurnResponse {
         reply: None,
         path: None,
         revision: None,
+        marks_problem: None,
     }
 }
 

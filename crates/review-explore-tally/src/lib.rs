@@ -18,7 +18,7 @@ mod tally;
 
 pub use marks::ChangeMarks;
 use marks::{FileMarks, Marks};
-use review_explore::{ExploreRound, InterviewUpdate};
+use review_explore::{ExploreRound, InterviewUpdate, MarkableFiles};
 use review_hunks::LineCount;
 use review_repository::repository::DiffStatistics;
 use serde::Serialize;
@@ -33,8 +33,8 @@ pub struct MarkTally {
     /// Each changed file, in the order of the change.
     pub files: Vec<FileTally>,
     /// What answering the question the round waits for does; `None` when no question waits
-    /// for an answer, or when the code changed since the round started and an answer marks
-    /// nothing.
+    /// for an answer. Once the code changed since the round started, it counts only the files
+    /// whose diff did not change.
     pub gain: Option<Gain>,
 }
 
@@ -151,14 +151,16 @@ pub enum WholeChange {
 
 impl MarkTally {
     /// The tally of `files` while `round` is the round of the review, if any, and the round
-    /// waits for an answer to the question that the agent's turn `question` posted, if any.
+    /// waits for an answer to the question that the agent's turn `question` posted, if any,
+    /// whose marks apply on the `markable` files.
     pub(crate) fn of(
         files: &[FileMarks],
         round: Option<&ExploreRound>,
         question: Option<&InterviewUpdate>,
+        markable: &MarkableFiles,
     ) -> Self {
         let round = round::RoundMarks::new(round);
-        let answering = question.map(round::Answering::new);
+        let answering = question.map(|question| round::Answering::new(question, markable));
         let files = files
             .iter()
             .map(|file| file.tally(&round, answering.as_ref()))

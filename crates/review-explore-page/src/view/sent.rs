@@ -26,6 +26,8 @@ pub(crate) struct SentView {
     /// What the answer marked: "Marked", then "15 lines reviewed", the lines marked not
     /// relevant counted as reviewed; `None` when it marked nothing.
     marked: Option<MarkPhrase>,
+    /// Why the answer's review marks were not all applied, when they were not.
+    marks_problem: Option<String>,
 }
 
 impl SentView {
@@ -50,6 +52,7 @@ impl SentView {
             }),
             answer: sent.kept.clone(),
             marked: (!marked.parts.is_empty()).then_some(marked),
+            marks_problem: sent.marks_problem.clone(),
         })
     }
 }

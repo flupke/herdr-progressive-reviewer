@@ -156,6 +156,8 @@ struct ResponseView {
     interpretations: Vec<InterpretationView>,
     reply_html: Option<String>,
     path_line: Option<String>,
+    /// Why the review marks of the answer were not all applied, when they were not.
+    marks_problem: Option<String>,
 }
 
 /// The agent's recap of the answer, and the follow-ups it recorded.
@@ -301,6 +303,7 @@ impl ResponseView {
             reply: record.reply.clone().filter(|text| !text.trim().is_empty()),
             path: None,
             revision: None,
+            marks_problem: None,
         })
     }
 
@@ -316,6 +319,7 @@ impl ResponseView {
                 .collect(),
             reply_html: response.reply.as_deref().map(|reply| markdown(reply, 2)),
             path_line: response.path_line().map(str::to_owned),
+            marks_problem: response.marks_problem.clone(),
         }
     }
 }

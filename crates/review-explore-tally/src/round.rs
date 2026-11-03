@@ -2,7 +2,8 @@
 //! answered.
 
 use review_explore::{
-    ExploreRound, InterviewUpdate, NamedLines, NotRelevantMark, SourceSide, TurnMarks,
+    ExploreRound, InterviewUpdate, MarkableFiles, NamedLines, NotRelevantMark, SourceSide,
+    TurnMarks,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::ChangedFile;
@@ -108,8 +109,11 @@ impl Line {
 }
 
 /// The marks that answering the question the round waits for applies, as the agent's turn
-/// that posted it asked.
-pub(crate) struct Answering<'a>(&'a InterviewUpdate);
+/// that posted it asked, on the files where they apply.
+pub(crate) struct Answering<'a> {
+    question: &'a InterviewUpdate,
+    markable: &'a MarkableFiles,
+}
 
 /// The open lines answering marks, and the marked lines it reopens.
 #[derive(Clone, Copy, Debug, Default)]
@@ -126,13 +130,13 @@ struct FileAnswer {
 }
 
 impl<'a> Answering<'a> {
-    pub(crate) fn new(question: &'a InterviewUpdate) -> Self {
-        Self(question)
+    pub(crate) fn new(question: &'a InterviewUpdate, markable: &'a MarkableFiles) -> Self {
+        Self { question, markable }
     }
 
     /// Whether the question cites `file`.
     pub(crate) fn cites(&self, file: &ChangedFile) -> bool {
-        self.0.next.as_ref().is_some_and(|question| {
+        self.question.next.as_ref().is_some_and(|question| {
             question
                 .evidence
                 .iter()
@@ -140,14 +144,24 @@ impl<'a> Answering<'a> {
         })
     }
 
+    /// The lines the answer marks and reopens on `file`: none on a file whose diff changed
+    /// since the round started.
     fn in_file(&self, file: &ChangedFile) -> FileAnswer {
+        if !self.markable.allows(file) {
+            return FileAnswer {
+                reviewed: None,
+                not_relevant: None,
+                reopened: None,
+            };
+        }
+        let question = self.question;
         FileAnswer {
-            reviewed: NamedLines::in_file(file, &self.0.reviewed),
+            reviewed: NamedLines::in_file(file, &question.reviewed),
             not_relevant: NamedLines::in_file(
                 file,
-                NotRelevantMark::locations(&self.0.not_relevant),
+                NotRelevantMark::locations(&question.not_relevant),
             ),
-            reopened: NamedLines::in_file(file, &self.0.reopened),
+            reopened: NamedLines::in_file(file, &question.reopened),
         }
     }
 

@@ -104,6 +104,28 @@ fn lines_the_answer_took_over_return_to_their_previous_author() {
 }
 
 #[test]
+fn lines_the_answer_took_over_return_once_another_file_changed() {
+    let mut harness = Harness::start();
+    harness
+        .files
+        .write("unreviewed.rs", b"pub fn unreviewed() {}\n");
+    harness.mark_as_reviewer();
+    let (request, access) = harness.answered();
+    assert!(applied(
+        harness.submit(&access, retaking_conclusion(&request))
+    ));
+    let answer = request.answer.unwrap().id;
+    // The diff of reviewed.rs stays the round's: its lines are the same lines.
+    harness
+        .files
+        .write("unreviewed.rs", b"// note\npub fn unreviewed() {}\n");
+
+    harness.cancel(&answer).unwrap();
+
+    assert_eq!(harness.author(), Some(MarkAuthor::Reviewer));
+}
+
+#[test]
 fn an_answer_cancelled_mid_turn_rejects_the_agents_late_reply() {
     let mut harness = Harness::start();
     let (request, access) = harness.answered();
