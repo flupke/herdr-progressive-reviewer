@@ -624,6 +624,25 @@ pub struct RevisionHistoryLine {
     pub is_current: bool,
     /// Whether this row is immutable context that cannot be selected.
     pub is_immutable: bool,
+    /// The bookmarks, then the tags, that point at the revision of this row, in jj's order.
+    pub refs: Vec<RevisionRef>,
+}
+
+/// A bookmark or a tag that points at a revision. In a jj repository backed by Git, the
+/// bookmarks are the Git branches.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionRef {
+    pub kind: RevisionRefKind,
+    /// The name as `jj log` shows it: `main`, `main@origin` for a remote bookmark that is not
+    /// where the local one is, `main*` for a local one out of sync with its tracked remote,
+    /// `main??` while conflicted.
+    pub name: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RevisionRefKind {
+    Bookmark,
+    Tag,
 }
 
 /// A discovered jj or Git workspace.

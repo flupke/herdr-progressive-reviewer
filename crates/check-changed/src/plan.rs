@@ -85,12 +85,7 @@ enum Owner {
 
 /// Files that every check reads. `Cargo.lock` is not one: its changed packages say which crates
 /// it reaches.
-const EVERYTHING: &[&str] = &[
-    "Cargo.toml",
-    "nix/",
-    "Makefile",
-    ".config/",
-];
+const EVERYTHING: &[&str] = &["Cargo.toml", "nix/", "Makefile", ".config/"];
 
 /// The harnesses of the end-to-end suites.
 const SUITES: &[(&str, Suite)] = &[

@@ -3,7 +3,7 @@ use review_test_support::{JjFixture, JjLayout};
 use super::{JjBackend, parse_revision_candidates, parse_revision_history};
 use crate::repository::{
     ChangeId, ChangeKind, ChangedFile, MetadataScope, MetadataWatch, Repository, RepositoryBackend,
-    RevisionDirection, SnapshotId, SnapshotIdentity,
+    RevisionDirection, RevisionRef, RevisionRefKind, SnapshotId, SnapshotIdentity,
 };
 
 #[test]
@@ -55,6 +55,83 @@ fn revision_history_records_keep_graph_text_and_extract_change_ids() {
     assert_eq!(history[1].plain_text, "│");
     assert!(!history[1].is_current);
     assert!(!history[1].is_immutable);
+}
+
+#[test]
+fn revision_history_records_read_their_bookmarks_and_tags_apart_from_the_text() {
+    let history = parse_revision_history(
+        b"@  \x1efull-id:commit-id:short:1:0\x1fbmain\x1cbfeat@origin\x1ctv1.0\x1c\x1dshort message\n\x1eother-id:other-commit:other:0:0\x1f\x1dother\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        history[0].refs,
+        [
+            RevisionRef {
+                kind: RevisionRefKind::Bookmark,
+                name: "main".to_owned(),
+            },
+            RevisionRef {
+                kind: RevisionRefKind::Bookmark,
+                name: "feat@origin".to_owned(),
+            },
+            RevisionRef {
+                kind: RevisionRefKind::Tag,
+                name: "v1.0".to_owned(),
+            },
+        ]
+    );
+    assert_eq!(history[0].plain_text, "@  short message");
+    assert!(history[1].refs.is_empty());
+}
+
+#[test]
+fn revision_history_records_reject_malformed_bookmarks_and_tags() {
+    for refs in [&b"xmain\x1c"[..], b"bmain", b"b\x1c", b"\x1c", b"b\xff\x1c"] {
+        let mut line = b"\x1efull-id:commit-id:short:0:0\x1f".to_vec();
+        line.extend_from_slice(refs);
+        line.extend_from_slice(b"\x1dshort message\n");
+        assert!(parse_revision_history(&line).is_err(), "{refs:?}");
+    }
+}
+
+#[test]
+fn revision_history_shows_the_bookmarks_and_tags_of_each_revision() {
+    let fixture = JjFixture::new(JjLayout::NonColocated);
+    let repository = Repository::discover(fixture.root()).unwrap();
+    fixture.new_change("tagged change");
+    let tagged = fixture.change_id();
+    fixture.jj(["bookmark", "create", "feature/x", "-r", "@"]);
+    fixture.jj(["bookmark", "create", "alpha", "-r", "@"]);
+    fixture.jj(["tag", "set", "v1.0", "-r", "@"]);
+    fixture.new_change("plain change");
+
+    let history = repository.revision_history().unwrap();
+    let refs_of = |change_id: &str| {
+        history
+            .iter()
+            .find(|line| line.change_id.as_ref().map(ChangeId::as_str) == Some(change_id))
+            .unwrap()
+            .refs
+            .iter()
+            .map(|reference| (reference.kind, reference.name.as_str()))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        refs_of(&tagged),
+        [
+            (RevisionRefKind::Bookmark, "alpha"),
+            (RevisionRefKind::Bookmark, "feature/x"),
+            (RevisionRefKind::Tag, "v1.0"),
+        ]
+    );
+    assert!(refs_of(&fixture.change_id()).is_empty());
+    let tagged_line = history
+        .iter()
+        .find(|line| line.change_id.as_ref().map(ChangeId::as_str) == Some(tagged.as_str()))
+        .unwrap();
+    assert!(!tagged_line.plain_text.contains("alpha"));
 }
 
 #[test]

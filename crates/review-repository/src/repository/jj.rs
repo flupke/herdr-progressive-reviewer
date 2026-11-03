@@ -11,8 +11,8 @@ use super::watch::{MetadataScope, resolve_directory_or_link_file};
 use super::{
     BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, Cancellation, ChangeId,
     ChangedFile, Interdiff, RepoPath, RepoType, Repository, RepositoryBackend, RepositoryProcess,
-    RevisionCandidate, RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotId,
-    SnapshotIdentity, WatchPlan, path_from_output,
+    RevisionCandidate, RevisionDirection, RevisionHistoryLine, RevisionRef, RevisionRefKind,
+    Snapshot, SnapshotId, SnapshotIdentity, WatchPlan, path_from_output,
 };
 use crate::{Error, Result};
 
@@ -46,7 +46,11 @@ const REVISION_HISTORY_REVSET: &str = "(descendants(heads(ancestors(@) & immutab
     | heads(ancestors(@) & immutable())
     | (children(heads(ancestors(@) & immutable())) & immutable())";
 const REVISION_HISTORY_TEMPLATE: &str = concat!(
-    r#""\x1e" ++ change_id ++ ":" ++ commit_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "\x1d" ++ "#,
+    r#""\x1e" ++ change_id ++ ":" ++ commit_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "#,
+    // The bookmarks and tags, each a kind letter, its name and a separator, without the colours
+    // of `--color=always`, whose stripping would drop the separators.
+    r#"stringify(bookmarks.map(|b| "b" ++ b ++ "\x1c").join("") ++ tags.map(|t| "t" ++ t ++ "\x1c").join("")) ++ "#,
+    r#""\x1d" ++ "#,
     r#"change_id.shortest(8) ++ " " ++ description.first_line() ++ "\n""#,
 );
 
@@ -479,75 +483,22 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
             .map(|offset| end + offset + 2)
     });
     let graph_end = record_start;
-    let (text, short_change_id, change_id, commit_id, is_current, is_immutable) =
-        match (record_start, record_end, display_start) {
-            (Some(start), Some(end), Some(display_start)) => {
-                let metadata = strip_ansi_escapes::strip(&line[start + 1..end]);
-                let mut fields = metadata.rsplitn(5, |byte| *byte == b':');
-                let immutable_marker = fields.next();
-                let current_marker = fields.next();
-                let short_change_id = fields.next();
-                let commit_id = fields.next();
-                let change_id = fields.next();
-                let (
-                    Some(immutable_marker),
-                    Some(current_marker),
-                    Some(short_change_id),
-                    Some(commit_id),
-                    Some(change_id),
-                ) = (
-                    immutable_marker,
-                    current_marker,
-                    short_change_id,
-                    commit_id,
-                    change_id,
-                )
-                else {
-                    return Err(Error::Protocol {
-                        operation: "read jj revision history".to_owned(),
-                        detail: "jj returned incomplete revision history metadata",
-                    });
-                };
-                let change_id = std::str::from_utf8(change_id).map_err(|_| Error::Protocol {
-                    operation: "read jj revision history".to_owned(),
-                    detail: "jj returned a non-UTF-8 revision identifier",
-                })?;
-                let commit_id = std::str::from_utf8(commit_id).map_err(|_| Error::Protocol {
-                    operation: "read jj revision history".to_owned(),
-                    detail: "jj returned a non-UTF-8 commit identifier",
-                })?;
-                let short_change_id =
-                    std::str::from_utf8(short_change_id).map_err(|_| Error::Protocol {
-                        operation: "read jj revision history".to_owned(),
-                        detail: "jj returned a non-UTF-8 short revision identifier",
-                    })?;
-                let is_current = parse_revision_history_marker(
-                    current_marker,
-                    "jj returned an invalid current revision marker",
-                )?;
-                let is_immutable = parse_revision_history_marker(
-                    immutable_marker,
-                    "jj returned an invalid immutable revision marker",
-                )?;
-                let mut text = line[..start].to_vec();
-                text.extend_from_slice(&line[display_start..]);
-                (
-                    text,
-                    Some(short_change_id.to_owned()),
-                    Some(ChangeId::from(change_id.to_owned())),
-                    Some(SnapshotId::from(commit_id.to_owned())),
-                    is_current,
-                    is_immutable,
-                )
-            }
-            (None, None, None) => (line.to_vec(), None, None, None, false, false),
-            _ => {
-                return Err(Error::Protocol {
-                    operation: "read jj revision history".to_owned(),
-                    detail: "jj returned an incomplete revision history record",
-                });
-            }
-        };
+    let (text, record, refs) = match (record_start, record_end, display_start) {
+        (Some(start), Some(end), Some(display_start)) => {
+            let record = parse_revision_record(&strip_ansi_escapes::strip(&line[start + 1..end]))?;
+            let refs = parse_revision_refs(&line[end + 1..display_start - 1])?;
+            let mut text = line[..start].to_vec();
+            text.extend_from_slice(&line[display_start..]);
+            (text, Some(record), refs)
+        }
+        (None, None, None) => (line.to_vec(), None, Vec::new()),
+        _ => {
+            return Err(Error::Protocol {
+                operation: "read jj revision history".to_owned(),
+                detail: "jj returned an incomplete revision history record",
+            });
+        }
+    };
     let plain_text = strip_ansi_escapes::strip(&text);
     Ok(RevisionHistoryLine {
         text: String::from_utf8(text).map_err(|_| Error::Protocol {
@@ -558,13 +509,113 @@ fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
             operation: "read jj revision history".to_owned(),
             detail: "jj returned non-UTF-8 plain revision history text",
         })?,
-        graph_end: change_id.as_ref().and(graph_end),
-        short_change_id,
-        change_id,
-        commit_id,
-        is_current,
-        is_immutable,
+        graph_end: record.as_ref().and(graph_end),
+        short_change_id: record.as_ref().map(|record| record.short_change_id.clone()),
+        change_id: record.as_ref().map(|record| record.change_id.clone()),
+        commit_id: record.as_ref().map(|record| record.commit_id.clone()),
+        is_current: record.as_ref().is_some_and(|record| record.is_current),
+        is_immutable: record.as_ref().is_some_and(|record| record.is_immutable),
+        refs,
     })
+}
+
+/// The identity of the revision of a history row, from its record's metadata.
+struct RevisionRecord {
+    change_id: ChangeId,
+    commit_id: SnapshotId,
+    short_change_id: String,
+    is_current: bool,
+    is_immutable: bool,
+}
+
+/// The metadata of a history record, without its colours: the change ID, the commit ID, the
+/// short change ID, then the current and immutable markers, separated by colons.
+fn parse_revision_record(metadata: &[u8]) -> Result<RevisionRecord> {
+    let mut fields = metadata.rsplitn(5, |byte| *byte == b':');
+    let immutable_marker = fields.next();
+    let current_marker = fields.next();
+    let short_change_id = fields.next();
+    let commit_id = fields.next();
+    let change_id = fields.next();
+    let (
+        Some(immutable_marker),
+        Some(current_marker),
+        Some(short_change_id),
+        Some(commit_id),
+        Some(change_id),
+    ) = (
+        immutable_marker,
+        current_marker,
+        short_change_id,
+        commit_id,
+        change_id,
+    )
+    else {
+        return Err(Error::Protocol {
+            operation: "read jj revision history".to_owned(),
+            detail: "jj returned incomplete revision history metadata",
+        });
+    };
+    let change_id = std::str::from_utf8(change_id).map_err(|_| Error::Protocol {
+        operation: "read jj revision history".to_owned(),
+        detail: "jj returned a non-UTF-8 revision identifier",
+    })?;
+    let commit_id = std::str::from_utf8(commit_id).map_err(|_| Error::Protocol {
+        operation: "read jj revision history".to_owned(),
+        detail: "jj returned a non-UTF-8 commit identifier",
+    })?;
+    let short_change_id = std::str::from_utf8(short_change_id).map_err(|_| Error::Protocol {
+        operation: "read jj revision history".to_owned(),
+        detail: "jj returned a non-UTF-8 short revision identifier",
+    })?;
+    Ok(RevisionRecord {
+        change_id: ChangeId::from(change_id.to_owned()),
+        commit_id: SnapshotId::from(commit_id.to_owned()),
+        short_change_id: short_change_id.to_owned(),
+        is_current: parse_revision_history_marker(
+            current_marker,
+            "jj returned an invalid current revision marker",
+        )?,
+        is_immutable: parse_revision_history_marker(
+            immutable_marker,
+            "jj returned an invalid immutable revision marker",
+        )?,
+    })
+}
+
+/// The bookmarks and tags of a history record: each a kind letter, `b` or `t`, then its name,
+/// then `\x1c`.
+fn parse_revision_refs(section: &[u8]) -> Result<Vec<RevisionRef>> {
+    let invalid = || Error::Protocol {
+        operation: "read jj revision history".to_owned(),
+        detail: "jj returned an invalid bookmark or tag",
+    };
+    let Some(section) = section.strip_suffix(b"\x1c") else {
+        return if section.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err(invalid())
+        };
+    };
+    section
+        .split(|byte| *byte == 0x1c)
+        .map(|record| {
+            let (kind, name) = record.split_first().ok_or_else(invalid)?;
+            let kind = match kind {
+                b'b' => RevisionRefKind::Bookmark,
+                b't' => RevisionRefKind::Tag,
+                _ => return Err(invalid()),
+            };
+            let name = std::str::from_utf8(name).map_err(|_| invalid())?;
+            if name.is_empty() {
+                return Err(invalid());
+            }
+            Ok(RevisionRef {
+                kind,
+                name: name.to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn parse_revision_history_marker(marker: &[u8], invalid_detail: &'static str) -> Result<bool> {
