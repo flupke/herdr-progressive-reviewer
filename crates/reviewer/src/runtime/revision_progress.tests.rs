@@ -20,6 +20,7 @@ fn line(id: &str, current: bool, immutable: bool) -> RevisionHistoryLine {
         commit_id: Some(SnapshotId::from(format!("{id}-commit"))),
         is_current: current,
         is_immutable: immutable,
+        refs: Vec::new(),
     }
 }
 
@@ -33,6 +34,7 @@ fn graph_only() -> RevisionHistoryLine {
         commit_id: None,
         is_current: false,
         is_immutable: false,
+        refs: Vec::new(),
     }
 }
 

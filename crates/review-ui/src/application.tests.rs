@@ -367,6 +367,7 @@ fn lsp_startup_does_not_close_the_revision_selector() {
             commit_id: None,
             is_current: true,
             is_immutable: false,
+            refs: Vec::new(),
         }]),
     });
 
@@ -408,6 +409,7 @@ fn clicking_the_change_id_opens_the_revision_selector_and_the_title_the_commit_m
             commit_id: None,
             is_current: true,
             is_immutable: false,
+            refs: Vec::new(),
         }]),
     });
     assert!(rendered_application(&application).contains("Select revision"));
@@ -445,6 +447,7 @@ fn clicking_outside_the_revision_selector_closes_it() {
             commit_id: None,
             is_current: true,
             is_immutable: false,
+            refs: Vec::new(),
         }]),
     });
     assert!(rendered_application(&application).contains("Select revision"));

@@ -1,9 +1,11 @@
 use component_core::{ComponentEventBus, EventEnvelope};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::Color;
 use review_repository::repository::{
     ChangeId, DiffStatistics, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
+    RevisionRef, RevisionRefKind,
 };
 use review_source::ReviewCheckpoint;
 use review_state::ReviewState;
@@ -526,6 +528,181 @@ fn the_share_goes_between_jj_graph_and_the_change_id() {
 }
 
 #[test]
+fn bookmarks_and_tags_follow_the_description_as_chips() {
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(history_line("alpha"), &[bookmark("main"), tag("v1.0")]),
+    ]);
+
+    let buffer = rendered_buffer(&bus, target);
+    let (row, text) = row_with(&buffer, "alpha description");
+    assert!(
+        text.contains("alpha alpha description   main   v1.0 "),
+        "{text}"
+    );
+    let palette = Theme::default().palette;
+    let bookmark = cell_at(&buffer, row, &text, "main");
+    assert_eq!((bookmark.fg, bookmark.bg), (palette.focus, palette.cursor));
+    let tag = cell_at(&buffer, row, &text, "v1.0");
+    assert_eq!((tag.fg, tag.bg), (palette.warning, palette.cursor));
+    let gap = cell_at(&buffer, row, &text, "  main");
+    assert_eq!(gap.bg, Color::Reset);
+}
+
+#[test]
+fn a_long_description_is_shortened_to_leave_room_for_its_names() {
+    // The row has 40 columns after the share: the chip of `main` takes 6, after a gap of 2.
+    let description = "d".repeat(60);
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("alpha", "alpha", &description),
+            &[bookmark("main")],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer(&bus, target), "alpha ddd");
+
+    assert!(
+        text.contains(&format!("alpha {}…   main ", "d".repeat(25))),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_name_too_long_for_its_share_of_the_row_is_shortened() {
+    let name = "feature/".to_owned() + &"n".repeat(32);
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("alpha", "alpha", &"d".repeat(60)),
+            &[bookmark(&name)],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer(&bus, target), "alpha ddd");
+
+    assert!(
+        text.contains(&format!("alpha {}…   feature/nn… ", "d".repeat(18))),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_description_shortened_before_an_emoji_keeps_its_names_on_the_row() {
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("alpha", "alpha", &"\u{2764}\u{fe0f}".repeat(30)),
+            &[bookmark("main")],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer(&bus, target), "alpha ");
+
+    assert!(text.contains("…   main "), "{text}");
+}
+
+#[test]
+fn a_name_of_emoji_too_wide_to_shorten_is_counted() {
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("alpha", "alpha", &"d".repeat(60)),
+            &[bookmark(&"\u{2764}\u{fe0f}".repeat(8))],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer(&bus, target), "alpha ddd");
+
+    assert!(
+        text.contains(&format!("alpha {}…  +1│", "d".repeat(29))),
+        "{text}"
+    );
+}
+
+#[test]
+fn names_leave_a_narrow_row_its_change_id() {
+    // 15 columns after the share: the change ID and a column of the description take 10, the
+    // gap 2, and `main` does not fit in the 3 left.
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("abcdefgh", "abcdefgh", &"d".repeat(40)),
+            &[bookmark("main")],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer_of_width(&bus, target, 29), "abcdefgh");
+
+    assert!(text.contains("abcdefgh d…  +1│"), "{text}");
+}
+
+#[test]
+fn crowded_names_are_shortened_and_those_left_out_counted() {
+    let (bus, target) = open_history(vec![
+        current_history_line("beta"),
+        with_refs(
+            history_line_with_text("alpha", "alpha", "x"),
+            &[
+                bookmark("feature/a-very-long-bookmark-name"),
+                bookmark("main"),
+                tag("v1.0"),
+                tag("v2.0"),
+            ],
+        ),
+    ]);
+
+    let (_, text) = row_with(&rendered_buffer(&bus, target), "alpha x");
+
+    assert!(
+        text.contains("alpha x   feature/a-very-long…  +3"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_selected_revision_keeps_the_background_of_its_chips() {
+    let (bus, target) = open_history(vec![with_refs(
+        current_history_line("alpha"),
+        &[bookmark("main")],
+    )]);
+
+    let buffer = rendered_buffer(&bus, target);
+    let (row, text) = row_with(&buffer, "alpha description");
+    let palette = Theme::default().palette;
+    assert_eq!(cell_at(&buffer, row, &text, "main").bg, palette.cursor);
+    assert_eq!(
+        cell_at(&buffer, row, &text, "description").bg,
+        palette.selection
+    );
+    let chip_end = text[..text.find("main ").unwrap()].chars().count() + "main ".len();
+    for column in chip_end..chip_end + 2 {
+        let after_chip = buffer.cell((u16::try_from(column).unwrap(), row)).unwrap();
+        assert_eq!(after_chip.bg, palette.selection, "column {column}");
+    }
+}
+
+#[test]
+fn the_filter_finds_a_revision_by_its_bookmark() {
+    let (mut bus, target) = open_history(vec![
+        current_history_line("alpha"),
+        with_refs(history_line("beta"), &[bookmark("release")]),
+    ]);
+
+    for key in [
+        Key::Char('/'),
+        Key::Char('r'),
+        Key::Char('e'),
+        Key::Char('l'),
+    ] {
+        send_key(&mut bus, key);
+    }
+
+    assert!(selected_history_text(&bus, target).contains("beta description"));
+}
+
+#[test]
 fn a_history_revision_that_cannot_be_read_shows_a_question_mark_and_its_reason_when_selected() {
     let (mut bus, target) = mounted_component();
     set_current_revision(&mut bus);
@@ -788,24 +965,23 @@ fn rendered_component(
     bus: &ComponentEventBus<ui_actions::Action>,
     target: component_core::ComponentTarget,
 ) -> String {
-    let component = bus.get::<RevisionComponent>(target).unwrap();
-    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
-    terminal
-        .draw(|frame| component.render(frame.area(), frame.buffer_mut()))
-        .unwrap();
-    terminal.backend().to_string()
+    let buffer = rendered_buffer(bus, target);
+    (0..buffer.area.height)
+        .map(|row| {
+            (0..buffer.area.width)
+                .filter_map(|column| buffer.cell((column, row)))
+                .map(Cell::symbol)
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn selected_history_text(
     bus: &ComponentEventBus<ui_actions::Action>,
     target: component_core::ComponentTarget,
 ) -> String {
-    let component = bus.get::<RevisionComponent>(target).unwrap();
-    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
-    terminal
-        .draw(|frame| component.render(frame.area(), frame.buffer_mut()))
-        .unwrap();
-    let buffer = terminal.backend().buffer();
+    let buffer = rendered_buffer(bus, target);
     let selection = Theme::default().palette.selection;
     (0..buffer.area.height)
         .find(|row| {
@@ -818,7 +994,7 @@ fn selected_history_text(
         .map(|row| {
             (0..buffer.area.width)
                 .filter_map(|column| buffer.cell((column, row)))
-                .map(ratatui::buffer::Cell::symbol)
+                .map(Cell::symbol)
                 .collect::<String>()
         })
         .unwrap_or_default()
@@ -846,6 +1022,7 @@ fn history_line_with_text(full_id: &str, short_id: &str, description: &str) -> R
         commit_id: None,
         is_current: false,
         is_immutable: false,
+        refs: Vec::new(),
     }
 }
 
@@ -860,5 +1037,86 @@ fn current_history_line(id: &str) -> RevisionHistoryLine {
     RevisionHistoryLine {
         is_current: true,
         ..history_line(id)
+    }
+}
+
+fn open_history(
+    lines: Vec<RevisionHistoryLine>,
+) -> (
+    ComponentEventBus<ui_actions::Action>,
+    component_core::ComponentTarget,
+) {
+    let (mut bus, target) = mounted_component();
+    set_current_revision(&mut bus);
+    send_key(&mut bus, Key::Char('v'));
+    send_key(&mut bus, Key::Char('v'));
+    bus.publish(RevisionHistoryLoaded {
+        load_id: history_load_id(0),
+        result: Ok(lines),
+    })
+    .unwrap();
+    (bus, target)
+}
+
+fn rendered_buffer(
+    bus: &ComponentEventBus<ui_actions::Action>,
+    target: component_core::ComponentTarget,
+) -> Buffer {
+    rendered_buffer_of_width(bus, target, 60)
+}
+
+fn rendered_buffer_of_width(
+    bus: &ComponentEventBus<ui_actions::Action>,
+    target: component_core::ComponentTarget,
+    width: u16,
+) -> Buffer {
+    let component = bus.get::<RevisionComponent>(target).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
+    terminal
+        .draw(|frame| component.render(frame.area(), frame.buffer_mut()))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+/// The row of `buffer` that shows `needle`, and its text, one character per cell.
+fn row_with(buffer: &Buffer, needle: &str) -> (u16, String) {
+    (0..buffer.area.height)
+        .map(|row| {
+            let text = (0..buffer.area.width)
+                .filter_map(|column| buffer.cell((column, row)))
+                .map(Cell::symbol)
+                .collect::<String>();
+            (row, text)
+        })
+        .find(|(_, text)| text.contains(needle))
+        .unwrap_or_else(|| panic!("no row shows {needle:?}"))
+}
+
+/// The cell of `row` where `needle` starts, in the row's `text`, which holds one character per
+/// cell.
+fn cell_at<'a>(buffer: &'a Buffer, row: u16, text: &str, needle: &str) -> &'a Cell {
+    let start = text.find(needle).unwrap();
+    let column = text[..start].chars().count();
+    buffer.cell((u16::try_from(column).unwrap(), row)).unwrap()
+}
+
+fn with_refs(line: RevisionHistoryLine, refs: &[RevisionRef]) -> RevisionHistoryLine {
+    RevisionHistoryLine {
+        refs: refs.to_vec(),
+        ..line
+    }
+}
+
+fn bookmark(name: &str) -> RevisionRef {
+    RevisionRef {
+        kind: RevisionRefKind::Bookmark,
+        name: name.to_owned(),
+    }
+}
+
+fn tag(name: &str) -> RevisionRef {
+    RevisionRef {
+        kind: RevisionRefKind::Tag,
+        name: name.to_owned(),
     }
 }

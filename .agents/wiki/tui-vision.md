@@ -81,7 +81,10 @@ each frame.
 - Herdr shows a run of blank cells that ends a row in the style of the cell before it once
   that cell is redrawn, though the reviewer never writes them: a text selection that ends
   before trailing spaces looks highlighted to the end of the line's padding. The selected
-  cells are right; ratatui sends no erase sequence (inferred: Herdr's grid).
+  cells are right; ratatui sends no erase sequence (inferred: Herdr's grid). The user sees it
+  too: a row that ends in a background, such as a chip of the revision selector, needs a cell
+  without background after it, which ratatui writes only when it differs from the blank cell
+  under it (a foreground of its own does).
 - Herdr reads the stand-in agent's state from its titles, Claude Code's (`✳ Ready`, `⠋
   Working`), and the agent reports none itself: once a session is reported under
   `herdr:claude`, Herdr 0.9.5 ignores the state an agent reports under a source of its own, but

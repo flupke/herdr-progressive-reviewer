@@ -9,11 +9,31 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use review_repository::repository::{
-    ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
+    ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine, RevisionRef,
+    RevisionRefKind,
 };
 use ui_frame::{Frame, with_footer};
 use ui_shortcuts::Key;
 use ui_theme::Palette;
+use unicode_width::UnicodeWidthStr;
+
+/// Between a revision's description and its first bookmark or tag.
+const REFS_GAP: &str = "  ";
+/// Between two chips of bookmarks and tags.
+const CHIP_GAP: &str = " ";
+/// The columns a chip's padding takes, a space on each side of its name.
+const CHIP_PADDING: usize = 2;
+/// The fewest columns a shortened name keeps: two characters and the ellipsis.
+const MIN_SHORTENED_NAME: usize = 3;
+/// The most columns a name takes when the names of a revision do not all fit.
+const CROWDED_NAME_WIDTH: usize = 20;
+/// The columns a row's bookmarks and tags may take from a description too long for both: a
+/// third of the room after the row's share, up to `MAX_REFS_FROM_DESCRIPTION`.
+const REFS_ROOM_DIVISOR: usize = 3;
+const MAX_REFS_FROM_DESCRIPTION: usize = 30;
+/// The columns after the change ID that the names leave the description: the space and one
+/// column, a character or the ellipsis.
+const MIN_DESCRIPTION_AFTER_ID: usize = 2;
 
 /// How much of one revision of the history is reviewed, once the worker computed it.
 pub(super) enum RevisionShare {
@@ -60,7 +80,12 @@ impl RevisionHistoryFilter {
         {
             return Some(0);
         }
-        fuzzy_matches(&line.plain_text, &self.query).then_some(1)
+        (fuzzy_matches(&line.plain_text, &self.query)
+            || line
+                .refs
+                .iter()
+                .any(|reference| fuzzy_matches(&reference.name, &self.query)))
+        .then_some(1)
     }
 }
 
@@ -304,13 +329,15 @@ impl SelectorPopup {
         if let Some(highlighted_line) = highlighted_line {
             let visible_line = highlighted_line.saturating_sub(scroll);
             if visible_line < visible_rows {
-                let highlight_area = Rect::new(
-                    self.inner.x,
-                    self.inner.y + u16::try_from(visible_line).unwrap_or(self.inner.height),
-                    self.inner.width,
-                    1,
-                );
-                buffer.set_style(highlight_area, Style::default().bg(palette.selection));
+                let row = self.inner.y + u16::try_from(visible_line).unwrap_or(self.inner.height);
+                // The chips of bookmarks and tags keep their own background.
+                for column in self.inner.left()..self.inner.right() {
+                    if let Some(cell) = buffer.cell_mut((column, row))
+                        && cell.bg != palette.cursor
+                    {
+                        cell.set_bg(palette.selection);
+                    }
+                }
             }
         }
     }
@@ -381,10 +408,12 @@ pub(super) fn render_history(
         None => "Select revision".to_owned(),
         Some(query) => format!("Select revision: /{query}"),
     };
+    let popup = SelectorPopup::new(area, selection.lines.len());
+    let width = usize::from(popup.inner.width);
     let lines = selection
         .lines
         .iter()
-        .map(|history_line| history_row(history_line, selection, palette))
+        .map(|history_line| history_row(history_line, selection, palette, width))
         .collect::<Vec<_>>();
     let selected = selection
         .lines
@@ -397,16 +426,14 @@ pub(super) fn render_history(
             _ => None,
         })
         .map(|reason| Line::styled(format!("? {reason}"), Style::default().fg(palette.warning)));
-    SelectorPopup::new(area, selection.lines.len())
-        .with_footer(reason)
-        .render(
-            buffer,
-            title,
-            palette,
-            lines,
-            selection.selected_line,
-            selected.map(|_| selection.selected_line),
-        );
+    popup.with_footer(reason).render(
+        buffer,
+        title,
+        palette,
+        lines,
+        selection.selected_line,
+        selected.map(|_| selection.selected_line),
+    );
 }
 
 /// One row of the history: jj's graph, then the revision's reviewed share, then its change ID
@@ -415,10 +442,16 @@ pub(super) fn render_history(
 /// the worker computes it, a dash on a revision with nothing to review, a question mark on one it
 /// could not compute, whose reason the bottom border shows while the row is selected, and blank
 /// on an immutable revision, which is not reviewed here.
+///
+/// The revision's bookmarks and tags follow its description, as chips (`ref_chips`), in the
+/// `width` columns of the row. The description stays first: shortened with an ellipsis, it gives
+/// the names at most a third of what follows the share, never more than
+/// `MAX_REFS_FROM_DESCRIPTION` columns, and never its change ID.
 fn history_row(
     line: &RevisionHistoryLine,
     selection: &RevisionHistorySelection,
     palette: &Palette,
+    width: usize,
 ) -> Line<'static> {
     let Some(end) = line
         .graph_end
@@ -444,8 +477,170 @@ fn history_row(
         format!(" {mark:>4} "),
         Style::default().fg(palette.dim),
     ));
-    spans.extend(revision.spans);
+    let room = width.saturating_sub(spans.iter().map(Span::width).sum());
+    let revision_width = revision.width();
+    // The change ID stays whole, with a character of the description or an ellipsis after it.
+    let id_width = line
+        .short_change_id
+        .as_deref()
+        .map_or(0, |id| id.width() + MIN_DESCRIPTION_AFTER_ID);
+    let refs_room = room
+        .saturating_sub(revision_width + REFS_GAP.width())
+        .max((room / REFS_ROOM_DIVISOR).min(MAX_REFS_FROM_DESCRIPTION))
+        .min(room.saturating_sub(id_width + REFS_GAP.width()));
+    let chips = ref_chips(&line.refs, refs_room, palette);
+    if chips.is_empty() {
+        spans.extend(revision.spans);
+        return Line::from(spans);
+    }
+    let chips_width = chips.iter().map(Span::width).sum::<usize>();
+    spans.extend(shorten_spans(
+        revision.spans,
+        room.saturating_sub(chips_width + REFS_GAP.width()),
+    ));
+    spans.push(Span::raw(REFS_GAP));
+    spans.extend(chips);
+    // Herdr paints the blank cells that end a row, which the reviewer never writes, in the style
+    // of the cell before them: a cell without background after the last chip keeps its
+    // background from running to the border. Its foreground sets it apart from a blank cell, so
+    // that the terminal backend writes it.
+    spans.push(Span::styled(" ", Style::default().fg(palette.text)));
     Line::from(spans)
+}
+
+/// The chips of `refs` that fit in `room` columns, a space apart: each name padded by a space on
+/// each side, bookmarks in the focus colour and tags in the warning colour. When the names do not
+/// all fit, each is shortened to `CROWDED_NAME_WIDTH` columns with an ellipsis, so that one long
+/// name does not hide the others, and the count of those that still do not fit follows, as `+2`.
+/// The first name is shortened further when the room needs it.
+fn ref_chips(refs: &[RevisionRef], room: usize, palette: &Palette) -> Vec<Span<'static>> {
+    let full_width = refs
+        .iter()
+        .map(|reference| reference.name.width() + CHIP_PADDING)
+        .sum::<usize>()
+        + CHIP_GAP.width() * refs.len().saturating_sub(1);
+    let name_width = if full_width <= room {
+        usize::MAX
+    } else {
+        CROWDED_NAME_WIDTH
+    };
+    let mut chips = Chips {
+        spans: Vec::new(),
+        used: 0,
+        room,
+    };
+    for (index, reference) in refs.iter().enumerate() {
+        let Some(name) = chips.fitting_name(&reference.name, name_width, refs.len() - index - 1)
+        else {
+            chips.push_if_fits(
+                hidden_count(refs.len() - index),
+                Style::default().fg(palette.dim),
+            );
+            break;
+        };
+        let color = match reference.kind {
+            RevisionRefKind::Bookmark => palette.focus,
+            RevisionRefKind::Tag => palette.warning,
+        };
+        chips.push_if_fits(
+            format!(" {name} "),
+            Style::default().fg(color).bg(palette.cursor),
+        );
+    }
+    chips.spans
+}
+
+/// The chips laid out so far in a row's `room` columns, and the columns they take.
+struct Chips {
+    spans: Vec<Span<'static>>,
+    used: usize,
+    room: usize,
+}
+
+impl Chips {
+    /// The gap before the next chip.
+    fn gap(&self) -> usize {
+        if self.spans.is_empty() {
+            0
+        } else {
+            CHIP_GAP.width()
+        }
+    }
+
+    /// `name`, shortened to `name_width` columns, if its chip fits beside the count of the
+    /// `after` names that follow it. The first name is shortened further when the room needs
+    /// it, down to `MIN_SHORTENED_NAME` columns.
+    fn fitting_name(&self, name: &str, name_width: usize, after: usize) -> Option<String> {
+        let count_width = if after == 0 {
+            0
+        } else {
+            CHIP_GAP.width() + hidden_count(after).width()
+        };
+        let name_room = self
+            .room
+            .saturating_sub(self.used + self.gap() + CHIP_PADDING + count_width);
+        let name = ui_panes::shorten(name, name_width);
+        if name.width() <= name_room {
+            return Some(name);
+        }
+        // `ui_panes::shorten` measures a character at a time, which counts an emoji's variation
+        // selector as nothing: a name it leaves too wide gives way to the count.
+        (self.spans.is_empty() && name_room >= MIN_SHORTENED_NAME)
+            .then(|| ui_panes::shorten(&name, name_room))
+            .filter(|name| name.width() <= name_room)
+    }
+
+    /// Lays out `text` after a gap, when it fits.
+    fn push_if_fits(&mut self, text: String, style: Style) {
+        let width = self.gap() + text.width();
+        if self.used + width > self.room {
+            return;
+        }
+        if !self.spans.is_empty() {
+            self.spans.push(Span::raw(CHIP_GAP));
+        }
+        self.used += width;
+        self.spans.push(Span::styled(text, style));
+    }
+}
+
+/// The label of `count` names that did not fit.
+fn hidden_count(count: usize) -> String {
+    format!("+{count}")
+}
+
+/// `spans` cut to `width` columns, the last one an ellipsis when some of them did not fit.
+fn shorten_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+    if spans.iter().map(Span::width).sum::<usize>() <= width {
+        return spans;
+    }
+    let mut shortened = Vec::new();
+    let mut used = 0;
+    let room = width.saturating_sub(1);
+    for span in spans {
+        let span_width = span.width();
+        if used + span_width <= room {
+            used += span_width;
+            shortened.push(span);
+            continue;
+        }
+        // Measured as a whole, as the buffer measures it: a character's own width counts the
+        // variation selector of an emoji like `❤️` as nothing.
+        let mut content = String::new();
+        for character in span.content.chars() {
+            content.push(character);
+            if used + content.width() > room {
+                content.pop();
+                break;
+            }
+        }
+        if width > 0 {
+            content.push('…');
+        }
+        shortened.push(Span::styled(content, span.style));
+        break;
+    }
+    shortened
 }
 
 /// The first line of ANSI-coloured `text`, if it parses.
