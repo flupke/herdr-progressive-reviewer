@@ -129,6 +129,12 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    once each set of them is done. Create another change only when the user
    asks for something new.
 
+For an investigation, which answers a question and builds nothing, check the answer by its
+sources in place of step 2's levels and step 3: give the `file:line` of each claim about this
+code, and the docs, API schema or `--help` of each claim about an outside tool, and report
+what you tried live as what you saw, with the command. Give the plan to whoever asked. The
+wiki lines the answer earns are a docs change: follow steps 1 and 4 to 7 for them.
+
 Run the make targets through `scripts/dev-shell` so the pinned Rust
 toolchain, `cccc`, and `cargo-nextest` are available, and `make install` through
 it too so the installed build uses the same toolchain. Keep the warning gate of
