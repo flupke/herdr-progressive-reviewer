@@ -5,6 +5,11 @@
   </picture>
 </h1>
 
+> [!IMPORTANT]
+> **This repository is no longer developed.** The progressive reviewer continues for herdr-app as
+> [herdr-ruminate](https://github.com/flupke/herdr-ruminate). The last version for Herdr is the
+> [`herdr-final`](https://github.com/flupke/herdr-progressive-reviewer/tree/herdr-final) tag.
+
 **Review the code your agent writes, without reading it twice.**
 
 A code review pane for [Herdr](https://github.com/herdrdev/herdr), beside your coding agent.
