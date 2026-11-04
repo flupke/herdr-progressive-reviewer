@@ -14,8 +14,7 @@ use std::time::{Duration, Instant};
 
 use agent_fork::{ProcessStamp, RunningFork, stop_recorded};
 use agent_hooks::{AgentHooks, Heard};
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPort, PaneId};
+use herdr_client::protocol::{Agent, AgentHost, PaneId};
 use review_run_ahead::{ForkWaits, SwitchFailure, resume_block};
 
 use crate::stream::Signal;
@@ -67,14 +66,14 @@ impl ForkProcess {
 
 /// The Claude Code agent of a Herdr pane.
 pub(crate) struct AgentPane<'a> {
-    pub(crate) herdr: &'a HerdrClient,
+    pub(crate) host: &'a dyn AgentHost,
     pub(crate) pane: &'a PaneId,
 }
 
 impl AgentPane<'_> {
     /// The agent, as Herdr reports it now.
     fn agent(&self) -> Result<Agent, String> {
-        self.herdr
+        self.host
             .get_agent(self.pane)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "the agent's pane is gone".to_owned())
@@ -147,7 +146,7 @@ impl Resume<'_> {
         if !agent.agent_status.waits_for_prompt() {
             return Err(SwitchFailure::untyped("the agent in the pane is working"));
         }
-        let Some(hooked) = hooks.hooked(self.pane.herdr, &agent) else {
+        let Some(hooked) = hooks.hooked(self.pane.host, &agent) else {
             return Err(SwitchFailure::untyped(
                 "the agent in the pane runs without the reviewer's Claude Code plugin",
             ));
@@ -156,7 +155,7 @@ impl Resume<'_> {
         let deadline = Instant::now() + self.limit;
         let expectation = hooks.expect_resume(&hooked, self.session, &resume_block(&command));
         self.pane
-            .herdr
+            .host
             .submit_prompt(self.pane.pane, &command)
             .map_err(|error| SwitchFailure::untyped(error.to_string()))?;
         let late = |what: &str| SwitchFailure {

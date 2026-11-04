@@ -13,8 +13,7 @@ use std::thread::{self, JoinHandle};
 use agent_hooks::AgentHooks;
 use component_core::{ApplicationEventSender, EventEnvelope};
 use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
+use herdr_client::protocol::{AgentHost, AgentTarget, HerdrEvent, PaneId};
 use review_explore_page::RoundPublisher;
 use review_explore_page_host::PageOpener;
 use review_explore_page_opening::PageScreen;
@@ -44,7 +43,8 @@ pub(super) struct Setup {
     pub(super) repository: Repository,
     pub(super) store: ReviewStore,
     pub(super) target: AgentTarget,
-    pub(super) agents: HerdrClient,
+    /// Herdr, or herdr-core under herdr-app.
+    pub(super) agents: Arc<dyn AgentHost>,
     pub(super) endpoint: Result<review_mcp::Endpoint, String>,
     pub(super) theme: Theme,
     pub(super) jev: JevClassifier,
@@ -82,18 +82,18 @@ impl RunAheadSetup {
     /// agents' hooks through `hooks`.
     fn forks(
         self,
-        agents: &HerdrClient,
+        agents: &Arc<dyn AgentHost>,
         hooks: Result<Arc<AgentHooks>, String>,
     ) -> Arc<agent_forks::AgentForks> {
         let log = review_run_ahead::RunAheadLog::at(self.log);
         let codex = codex_fork::CodexForks::new(
-            agents.clone(),
+            Arc::clone(agents),
             log.clone(),
             self.waits,
             hooks.as_ref().ok().cloned(),
         );
         let claude =
-            claude_fork::ClaudeForks::new(agents.clone(), self.tools, log, self.waits, hooks);
+            claude_fork::ClaudeForks::new(Arc::clone(agents), self.tools, log, self.waits, hooks);
         Arc::new(agent_forks::AgentForks::new(claude, codex))
     }
 }
@@ -179,7 +179,7 @@ impl Effects {
         let hooks = listen_to_hooks(hook_directory.as_ref());
         let comments = start_comments(
             &store,
-            agents.clone(),
+            Arc::clone(&agents),
             hooks.as_ref().ok().cloned(),
             target.clone(),
             endpoint,
@@ -196,7 +196,7 @@ impl Effects {
             repository: repository.clone(),
             store: store.clone(),
             tracker: Arc::clone(&tracker),
-            agents: Arc::new(agents),
+            agents,
             target: target.clone(),
             prompts: comments.prompt_sender(),
             events: messages.clone(),
@@ -463,7 +463,7 @@ fn start_documents(
 /// Conversation traffic bypasses slow repository operations.
 fn start_comments(
     store: &ReviewStore,
-    agents: HerdrClient,
+    agents: Arc<dyn AgentHost>,
     hooks: Option<Arc<AgentHooks>>,
     target: AgentTarget,
     endpoint: Result<review_mcp::Endpoint, String>,

@@ -78,6 +78,13 @@ against frozen line-level labels. Offline checks and paid live runs are separate
 jointly compares prompts, metadata, exclusion rules and token windows on an
 audited corpus from repository commits.
 
+The hc backend's tests against a real herdr-core start a private core each, with `hc` on the
+`PATH` or `TEST_HC_BIN` naming one, since the dev shell pins no herdr-core:
+
+```sh
+scripts/dev-shell cargo nextest run -p hc-client --run-ignored only
+```
+
 The run-ahead contract check runs real Claude Code turns: see
 [Run-ahead](run-ahead.md#the-contract-check).
 

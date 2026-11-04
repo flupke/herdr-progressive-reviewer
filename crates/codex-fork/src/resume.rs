@@ -11,8 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use agent_hooks::{AgentHooks, Expectation, Heard, HookedAgent};
 use codex_daemon::{Daemon, SessionEvent, SessionStatus};
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPort, PaneId, SessionReport};
+use herdr_client::protocol::{Agent, AgentHost, PaneId, SessionReport};
 use review_run_ahead::{RunAheadLog, SwitchFailure, resume_block};
 
 /// How long the daemon's client waits to join the session, a request of the daemon's.
@@ -24,7 +23,7 @@ const HERDR_CODEX: &str = "herdr:codex";
 
 /// The move of the Codex agent of `pane` to the session `session` of `daemon`.
 pub(crate) struct Resume<'a> {
-    pub(crate) herdr: &'a HerdrClient,
+    pub(crate) host: &'a dyn AgentHost,
     pub(crate) pane: &'a PaneId,
     pub(crate) hooks: Option<&'a AgentHooks>,
     pub(crate) daemon: Daemon,
@@ -73,14 +72,14 @@ impl Resume<'_> {
             SwitchFailure::untyped("the reviewer does not listen to the agent's hooks")
         })?;
         let agent = self
-            .herdr
+            .host
             .get_agent(self.pane)
             .map_err(|error| SwitchFailure::untyped(error.to_string()))?
             .ok_or_else(|| SwitchFailure::untyped("the agent's pane is gone"))?;
         if !agent.agent_status.waits_for_prompt() {
             return Err(SwitchFailure::untyped("the agent in the pane is working"));
         }
-        let Some(hooked) = hooks.hooked(self.herdr, &agent) else {
+        let Some(hooked) = hooks.hooked(self.host, &agent) else {
             return Err(SwitchFailure::untyped(
                 "the agent in the pane runs without the reviewer's Codex plugin",
             ));
@@ -100,7 +99,7 @@ impl Resume<'_> {
             }))
             .map(|on| hooks.expect_resume(&on, self.session, &block))
             .collect();
-        self.herdr
+        self.host
             .submit_prompt(self.pane, &command)
             .map_err(|error| SwitchFailure::untyped(error.to_string()))?;
         let deadline = Instant::now() + self.limit;
@@ -111,7 +110,7 @@ impl Resume<'_> {
             self.report_to_herdr();
         }
         Ok(self
-            .herdr
+            .host
             .get_agent(self.pane)
             .ok()
             .flatten()
@@ -205,7 +204,7 @@ impl Resume<'_> {
         let seq = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |now| u64::try_from(now.as_nanos()).unwrap_or(u64::MAX));
-        let reported = self.herdr.report_agent_session(
+        let reported = self.host.report_agent_session(
             self.pane,
             &SessionReport {
                 source: HERDR_CODEX,

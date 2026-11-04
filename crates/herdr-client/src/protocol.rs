@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
+use crate::client::EventCanceller;
 
 /// Herdr socket methods used by the reviewer.
 pub mod method {
@@ -107,8 +108,9 @@ impl PaneSize {
 /// The agent host that review delivery talks to: it resolves the target agent,
 /// reports agent and process identity, and submits prompts.
 ///
-/// [`crate::client::HerdrClient`] is the production adapter. The `memory` feature
-/// adds an in-memory adapter for tests that need no Herdr server.
+/// [`crate::client::HerdrClient`] is Herdr's adapter, and the `hc-client` crate's `HcClient`
+/// herdr-core's. The `memory` feature adds an in-memory adapter for tests that need no Herdr
+/// server.
 pub trait AgentPort: Send + Sync {
     /// Get a session snapshot, used to seed target resolution from the current focus.
     fn session_snapshot(&self) -> Result<SessionSnapshot>;
@@ -129,6 +131,64 @@ pub trait AgentPort: Send + Sync {
     /// working: for a command of the agent's own, which starts no turn, or for a prompt whose
     /// submission the agent's hooks confirm.
     fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> Result<()>;
+}
+
+impl<T: AgentPort + ?Sized> AgentPort for Arc<T> {
+    fn session_snapshot(&self) -> Result<SessionSnapshot> {
+        (**self).session_snapshot()
+    }
+
+    fn list_agents(&self) -> Result<Vec<Agent>> {
+        (**self).list_agents()
+    }
+
+    fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>> {
+        (**self).get_agent(pane_id)
+    }
+
+    fn pane_process_info(&self, pane_id: &PaneId) -> Result<PaneProcessInfo> {
+        (**self).pane_process_info(pane_id)
+    }
+
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        (**self).prompt_agent(pane_id, text)
+    }
+
+    fn submit_prompt(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        (**self).submit_prompt(pane_id, text)
+    }
+}
+
+/// The host the review pane runs in, which runs its agents: Herdr, or herdr-core (`hc`) under
+/// herdr-app. Beside the agents [`AgentPort`] gives, it streams what the reviewer follows of them.
+///
+/// [`crate::client::HerdrClient`] is Herdr's adapter; the `hc-client` crate's `HcClient` is
+/// herdr-core's.
+pub trait AgentHost: AgentPort + std::fmt::Debug {
+    /// Hands each event the reviewer follows to `send`, until `send` returns false or
+    /// `canceller` ends the stream, which both return `Ok`; the host dropping the stream is an
+    /// error, after which the caller may follow it again.
+    fn forward_events(
+        &self,
+        canceller: &EventCanceller,
+        send: &mut dyn FnMut(HerdrEvent) -> bool,
+    ) -> Result<()>;
+
+    /// Reports the status of the agent of `pane_id` to `send` when it has one, then each status
+    /// the host gives it, until `send` returns false or `canceller` ends the stream, which both
+    /// return `Ok`. No change is missed between the first report and the next. herdr-core also
+    /// ends it, with `Ok`, once the agent's program ends or ended already, or when it no longer
+    /// knows the terminal.
+    fn forward_agent_status(
+        &self,
+        pane_id: &PaneId,
+        canceller: &EventCanceller,
+        send: &mut dyn FnMut(AgentStatus) -> bool,
+    ) -> Result<()>;
+
+    /// Tells the host that the agent of `pane_id` runs the session `report` names, as the
+    /// agent's own Herdr hook does when the agent starts a session (ADR 0012).
+    fn report_agent_session(&self, pane_id: &PaneId, report: &SessionReport<'_>) -> Result<()>;
 }
 
 /// Pane read operations needed by the reviewer.

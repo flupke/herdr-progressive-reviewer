@@ -33,10 +33,18 @@ pub enum Error {
     AgentNotStarted { message: String },
 
     /// An event stream was cancelled before or while it subscribed.
-    #[error("the Herdr event stream was cancelled")]
+    #[error("the host's event stream was cancelled")]
     Cancelled,
 
-    /// Herdr rejected a socket request.
+    /// The host cannot do what the reviewer asks of it, such as herdr-core keeping an agent's
+    /// session.
+    #[error("{operation} is not supported here: {reason}")]
+    Unsupported {
+        operation: &'static str,
+        reason: &'static str,
+    },
+
+    /// Herdr, or herdr-core, rejected a socket request.
     #[error("{operation} failed: {message}")]
     Herdr {
         operation: &'static str,

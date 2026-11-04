@@ -31,7 +31,7 @@ struct McpAnswered;
 
 impl ExploreFlow {
     fn start(kind: RepoType) -> Self {
-        Self::start_on(ReviewFlowFixture::start(kind, |_| {}))
+        Self::start_on(ReviewFlowFixture::start(kind, |_, _| {}))
     }
 
     /// Starts a round in `fixture`, and waits for its change to be captured.
@@ -383,12 +383,14 @@ fn explore_turn_prompts_a_working_agent_once() {
 #[test]
 fn a_kickoff_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request() {
     // Herdr gives up on the agent at once, in place of its own 5 seconds.
-    let mut flow = ExploreFlow::start_on(ReviewFlowFixture::start(RepoType::Git, |setup| {
-        setup.agents = setup
-            .agents
-            .clone()
-            .with_prompt_start_timeout(Duration::from_millis(200));
-    }));
+    let mut flow =
+        ExploreFlow::start_on(ReviewFlowFixture::start(RepoType::Git, |setup, herdr| {
+            setup.agents = std::sync::Arc::new(
+                herdr
+                    .client()
+                    .with_prompt_start_timeout(Duration::from_millis(200)),
+            );
+        }));
     flow.fixture.herdr.swallow_prompts(true);
     let request = flow.exploration.request(None, None).unwrap();
     flow.fixture

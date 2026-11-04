@@ -7,6 +7,7 @@ mod editor;
 mod effects;
 mod events;
 mod highlighting;
+mod host;
 mod jev;
 mod page_sharing;
 mod page_threads;
@@ -41,8 +42,8 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use herdr_client::client::{EventCanceller, HerdrClient};
-use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, TabId, WorkspaceId};
+use herdr_client::client::EventCanceller;
+use herdr_client::protocol::{AgentHost, AgentTarget, PaneId, PluginContext, TabId, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_explore_page::{
@@ -68,7 +69,7 @@ use route::{
 
 const TIMER_INTERVAL: Duration = Duration::from_millis(50);
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
-const HERDR_EVENT_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+const HOST_EVENT_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const EVENT_BATCH_LIMIT: usize = 64;
 const EVENT_BATCH_BUDGET: Duration = Duration::from_millis(8);
 
@@ -81,7 +82,8 @@ pub struct Runtime {
     /// The review pane's tab: review prompts go only to an agent there.
     tab_id: TabId,
     initial_agent: Option<PaneId>,
-    client: HerdrClient,
+    /// Herdr, or herdr-core under herdr-app.
+    host: Arc<dyn AgentHost>,
     theme: Theme,
 }
 
@@ -99,12 +101,12 @@ struct TerminalEventProducer {
 }
 
 /// The threads that produce the runtime's events, which stop together: the stop disconnects
-/// the channel they wait on, and ends the Herdr event stream they read.
+/// the channel they wait on, and ends the host's event stream they read.
 struct RuntimeEventProducers {
     /// Dropped on stop, which disconnects `stopped`.
     stop: Option<EventSender<()>>,
     stopped: EventReceiver<()>,
-    herdr_events: EventCanceller,
+    host_events: EventCanceller,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -147,7 +149,7 @@ impl Runtime {
                 env::var("HERDR_TAB_ID").map_err(|_| eyre::eyre!("HERDR_TAB_ID is not set"))?,
             ),
             initial_agent: context.focused_pane_id,
-            client: HerdrClient::from_env()?,
+            host: host::from_env()?,
             theme: Theme::from_env()?,
         })
     }
@@ -185,7 +187,7 @@ impl Runtime {
                 repository: self.repository.clone(),
                 store: settings.clone(),
                 target: AgentTarget::new(self.tab_id.clone(), self.initial_agent.clone()),
-                agents: self.client.clone(),
+                agents: Arc::clone(&self.host),
                 endpoint: review_mcp::Endpoint::from_env(self.repository.root()),
                 theme: self.theme,
                 jev: jev::classifier_from_env(),
@@ -220,7 +222,7 @@ impl Runtime {
             &event_sender,
         );
         let mut event_producers = RuntimeEventProducers::new();
-        event_producers.forward_herdr_events(self.client.clone(), event_sender.clone());
+        event_producers.forward_host_events(Arc::clone(&self.host), event_sender.clone());
         let mut terminal_events = TerminalEventProducer::start(input_sender, in_vision_session());
         Self::watch_explore_storage(&watcher, &settings, &effects, past, event_sender.clone());
         watcher.send_file_changes_to(effects.lsp_file_changes());
@@ -384,26 +386,24 @@ impl Runtime {
         Ok(())
     }
 
-    /// Forwards Herdr's events until `canceller` ends the stream; subscribes again after
-    /// Herdr dropped it, unless `stopped` disconnects meanwhile.
-    fn start_herdr_events(
-        event_client: HerdrClient,
+    /// Forwards the host's events until `canceller` ends the stream; subscribes again after
+    /// the host dropped it, unless `stopped` disconnects meanwhile.
+    fn start_host_events(
+        host: Arc<dyn AgentHost>,
         events: EventSender<EventEnvelope>,
         canceller: EventCanceller,
         stopped: EventReceiver<()>,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             loop {
-                let forwarded = event_client
-                    .subscribe_events(&canceller)
-                    .and_then(|stream| {
-                        stream.forward(|event| events.send(EventEnvelope::new(event)).is_ok())
-                    });
+                let forwarded = host.forward_events(&canceller, &mut |event| {
+                    events.send(EventEnvelope::new(event)).is_ok()
+                });
                 match forwarded {
                     Ok(()) | Err(herdr_client::Error::Cancelled) => return,
                     Err(_) => {
                         if let Err(crossbeam_channel::RecvTimeoutError::Disconnected) =
-                            stopped.recv_timeout(HERDR_EVENT_RECONNECT_DELAY)
+                            stopped.recv_timeout(HOST_EVENT_RECONNECT_DELAY)
                         {
                             return;
                         }
@@ -853,7 +853,7 @@ impl RuntimeEventProducers {
         Self {
             stop: Some(stop),
             stopped,
-            herdr_events: EventCanceller::default(),
+            host_events: EventCanceller::default(),
             threads: Vec::new(),
         }
     }
@@ -862,12 +862,16 @@ impl RuntimeEventProducers {
         self.threads.push(thread);
     }
 
-    /// Forwards the Herdr events of `client` to `events`, until stopped.
-    fn forward_herdr_events(&mut self, client: HerdrClient, events: EventSender<EventEnvelope>) {
-        self.threads.push(Runtime::start_herdr_events(
-            client,
+    /// Forwards the events of `host` to `events`, until stopped.
+    fn forward_host_events(
+        &mut self,
+        host: Arc<dyn AgentHost>,
+        events: EventSender<EventEnvelope>,
+    ) {
+        self.threads.push(Runtime::start_host_events(
+            host,
             events,
-            self.herdr_events.clone(),
+            self.host_events.clone(),
             self.stopped(),
         ));
     }
@@ -883,7 +887,7 @@ impl RuntimeEventProducers {
 
     fn stop_and_join(&mut self) {
         drop(self.stop.take());
-        self.herdr_events.cancel();
+        self.host_events.cancel();
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }

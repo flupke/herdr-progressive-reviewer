@@ -8,6 +8,7 @@ members = [
     "crates/fork-guard",
     "crates/codex-fork",
     "crates/agent-forks",
+    "crates/hc-client",
     "crates/quick-tunnel",
     "crates/claude-fork",
     "crates/claude-hooks",

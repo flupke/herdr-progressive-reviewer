@@ -78,7 +78,7 @@ impl RunAheadFlow {
         let herdr =
             IsolatedHerdrServer::start_forkable(repository_files.root(), "session", stand_in);
         herdr.hold_turns(true);
-        let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup| {
+        let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup, _| {
             setup.run_ahead.waits = waits;
         });
         fixture

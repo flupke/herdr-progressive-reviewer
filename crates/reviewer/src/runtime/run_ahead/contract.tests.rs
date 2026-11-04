@@ -601,7 +601,7 @@ fn real_run(session: &str, waits: review_run_ahead::ForkWaits) -> RunAheadFlow {
     });
     herdr.real_agent = true;
     let configuration = RealConfiguration::write(&herdr, &repository);
-    let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup| {
+    let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup, _| {
         setup.run_ahead.waits = waits;
     });
     configuration.serve_reviewer(fixture.endpoint.address().port());

@@ -27,13 +27,13 @@ fn an_agent_whose_session_the_reviewer_does_not_know_yet_is_not_taken_for_one_wi
         .unwrap(),
     );
     // No Herdr answers: the agent's daemon is unknown, as is its process.
-    let herdr = HerdrClient::new(
+    let herdr = herdr_client::client::HerdrClient::new(
         runtime.path().join("no-herdr.sock"),
         "test".into(),
         runtime.path().to_owned(),
     );
     let forks = CodexForks::new(
-        herdr,
+        Arc::new(herdr),
         RunAheadLog::default(),
         ForkWaits::default(),
         Some(Arc::clone(&hooks)),

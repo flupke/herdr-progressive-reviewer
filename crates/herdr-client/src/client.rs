@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::protocol::{
-    Agent, AgentPort, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
+    Agent, AgentHost, AgentPort, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
     OpenPluginPane, PaneId, PaneProcessInfo, PaneSize, PluginPane, SessionReport, SessionSnapshot,
     TabId, WorkspaceId, method,
 };
@@ -28,6 +28,8 @@ const SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 /// `agent_prompt_stalled`, so this bound is only reached when Herdr itself stalls.
 const PROMPT_START_TIMEOUT: Duration = Duration::from_secs(10);
 static EVENT_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+/// What an event stream's errors name for Herdr's socket, which the stream does not keep.
+const HERDR_SOCKET: &str = "HERDR_SOCKET_PATH";
 
 /// A synchronous client for the local Herdr socket.
 #[derive(Clone, Debug)]
@@ -67,9 +69,9 @@ impl EventCanceller {
         self.lock().cancelled
     }
 
-    /// Ties `socket` to this canceller until the tie drops; `None` when it was cancelled
-    /// already.
-    fn tie(&self, socket: &UnixStream) -> std::io::Result<Option<Tie>> {
+    /// Ties `socket` to this canceller until the tie drops, so that [`Self::cancel`] shuts it
+    /// down; `None` when it was cancelled already.
+    pub fn tie(&self, socket: &UnixStream) -> std::io::Result<Option<Tie>> {
         let mut cancellation = self.lock();
         if cancellation.cancelled {
             return Ok(None);
@@ -90,9 +92,16 @@ impl EventCanceller {
 
 /// A socket tied to a canceller; dropping it lets go of the socket.
 #[derive(Debug)]
-struct Tie {
+pub struct Tie {
     canceller: EventCanceller,
     id: u64,
+}
+
+impl Tie {
+    /// Whether the canceller ended the socket: a read it ends is no error.
+    pub fn is_cancelled(&self) -> bool {
+        self.canceller.is_cancelled()
+    }
 }
 
 impl Drop for Tie {
@@ -265,13 +274,17 @@ impl HerdrEventStream {
 
     /// The next event; `None` once the stream is cancelled.
     fn read_envelope(&mut self) -> Result<Option<EventEnvelope>> {
-        let line = match read_line(&mut self.reader, "read Herdr event") {
+        let line = match read_line(
+            &mut self.reader,
+            "read Herdr event",
+            Path::new(HERDR_SOCKET),
+        ) {
             Ok(line) => line,
-            Err(_) if self.tie.canceller.is_cancelled() => return Ok(None),
+            Err(_) if self.tie.is_cancelled() => return Ok(None),
             Err(error) => return Err(error),
         };
         if line.is_empty() {
-            if self.tie.canceller.is_cancelled() {
+            if self.tie.is_cancelled() {
                 return Ok(None);
             }
             return Err(Error::Protocol {
@@ -364,24 +377,6 @@ impl HerdrClient {
             .map(HerdrEvents)
     }
 
-    /// Tells Herdr that the agent of `pane_id` runs the session `report` names, as the agent's
-    /// own Herdr hook does when the agent starts a session. Herdr takes the report from any
-    /// client, and orders the reports of one source by their `seq`.
-    pub fn report_agent_session(&self, pane_id: &PaneId, report: &SessionReport<'_>) -> Result<()> {
-        self.request(
-            "pane.report_agent_session",
-            &json!({
-                "pane_id": pane_id.0,
-                "source": report.source,
-                "agent": report.agent,
-                "seq": report.seq,
-                "agent_session_id": report.session,
-                "session_start_source": report.start,
-            }),
-        )
-        .map(|_| ())
-    }
-
     /// Subscribes to the status changes of the agent of `pane_id`. The subscription holds once
     /// this returns; `canceller` ends it.
     pub fn subscribe_agent_status(
@@ -433,10 +428,16 @@ impl HerdrClient {
                 error
             }
         };
-        write_json_line(&mut socket, &request, "subscribe to Herdr events")
-            .map_err(or_cancellation)?;
+        write_json_line(
+            &mut socket,
+            &request,
+            "subscribe to Herdr events",
+            &self.socket_path,
+        )
+        .map_err(or_cancellation)?;
         let mut reader = BufReader::new(socket);
-        let line = read_line(&mut reader, "subscribe to Herdr events").map_err(or_cancellation)?;
+        let line = read_line(&mut reader, "subscribe to Herdr events", &self.socket_path)
+            .map_err(or_cancellation)?;
         if line.is_empty() && canceller.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -477,10 +478,13 @@ impl HerdrClient {
             "method": operation,
             "params": params,
         });
-        write_json_line(&mut socket, &request, operation)?;
-        let response: Response =
-            serde_json::from_slice(&read_line(&mut BufReader::new(socket), operation)?)
-                .map_err(|source| Error::Json { operation, source })?;
+        write_json_line(&mut socket, &request, operation, &self.socket_path)?;
+        let response: Response = serde_json::from_slice(&read_line(
+            &mut BufReader::new(socket),
+            operation,
+            &self.socket_path,
+        )?)
+        .map_err(|source| Error::Json { operation, source })?;
         validate_response(response, "progressive-reviewer", operation)
     }
 
@@ -760,6 +764,43 @@ impl AgentPort for HerdrClient {
     }
 }
 
+impl AgentHost for HerdrClient {
+    fn forward_events(
+        &self,
+        canceller: &EventCanceller,
+        send: &mut dyn FnMut(HerdrEvent) -> bool,
+    ) -> Result<()> {
+        self.subscribe_events(canceller)?.forward(send)
+    }
+
+    fn forward_agent_status(
+        &self,
+        pane_id: &PaneId,
+        canceller: &EventCanceller,
+        send: &mut dyn FnMut(AgentStatus) -> bool,
+    ) -> Result<()> {
+        self.subscribe_agent_status(pane_id, canceller)?
+            .forward(send)
+    }
+
+    /// Herdr takes the report from any client, and orders the reports of one source by their
+    /// `seq`.
+    fn report_agent_session(&self, pane_id: &PaneId, report: &SessionReport<'_>) -> Result<()> {
+        self.request(
+            "pane.report_agent_session",
+            &json!({
+                "pane_id": pane_id.0,
+                "source": report.source,
+                "agent": report.agent,
+                "seq": report.seq,
+                "agent_session_id": report.session,
+                "session_start_source": report.start,
+            }),
+        )
+        .map(|_| ())
+    }
+}
+
 impl HerdrReader for HerdrClient {
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
         self.agent_screen(pane_id)
@@ -869,30 +910,42 @@ fn required_string(name: &'static str) -> Result<String> {
     env::var(name).map_err(|_| Error::Environment { name })
 }
 
-fn write_json_line(socket: &mut UnixStream, value: &Value, operation: &'static str) -> Result<()> {
+/// Writes `value` to `socket`, the host's socket at `path`, as one line of JSON.
+pub fn write_json_line(
+    socket: &mut UnixStream,
+    value: &Value,
+    operation: &'static str,
+    path: &Path,
+) -> Result<()> {
     serde_json::to_writer(&mut *socket, value)
         .map_err(|source| Error::Json { operation, source })?;
     socket.write_all(b"\n").map_err(|source| Error::Io {
         operation,
-        path: PathBuf::from("HERDR_SOCKET_PATH"),
+        path: path.to_owned(),
         source,
     })
 }
 
-fn read_line<R: BufRead>(reader: &mut R, operation: &'static str) -> Result<Vec<u8>> {
+/// Reads one line from `reader`, a reader of the host's socket at `path`, with its newline;
+/// empty once the host closed the socket. A line over 16 MiB is an error.
+pub fn read_line<R: BufRead>(
+    reader: &mut R,
+    operation: &'static str,
+    path: &Path,
+) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     Read::by_ref(reader)
         .take(RESPONSE_LIMIT + 1)
         .read_until(b'\n', &mut bytes)
         .map_err(|source| Error::Io {
             operation,
-            path: PathBuf::from("HERDR_SOCKET_PATH"),
+            path: path.to_owned(),
             source,
         })?;
     if bytes.len() as u64 > RESPONSE_LIMIT {
         return Err(Error::Protocol {
             operation: operation.to_owned(),
-            detail: "Herdr response exceeded 16 MiB",
+            detail: "the host's response exceeded 16 MiB",
         });
     }
     Ok(bytes)
