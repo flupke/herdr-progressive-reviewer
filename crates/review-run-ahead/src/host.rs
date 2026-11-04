@@ -1,18 +1,19 @@
 //! The interface to the agent whose session run-ahead forks: Claude Code or Codex. What differs
 //! between agents sits behind it, so the Explore session does not know which agent it drives.
 
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use herdr_client::client::{EventCanceller, HerdrClient};
-use herdr_client::protocol::{Agent, AgentStatus, PaneId};
+use herdr_client::client::EventCanceller;
+use herdr_client::protocol::{Agent, AgentHost, AgentStatus, PaneId};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::record::TokenUsage;
 
-/// Receives each status Herdr reports for a watched agent.
+/// Receives each status the host reports for a watched agent.
 pub type StatusReport = Box<dyn Fn(AgentStatus) + Send + Sync>;
 
 /// Watches an agent while it lives: dropping it stops the watch.
@@ -28,32 +29,28 @@ impl PaneWatch {
         }
     }
 
-    /// Reports to `report` each status `herdr` gives the agent of `pane`, on a thread of its
-    /// own, until the watch is dropped. When Herdr drops the subscription, it reports the agent
-    /// working, then subscribes again after `resubscribe`: the agent may have worked meanwhile,
-    /// and the status that follows tells where it stands.
-    pub fn herdr(
-        herdr: &HerdrClient,
+    /// Reports to `report` each status `host` gives the agent of `pane`, on a thread of its
+    /// own, until the watch is dropped. When the host drops the subscription, it reports the
+    /// agent working, then subscribes again after `resubscribe`: the agent may have worked
+    /// meanwhile, and the status that follows tells where it stands.
+    pub fn host(
+        host: &Arc<dyn AgentHost>,
         pane: &PaneId,
         resubscribe: Duration,
         report: StatusReport,
     ) -> Self {
         let canceller = EventCanceller::default();
-        let (herdr, pane, stop) = (herdr.clone(), pane.clone(), canceller.clone());
+        let (host, pane, stop) = (Arc::clone(host), pane.clone(), canceller.clone());
         thread::spawn(move || {
             let mut dropped = false;
             while !stop.is_cancelled() {
                 if std::mem::take(&mut dropped) {
                     report(AgentStatus::Working);
                 }
-                let watched = herdr
-                    .subscribe_agent_status(&pane, &stop)
-                    .and_then(|statuses| {
-                        statuses.forward(|status| {
-                            report(status);
-                            true
-                        })
-                    });
+                let watched = host.forward_agent_status(&pane, &stop, &mut |status| {
+                    report(status);
+                    true
+                });
                 match watched {
                     Ok(()) | Err(herdr_client::Error::Cancelled) => return,
                     Err(_) => {

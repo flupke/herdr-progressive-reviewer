@@ -2297,6 +2297,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hc-client"
+version = "0.2.0"
+dependencies = [
+ "herdr-client",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "heapless"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4618,6 +4628,7 @@ dependencies = [
  "crossterm 0.29.0",
  "eyre",
  "fs2",
+ "hc-client",
  "herdr-client",
  "ignore",
  "notify",

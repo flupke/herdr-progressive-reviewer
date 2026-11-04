@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use agent_hooks::AgentHooks;
 use codex_daemon::{Daemon, NoDaemon, Rpc};
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPort, PaneId};
+use herdr_client::protocol::{Agent, AgentHost, AgentPort, PaneId};
 use review_run_ahead::{
     ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, ForkWaits, HostFields, OwnedFork,
     PaneWatch, RunAheadLog, StatusReport, SwitchFailure, SwitchTo,
@@ -27,7 +26,7 @@ const REQUEST_LIMIT: Duration = Duration::from_secs(10);
 /// process: the reviewer's session discards those that run when it closes, and a reopened
 /// reviewer those a stopped one left. Dropping the host lets the discards under way finish.
 pub struct CodexForks {
-    herdr: HerdrClient,
+    host: Arc<dyn AgentHost>,
     /// What the agents' hooks tell the reviewer, when it listens to them: the session a Codex
     /// agent named last, whether its session runs the reviewer's plugin, and the forks' marks
     /// its guard reads.
@@ -45,13 +44,13 @@ impl CodexForks {
     /// and the forks as `waits` say, and on what the agents' hooks tell the reviewer through
     /// `hooks`, when it listens to them.
     pub fn new(
-        herdr: HerdrClient,
+        host: Arc<dyn AgentHost>,
         log: RunAheadLog,
         waits: ForkWaits,
         hooks: Option<Arc<AgentHooks>>,
     ) -> Self {
         Self {
-            herdr,
+            host,
             hooks,
             log,
             waits,
@@ -67,7 +66,7 @@ impl CodexForks {
     /// What moves the agent between sessions, on a thread of its own.
     fn mover(&self) -> Mover {
         Mover {
-            herdr: self.herdr.clone(),
+            host: Arc::clone(&self.host),
             hooks: self.hooks.clone(),
             log: self.log.clone(),
             waits: self.waits,
@@ -84,7 +83,7 @@ impl CodexForks {
     /// The daemon of `agent`, as its process in its pane says.
     fn daemon_of(&self, agent: &Agent) -> Result<Daemon, NoDaemon> {
         let processes = self
-            .herdr
+            .host
             .pane_process_info(&agent.pane_id)
             .map_err(|_| NoDaemon::Unreadable("pane"))?;
         Daemon::of_pane(&processes.foreground_processes)
@@ -220,7 +219,7 @@ fn no_daemon() -> SwitchFailure {
 
 /// What moves the agent of a pane between sessions, on a thread of its own.
 struct Mover {
-    herdr: HerdrClient,
+    host: Arc<dyn AgentHost>,
     hooks: Option<Arc<AgentHooks>>,
     log: RunAheadLog,
     waits: ForkWaits,
@@ -260,7 +259,7 @@ impl Mover {
         limit: Duration,
     ) -> Result<Agent, SwitchFailure> {
         Resume {
-            herdr: &self.herdr,
+            host: &*self.host,
             pane,
             hooks: self.hooks.as_deref(),
             daemon,
@@ -291,7 +290,7 @@ fn stop_and_delete(rpc: &Rpc, session: &str, turn: Option<&str>) -> Result<(), S
 
 impl ForkHost for CodexForks {
     fn watch(&self, pane: &PaneId, report: StatusReport) -> PaneWatch {
-        PaneWatch::herdr(&self.herdr, pane, self.waits.resubscribe, report)
+        PaneWatch::host(&self.host, pane, self.waits.resubscribe, report)
     }
 
     fn session(&self, agent: &Agent) -> Option<String> {
@@ -310,7 +309,7 @@ impl ForkHost for CodexForks {
         // The session is unknown until the agent calls the reviewer's tools, as after the
         // reviewer reopened: the agent may still run the hooks.
         hooks.named_session(&agent.pane_id)?;
-        hooks.hooked(&self.herdr, agent).is_none().then(|| {
+        hooks.hooked(&*self.host, agent).is_none().then(|| {
             "the Codex agent's session runs without the reviewer's Codex plugin: install it \
              with `make install`, then restart the agent"
                 .into()
@@ -320,7 +319,7 @@ impl ForkHost for CodexForks {
     fn can_move(&self, agent: &Agent) -> bool {
         self.hooks
             .as_ref()
-            .is_some_and(|hooks| hooks.hooked(&self.herdr, agent).is_some())
+            .is_some_and(|hooks| hooks.hooked(&*self.host, agent).is_some())
             && self.daemon_of(agent).is_ok()
     }
 

@@ -17,11 +17,12 @@ fn hooked_flow() -> ExploreFlow {
     ExploreFlow::start_on(ReviewFlowFixture::start_on(
         repository_files,
         herdr,
-        |setup| {
-            setup.agents = setup
-                .agents
-                .clone()
-                .with_prompt_start_timeout(Duration::from_millis(200));
+        |setup, herdr| {
+            setup.agents = std::sync::Arc::new(
+                herdr
+                    .client()
+                    .with_prompt_start_timeout(Duration::from_millis(200)),
+            );
         },
     ))
 }

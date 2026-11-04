@@ -271,7 +271,7 @@ impl IsolatedHerdrServer {
         assert_eq!(self.client().get_agent(&self.pane_id).unwrap(), None);
     }
 
-    fn client(&self) -> HerdrClient {
+    fn client(&self) -> herdr_client::client::HerdrClient {
         self.server.client()
     }
 
@@ -657,7 +657,10 @@ struct ReviewFlowFixture {
 
 impl ReviewFlowFixture {
     /// A review whose effects `adjust` sets up further.
-    fn start(repository_type: RepoType, adjust: impl FnOnce(&mut effects::Setup)) -> Self {
+    fn start(
+        repository_type: RepoType,
+        adjust: impl FnOnce(&mut effects::Setup, &IsolatedHerdrServer),
+    ) -> Self {
         let repository_files = repository_fixture(repository_type);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
         let herdr = IsolatedHerdrServer::start_native(repository_files.root());
@@ -669,7 +672,7 @@ impl ReviewFlowFixture {
     fn start_on(
         repository_files: Box<dyn review_test_support::ReviewRepositoryFixture>,
         herdr: IsolatedHerdrServer,
-        adjust: impl FnOnce(&mut effects::Setup),
+        adjust: impl FnOnce(&mut effects::Setup, &IsolatedHerdrServer),
     ) -> Self {
         Self::start_on_port(
             repository_files,
@@ -684,7 +687,7 @@ impl ReviewFlowFixture {
         repository_files: Box<dyn review_test_support::ReviewRepositoryFixture>,
         herdr: IsolatedHerdrServer,
         port: review_test_support::TestPort,
-        adjust: impl FnOnce(&mut effects::Setup),
+        adjust: impl FnOnce(&mut effects::Setup, &IsolatedHerdrServer),
     ) -> Self {
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
@@ -710,11 +713,11 @@ impl ReviewFlowFixture {
             &herdr.pane_id.0,
         ]);
         let mut runtime = EffectsFixture::start(repository_files, |setup| {
-            setup.agents = herdr.client();
+            setup.agents = Arc::new(herdr.client());
             setup.target = AgentTarget::new(herdr.tab_id.clone(), Some(herdr.pane_id.clone()));
             setup.endpoint = Ok(endpoint);
             setup.hook_directory = Some(herdr.hook_directory());
-            adjust(setup);
+            adjust(setup, &herdr);
         });
         let review_unit = runtime.refreshed_checkpoint().review_unit;
         Self {

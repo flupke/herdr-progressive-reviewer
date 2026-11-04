@@ -81,9 +81,10 @@ impl CodexRunAhead {
                     ));
                 }
             });
-        let fixture = ReviewFlowFixture::start_on_port(repository_files, herdr, port, |setup| {
-            setup.run_ahead.waits = waits;
-        });
+        let fixture =
+            ReviewFlowFixture::start_on_port(repository_files, herdr, port, |setup, _| {
+                setup.run_ahead.waits = waits;
+            });
         // The agent's session starts its MCP servers: the reviewer's listens by now.
         let arguments: &[&str] = match tui {
             Tui::OnDaemon => &["--remote", "unix://"],
@@ -496,12 +497,13 @@ fn a_reopened_reviewer_interrupts_and_deletes_the_codex_forks_a_stopped_one_left
     // A reviewer reopened later finds them in the saved record alone.
     let hooks = std::sync::Arc::new(agent_hooks::AgentHooks::listen(&directory).unwrap());
     let (herdr, log) = (
-        codex.herdr().client(),
+        std::sync::Arc::new(codex.herdr().client())
+            as std::sync::Arc<dyn herdr_client::protocol::AgentHost>,
         review_run_ahead::RunAheadLog::default(),
     );
     let reopened = agent_forks::AgentForks::new(
         claude_fork::ClaudeForks::new(
-            herdr.clone(),
+            std::sync::Arc::clone(&herdr),
             effects::fixture::test_fork_tools(),
             log.clone(),
             test_waits(),

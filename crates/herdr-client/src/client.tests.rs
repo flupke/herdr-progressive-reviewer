@@ -160,8 +160,10 @@ fn answer_once(
     std::thread::spawn(move || {
         let (connection, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(connection.try_clone().unwrap());
-        let request: serde_json::Value =
-            serde_json::from_slice(&read_line(&mut reader, "test").unwrap()).unwrap();
+        let request: serde_json::Value = serde_json::from_slice(
+            &read_line(&mut reader, "test", std::path::Path::new("test.sock")).unwrap(),
+        )
+        .unwrap();
         let response = serde_json::json!({"id": request["id"], "result": result});
         writeln!(&connection, "{response}").unwrap();
         request
@@ -292,12 +294,14 @@ fn line_reader_accepts_the_limit_and_rejects_one_extra_byte() {
     let response_limit = usize::try_from(super::RESPONSE_LIMIT).unwrap();
     let mut exact = std::io::Cursor::new(vec![b'x'; response_limit]);
     assert_eq!(
-        read_line(&mut exact, "test").unwrap().len() as u64,
+        read_line(&mut exact, "test", std::path::Path::new("test.sock"))
+            .unwrap()
+            .len() as u64,
         super::RESPONSE_LIMIT
     );
     let mut large = std::io::Cursor::new(vec![b'x'; response_limit + 1]);
     assert!(matches!(
-        read_line(&mut large, "test"),
+        read_line(&mut large, "test", std::path::Path::new("test.sock")),
         Err(Error::Protocol { .. })
     ));
 }
@@ -370,8 +374,10 @@ fn a_prompt_waits_as_long_as_the_client_says_and_a_timeout_is_an_agent_that_did_
     let herdr = std::thread::spawn(move || {
         let (connection, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(connection.try_clone().unwrap());
-        let request: serde_json::Value =
-            serde_json::from_slice(&read_line(&mut reader, "test").unwrap()).unwrap();
+        let request: serde_json::Value = serde_json::from_slice(
+            &read_line(&mut reader, "test", std::path::Path::new("test.sock")).unwrap(),
+        )
+        .unwrap();
         writeln!(
             &connection,
             r#"{{"id":"progressive-reviewer","error":{{"code":"timeout","message":"no activity"}}}}"#

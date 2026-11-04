@@ -1,0 +1,19 @@
+[package]
+name = "hc-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The reviewer's agent host under herdr-app: a client of herdr-core (`hc`) behind herdr-client's traits."
+
+[dependencies]
+herdr-client = { path = "../herdr-client" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

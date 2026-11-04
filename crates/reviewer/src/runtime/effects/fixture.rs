@@ -50,11 +50,11 @@ impl EffectsFixture {
             repository: repository.clone(),
             store: store.clone(),
             target: AgentTarget::new(TabId("test".into()), None),
-            agents: HerdrClient::new(
+            agents: std::sync::Arc::new(HerdrClient::new(
                 "/nonexistent/reviewer-test.sock".into(),
                 "reviewer-test".into(),
                 "/nonexistent".into(),
-            ),
+            )),
             endpoint: Err("No MCP listener in this unit test".into()),
             theme: Theme::default(),
             jev: JevClassifier::disabled(),

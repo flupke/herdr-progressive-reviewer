@@ -8,8 +8,7 @@ use std::thread;
 
 use agent_fork::{Launcher, Wrapper};
 use agent_hooks::AgentHooks;
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPort, PaneId, PaneProcess};
+use herdr_client::protocol::{Agent, AgentHost, AgentPort, PaneId, PaneProcess};
 use review_run_ahead::{
     ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, ForkWaits, HostFields, OwnedFork,
     PaneWatch, RunAheadLog, StatusReport, SwitchFailure, SwitchTo,
@@ -60,7 +59,7 @@ impl ForkTools {
 /// Forks of a Claude Code agent's session, started from the [`Launcher`]'s thread and followed
 /// until they end. Dropping it sends every fork still running its parent-death signal.
 pub struct ClaudeForks {
-    herdr: HerdrClient,
+    host: Arc<dyn AgentHost>,
     tools: ForkTools,
     launcher: Launcher,
     log: RunAheadLog,
@@ -78,7 +77,7 @@ impl ClaudeForks {
     /// on Herdr and on the forks as `waits` say, and on what the agents' hooks tell the reviewer
     /// through `hooks`, or else why the reviewer does not listen to them.
     pub fn new(
-        herdr: HerdrClient,
+        host: Arc<dyn AgentHost>,
         tools: ForkTools,
         log: RunAheadLog,
         waits: ForkWaits,
@@ -90,7 +89,7 @@ impl ClaudeForks {
         };
         let forks = Self {
             launcher: Launcher::start(tools.wrapper()),
-            herdr,
+            host,
             tools,
             log,
             waits,
@@ -167,7 +166,7 @@ fn is_claude(process: &PaneProcess) -> bool {
 
 impl ForkHost for ClaudeForks {
     fn watch(&self, pane: &PaneId, report: StatusReport) -> PaneWatch {
-        PaneWatch::herdr(&self.herdr, pane, self.waits.resubscribe, report)
+        PaneWatch::host(&self.host, pane, self.waits.resubscribe, report)
     }
 
     fn session(&self, agent: &Agent) -> Option<String> {
@@ -181,13 +180,13 @@ impl ForkHost for ClaudeForks {
         // An agent run-ahead cannot fork for another reason has that reason, which `point`
         // gives.
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent).is_none())
+            .is_ok_and(|(hooks, _)| hooks.hooked(&*self.host, agent).is_none())
             .then(|| "the agent runs without the reviewer's Claude Code plugin: restart it".into())
     }
 
     fn can_move(&self, agent: &Agent) -> bool {
         self.forkable(agent)
-            .is_ok_and(|(hooks, _)| hooks.hooked(&self.herdr, agent).is_some())
+            .is_ok_and(|(hooks, _)| hooks.hooked(&*self.host, agent).is_some())
     }
 
     fn unforkable(&self, agent: &Agent) -> Option<String> {
@@ -197,7 +196,7 @@ impl ForkHost for ClaudeForks {
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
         let session = self.forkable(agent)?.1.to_owned();
         let processes = self
-            .herdr
+            .host
             .pane_process_info(&agent.pane_id)
             .map_err(|error| error.to_string())?;
         let pid = processes
@@ -315,8 +314,8 @@ impl ForkHost for ClaudeForks {
             self.live().remove(switch.fork.session),
             fields::process(switch.fork.host),
         );
-        let (herdr, pane, session) = (
-            self.herdr.clone(),
+        let (host, pane, session) = (
+            Arc::clone(&self.host),
             switch.pane.clone(),
             switch.fork.session.to_owned(),
         );
@@ -324,7 +323,7 @@ impl ForkHost for ClaudeForks {
         thread::spawn(move || {
             let switch = Switch {
                 pane: AgentPane {
-                    herdr: &herdr,
+                    host: &*host,
                     pane: &pane,
                 },
                 session: &session,
@@ -343,12 +342,12 @@ impl ForkHost for ClaudeForks {
         session: &str,
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     ) {
-        let (herdr, pane, session) = (self.herdr.clone(), pane.clone(), session.to_owned());
+        let (host, pane, session) = (Arc::clone(&self.host), pane.clone(), session.to_owned());
         let (waits, hooks) = (self.waits, self.hooks.clone());
         thread::spawn(move || {
             let resume = Resume {
                 pane: AgentPane {
-                    herdr: &herdr,
+                    host: &*host,
                     pane: &pane,
                 },
                 session: &session,

@@ -89,9 +89,10 @@ answer to the agent in the pane. Any other answer runs the plain chain. The modu
 
 ## How Herdr and Claude Code behave
 
-- Herdr's `pane.agent_status_changed` subscription tells when the agent is idle
-  (`HerdrClient::subscribe_agent_status` holds once it returns; `AgentStatuses::forward`
-  reports the current status, then each change); nothing polls. An `EventCanceller` ends the
+- Herdr's `pane.agent_status_changed` subscription tells when the agent is idle, through
+  `AgentHost::forward_agent_status` (`HerdrClient::subscribe_agent_status` holds once it
+  returns; `AgentStatuses::forward` reports the current status, then each change); nothing
+  polls. An `EventCanceller` ends the
   stream at once by shutting its socket down.
 - After `/resume`, the switch waits for the plugin's `SessionStart` hook with the source
   `resume` and the fork's session, which comes about 0.5 s after Enter (Claude Code 2.1.292).
